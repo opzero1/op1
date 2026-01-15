@@ -1,0 +1,24 @@
+{
+  "name": "@opencode-harness/notify-plugin",
+  "version": "1.0.0",
+  "description": "Combined notification plugin with in-app toasts, focus detection, sounds, and quiet hours",
+  "type": "module",
+  "main": "notify.js",
+  "scripts": {
+    "build": "bun build src/index.ts --outfile notify.js --target bun --format esm",
+    "typecheck": "tsc --noEmit",
+    "format": "bunx biome format --write src/",
+    "check": "bunx biome check src/",
+    "dev": "bun run build --watch"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.7.0"
+  },
+  "files": [
+    "notify.js"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "terminal": "wezterm",
+  "notifyChildSessions": false,
+  "sounds": {
+    "idle": "Glass",
+    "error": "Basso",
+    "permission": "Submarine"
+  },
+  "quietHours": {
+    "enabled": false,
+    "start": "22:00",
+    "end": "08:00"
+  },
+  "idleConfirmationDelay": 1500,
+  "skipIfIncompleteTodos": true,
+  "showToasts": true
+}
