@@ -1,8 +1,110 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { type Plugin, tool } from "@opencode-ai/plugin"
 import { z } from "zod"
+
+const execFileAsync = promisify(execFile)
+
+// ==========================================
+// VERIFICATION HOOKS
+// ==========================================
+
+/**
+ * Agents that write code and require verification after completion
+ */
+const IMPLEMENTER_AGENTS = ["coder", "frontend", "build"] as const
+
+/**
+ * Get git diff stats to show what files were changed
+ */
+async function getGitDiffStats(directory: string): Promise<string> {
+	try {
+		const { stdout } = await execFileAsync("git", ["diff", "--numstat", "HEAD"], {
+			cwd: directory,
+			encoding: "utf8",
+		})
+
+		if (!stdout.trim()) {
+			// Check for staged changes
+			const { stdout: stagedOutput } = await execFileAsync(
+				"git",
+				["diff", "--numstat", "--cached"],
+				{ cwd: directory, encoding: "utf8" }
+			)
+			if (!stagedOutput.trim()) {
+				return "No file changes detected."
+			}
+			return formatGitStats(stagedOutput)
+		}
+
+		return formatGitStats(stdout)
+	} catch {
+		return "Could not determine file changes."
+	}
+}
+
+function formatGitStats(output: string): string {
+	const lines = output.trim().split("\n").filter(Boolean)
+	if (lines.length === 0) return "No file changes detected."
+
+	const changes: string[] = []
+	for (const line of lines.slice(0, 10)) {
+		// Limit to 10 files
+		const [added, removed, file] = line.split("\t")
+		if (file) {
+			changes.push(`  ${file}: +${added}/-${removed}`)
+		}
+	}
+
+	if (lines.length > 10) {
+		changes.push(`  ... and ${lines.length - 10} more files`)
+	}
+
+	return changes.join("\n")
+}
+
+/**
+ * Build the verification reminder that gets injected after implementer tasks
+ */
+function buildVerificationReminder(agentType: string, fileChanges: string): string {
+	return `
+<system-reminder>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ MANDATORY VERIFICATION PROTOCOL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The ${agentType} agent has completed. Subagents can make mistakes.
+You MUST verify before marking this task complete.
+
+**Files Changed:**
+${fileChanges}
+
+**VERIFICATION STEPS (Do these NOW):**
+
+1. **Type Safety:** Run \`lsp_diagnostics\` on changed files
+   → Must return clean (no errors)
+
+2. **Tests:** Run project tests if they exist
+   → \`bash\` with test command (bun test, npm test, etc.)
+
+3. **Build:** Run build/typecheck if applicable
+   → Must complete without errors
+
+4. **Code Review:** \`Read\` the changed files
+   → Verify changes match requirements
+
+**IF VERIFICATION FAILS:**
+- Do NOT mark task complete
+- Either fix yourself or delegate again with specific fix instructions
+
+**IF VERIFICATION PASSES:**
+- Mark task complete in your todo list
+- Proceed to next task
+</system-reminder>`
+}
 
 // ==========================================
 // PROJECT ID CALCULATION
@@ -13,10 +115,6 @@ import { z } from "zod"
  */
 async function getProjectId(directory: string): Promise<string> {
 	try {
-		const { execFile } = await import("node:child_process")
-		const { promisify } = await import("node:util")
-		const execFileAsync = promisify(execFile)
-
 		const { stdout } = await execFileAsync("git", ["rev-list", "--max-parents=0", "HEAD"], {
 			cwd: directory,
 			encoding: "utf8",
@@ -720,6 +818,34 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					return results.join("\n")
 				},
 			}),
+		},
+
+		// ==========================================
+		// VERIFICATION HOOKS
+		// ==========================================
+		hook: {
+			"tool.execute.after": async (input, output) => {
+				// Only intercept the 'task' tool
+				if (input.tool !== "task") return
+
+				// Check if this was an implementer agent task
+				const args = input.args as { subagent_type?: string } | undefined
+				const agentType = args?.subagent_type
+
+				if (!agentType || !IMPLEMENTER_AGENTS.includes(agentType as (typeof IMPLEMENTER_AGENTS)[number])) {
+					return // Not an implementer agent, skip verification
+				}
+
+				// Get file changes to show what was modified
+				const fileChanges = await getGitDiffStats(directory)
+
+				// Append verification reminder to the tool output
+				const reminder = buildVerificationReminder(agentType, fileChanges)
+
+				if (typeof output.output === "string") {
+					output.output = output.output + reminder
+				}
+			},
 		},
 	}
 }

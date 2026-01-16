@@ -1,13 +1,14 @@
 # AGENTS.md - OpenCode Harness
 
-**Last Updated:** 2026-01-14  
+**Last Updated:** 2026-01-16  
 **Purpose:** Pure OpenCode configuration harness with maximum capability orchestration
 
 ## Overview
 
-This is a plugin-free OpenCode configuration that combines the best features from:
+This is an OpenCode configuration harness that combines the best features from:
 - **oh-my-opencode** - ULTRAWORK mode, parallel agent orchestration
 - **opencode-workspace** - Clean agent definitions, philosophy skills
+- **claudekit-skills** - Debugging frameworks, context engineering
 
 All agents are defined as markdown files in `.opencode/agent/` with YAML frontmatter.
 OpenCode auto-loads them based on filename.
@@ -44,10 +45,18 @@ skill load code-philosophy
 | `analyze-mode` | Deep analysis with context gathering |
 | `code-philosophy` | The 5 Laws of Elegant Defense |
 | `frontend-philosophy` | The 5 Pillars of Intentional UI |
+| `frontend-ui-ux` | UI/UX implementation guidelines |
 | `code-review` | 4-layer review methodology |
 | `git-master` | Git operations (commit, rebase, history) |
-| `playwright` | Browser automation |
+| `plan-protocol` | Implementation plan format with citations |
+| `plan-review` | Plan quality review criteria |
+| `playwright` | Browser automation via Playwright MCP |
 | `tmux` | Terminal orchestration |
+| `systematic-debugging` | 4-phase debugging framework (NEW) |
+| `context-engineering` | Token optimization strategies (NEW) |
+| `mcp-economy` | Cost-aware MCP usage guardrails |
+| `linear` | Linear issue management |
+| `notion-research-documentation` | Notion research synthesis |
 
 ## Commands Available
 
@@ -149,8 +158,24 @@ skill load frontend-philosophy
 ├── agent/          # Agents (markdown, auto-loaded)
 ├── skill/          # Skills ({name}/SKILL.md format)
 ├── command/        # Commands (markdown)
-└── plugin/         # (empty - no plugins)
+└── plugin/         # Plugins (TypeScript, built to JS)
+    ├── workspace/  # Plan management, notepads, verification hooks
+    └── notify/     # Desktop notifications
 ```
+
+## Plugins
+
+| Plugin | Tools | Purpose |
+|--------|-------|---------|
+| `workspace` | `plan_save`, `plan_read`, `plan_list`, `notepad_*` | Plan management with validation, notepad for learnings |
+| `notify` | Desktop notifications | Alerts on task completion |
+
+### Verification Hooks
+
+The workspace plugin includes automatic verification hooks that trigger after `coder`, `frontend`, or `build` agents complete. These inject reminders to:
+- Run `lsp_diagnostics` on changed files
+- Execute project tests
+- Verify changes match requirements
 
 ## Extending
 
