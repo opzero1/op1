@@ -333,10 +333,10 @@ function mergeConfig(
 
 	// 2. Set defaults if not present
 	if (!base.model) {
-		base.model = "anthropic/claude-sonnet-4-20250514";
+		base.model = "proxy/claude-sonnet-4-5-thinking";
 	}
 	if (!base.small_model) {
-		base.small_model = "anthropic/claude-sonnet-4-20250514";
+		base.small_model = "proxy/gemini-3-flash";
 	}
 	if (!base.default_agent) {
 		base.default_agent = "build";
@@ -699,7 +699,7 @@ export async function main() {
 			// Thinking agents (plan, oracle, reviewer) - need high reasoning
 			const thinkingModel = await p.text({
 				message: "Model for thinking agents (plan, oracle, reviewer):",
-				placeholder: "anthropic/claude-sonnet-4-20250514 or leave empty for global",
+				placeholder: "quotio/gpt-5.2-codex or proxy/claude-opus-4-5-thinking",
 				defaultValue: "",
 			});
 			if (!p.isCancel(thinkingModel) && thinkingModel.trim()) {
@@ -709,7 +709,7 @@ export async function main() {
 			// Coding agents (coder, frontend, build) - need good code generation
 			const codingModel = await p.text({
 				message: "Model for coding agents (coder, frontend, build):",
-				placeholder: "anthropic/claude-sonnet-4-20250514 or leave empty for global",
+				placeholder: "proxy/claude-opus-4-5-thinking or proxy/gemini-3-pro-high",
 				defaultValue: "",
 			});
 			if (!p.isCancel(codingModel) && codingModel.trim()) {
@@ -719,7 +719,7 @@ export async function main() {
 			// Fast agents (explore, researcher, scribe) - need speed over quality
 			const fastModel = await p.text({
 				message: "Model for fast agents (explore, researcher, scribe):",
-				placeholder: "anthropic/claude-haiku-3-5-20241022 or leave empty for global",
+				placeholder: "proxy/gemini-3-flash or quotio/gemini-2.5-flash",
 				defaultValue: "",
 			});
 			if (!p.isCancel(fastModel) && fastModel.trim()) {

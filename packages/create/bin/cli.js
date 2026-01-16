@@ -1070,10 +1070,10 @@ function mergeConfig(existing, selectedMcps, pluginChoices, agentModels) {
     base.plugin = [...existingPlugins, ...newPlugins];
   }
   if (!base.model) {
-    base.model = "anthropic/claude-sonnet-4-20250514";
+    base.model = "proxy/claude-sonnet-4-5-thinking";
   }
   if (!base.small_model) {
-    base.small_model = "anthropic/claude-sonnet-4-20250514";
+    base.small_model = "proxy/gemini-3-flash";
   }
   if (!base.default_agent) {
     base.default_agent = "build";
@@ -1360,7 +1360,7 @@ ${import_picocolors3.default.bold("Agent Model Configuration")}`);
     if (!BD(configureModels) && configureModels) {
       const thinkingModel = await ue({
         message: "Model for thinking agents (plan, oracle, reviewer):",
-        placeholder: "anthropic/claude-sonnet-4-20250514 or leave empty for global",
+        placeholder: "quotio/gpt-5.2-codex or proxy/claude-opus-4-5-thinking",
         defaultValue: ""
       });
       if (!BD(thinkingModel) && thinkingModel.trim()) {
@@ -1368,7 +1368,7 @@ ${import_picocolors3.default.bold("Agent Model Configuration")}`);
       }
       const codingModel = await ue({
         message: "Model for coding agents (coder, frontend, build):",
-        placeholder: "anthropic/claude-sonnet-4-20250514 or leave empty for global",
+        placeholder: "proxy/claude-opus-4-5-thinking or proxy/gemini-3-pro-high",
         defaultValue: ""
       });
       if (!BD(codingModel) && codingModel.trim()) {
@@ -1376,7 +1376,7 @@ ${import_picocolors3.default.bold("Agent Model Configuration")}`);
       }
       const fastModel = await ue({
         message: "Model for fast agents (explore, researcher, scribe):",
-        placeholder: "anthropic/claude-haiku-3-5-20241022 or leave empty for global",
+        placeholder: "proxy/gemini-3-flash or quotio/gemini-2.5-flash",
         defaultValue: ""
       });
       if (!BD(fastModel) && fastModel.trim()) {
