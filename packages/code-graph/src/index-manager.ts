@@ -47,28 +47,72 @@ const DEFAULT_CONFIG: CodeGraphConfig = {
  * Code graph index manager
  */
 export class CodeGraphIndex {
-	private store: GraphStore;
-	private merkleCache: MerkleCache;
+	private store: GraphStore | null = null;
+	private merkleCache: MerkleCache | null = null;
 	private config: CodeGraphConfig;
 	private workspaceRoot: string;
 	private lastRefreshCheck: number = 0;
 	private isIndexing: boolean = false;
+	private initialized: boolean = false;
+	private initPromise: Promise<void> | null = null;
 
 	constructor(workspaceRoot: string, options: { config?: Partial<CodeGraphConfig> } = {}) {
 		this.workspaceRoot = workspaceRoot;
 		this.config = { ...DEFAULT_CONFIG, ...options.config };
-		this.merkleCache = new MerkleCache(workspaceRoot);
-
-		const dbPath = join(workspaceRoot, this.config.dbPath);
-		this.store = new GraphStore(dbPath);
+		// Lazy: don't create store or merkleCache here
 	}
 
 	/**
-	 * Initialize the index and load Merkle cache
+	 * Initialize the index lazily (called on first use)
 	 */
 	async initialize(): Promise<void> {
+		// Already initialized
+		if (this.initialized) return;
+
+		// Reuse in-flight initialization
+		if (this.initPromise) return this.initPromise;
+
+		this.initPromise = this.doInitialize();
+		return this.initPromise;
+	}
+
+	private async doInitialize(): Promise<void> {
+		const dbPath = join(this.workspaceRoot, this.config.dbPath);
+		this.store = new GraphStore(dbPath);
+
 		const cachePath = join(this.workspaceRoot, this.config.cachePath);
 		this.merkleCache = await MerkleCache.load(this.workspaceRoot, cachePath);
+
+		this.initialized = true;
+	}
+
+	/**
+	 * Ensure initialized before any operation
+	 */
+	private async ensureInitialized(): Promise<void> {
+		if (!this.initialized) {
+			await this.initialize();
+		}
+	}
+
+	/**
+	 * Get the store (ensures initialized)
+	 */
+	private getStore(): GraphStore {
+		if (!this.store) {
+			throw new Error("CodeGraphIndex not initialized. Call initialize() first.");
+		}
+		return this.store;
+	}
+
+	/**
+	 * Get the merkle cache (ensures initialized)
+	 */
+	private getMerkleCache(): MerkleCache {
+		if (!this.merkleCache) {
+			throw new Error("CodeGraphIndex not initialized. Call initialize() first.");
+		}
+		return this.merkleCache;
 	}
 
 	/**
@@ -77,6 +121,9 @@ export class CodeGraphIndex {
 	 * Only runs if autoRefresh is enabled.
 	 */
 	async ensureFresh(): Promise<{ checked: boolean; updated: boolean; filesChanged: number }> {
+		// Lazy init on first use
+		await this.ensureInitialized();
+
 		// Skip if auto-refresh disabled
 		if (!this.config.autoRefresh) {
 			return { checked: false, updated: false, filesChanged: 0 };
@@ -94,6 +141,9 @@ export class CodeGraphIndex {
 		}
 
 		this.lastRefreshCheck = now;
+
+		const store = this.getStore();
+		const merkleCache = this.getMerkleCache();
 
 		try {
 			// Scan files matching patterns
@@ -123,9 +173,9 @@ export class CodeGraphIndex {
 			// Use Merkle cache to find changes (uses mtime+size fast path)
 			// IMPORTANT: findChangedFiles updates the cache as a side effect,
 			// so we must index the detected files directly, not call updateIndex()
-			const { added, modified } = await this.merkleCache.findChangedFiles(files);
+			const { added, modified } = await merkleCache.findChangedFiles(files);
 			const currentFiles = new Set(files);
-			const deleted = this.merkleCache.findDeletedFiles(currentFiles);
+			const deleted = merkleCache.findDeletedFiles(currentFiles);
 
 			const totalChanges = added.length + modified.length + deleted.length;
 
@@ -138,8 +188,8 @@ export class CodeGraphIndex {
 			try {
 				// Handle deleted files
 				for (const file of deleted) {
-					this.store.deleteFile(file);
-					this.merkleCache.removeFile(file);
+					store.deleteFile(file);
+					merkleCache.removeFile(file);
 				}
 
 				// Index added and modified files
@@ -150,7 +200,7 @@ export class CodeGraphIndex {
 
 				// Save Merkle cache
 				const cachePath = join(this.workspaceRoot, this.config.cachePath);
-				await this.merkleCache.save(cachePath);
+				await merkleCache.save(cachePath);
 			} finally {
 				this.isIndexing = false;
 			}
@@ -167,6 +217,8 @@ export class CodeGraphIndex {
 	 * Update index incrementally (only changed files)
 	 */
 	async updateIndex(): Promise<{ filesIndexed: number; edgesCreated: number }> {
+		await this.ensureInitialized();
+
 		if (this.isIndexing) {
 			throw new Error("Indexing already in progress");
 		}
@@ -174,6 +226,9 @@ export class CodeGraphIndex {
 		this.isIndexing = true;
 		let filesIndexed = 0;
 		let edgesCreated = 0;
+
+		const store = this.getStore();
+		const merkleCache = this.getMerkleCache();
 
 		try {
 			// Scan files
@@ -195,15 +250,15 @@ export class CodeGraphIndex {
 			}
 
 			// Find changed files using Merkle cache
-			const { added, modified } = await this.merkleCache.findChangedFiles(files);
+			const { added, modified } = await merkleCache.findChangedFiles(files);
 			const filesToIndex = [...added, ...modified];
 
 			// Find and remove deleted files
 			const currentFiles = new Set(files);
-			const deleted = this.merkleCache.findDeletedFiles(currentFiles);
+			const deleted = merkleCache.findDeletedFiles(currentFiles);
 			for (const file of deleted) {
-				this.store.deleteFile(file);
-				this.merkleCache.removeFile(file);
+				store.deleteFile(file);
+				merkleCache.removeFile(file);
 			}
 
 			// Index changed files
@@ -217,7 +272,7 @@ export class CodeGraphIndex {
 
 			// Save Merkle cache
 			const cachePath = join(this.workspaceRoot, this.config.cachePath);
-			await this.merkleCache.save(cachePath);
+			await merkleCache.save(cachePath);
 
 			return { filesIndexed, edgesCreated };
 		} finally {
@@ -229,6 +284,9 @@ export class CodeGraphIndex {
 	 * Index a single file
 	 */
 	async indexFile(filePath: string): Promise<number> {
+		await this.ensureInitialized();
+		const store = this.getStore();
+
 		const absolutePath = filePath.startsWith("/") ? filePath : join(this.workspaceRoot, filePath);
 		const relativePath = relative(this.workspaceRoot, absolutePath);
 
@@ -236,10 +294,10 @@ export class CodeGraphIndex {
 			const deps = await parseFileDependencies(absolutePath, this.workspaceRoot);
 
 			// Delete existing data for this file
-			this.store.deleteFile(relativePath);
+			store.deleteFile(relativePath);
 
 			// Add file node
-			this.store.addNode({
+			store.addNode({
 				id: `file:${relativePath}`,
 				type: "file",
 				name: relativePath.split("/").pop() || relativePath,
@@ -252,7 +310,7 @@ export class CodeGraphIndex {
 				const targetRelative = relative(this.workspaceRoot, resolvedPath);
 
 				// Ensure target node exists
-				this.store.addNode({
+				store.addNode({
 					id: `file:${targetRelative}`,
 					type: "file",
 					name: targetRelative.split("/").pop() || targetRelative,
@@ -260,7 +318,7 @@ export class CodeGraphIndex {
 				});
 
 				// Add import edge
-				this.store.addEdge({
+				store.addEdge({
 					from: `file:${relativePath}`,
 					to: `file:${targetRelative}`,
 					type: "imports",
@@ -279,6 +337,9 @@ export class CodeGraphIndex {
 	 * Rebuild the entire graph from scratch
 	 */
 	async rebuildGraph(): Promise<{ filesIndexed: number; edgesCreated: number }> {
+		await this.ensureInitialized();
+		const store = this.getStore();
+
 		// Clear Merkle cache to force full rebuild
 		const cachePath = join(this.workspaceRoot, this.config.cachePath);
 		this.merkleCache = new MerkleCache(this.workspaceRoot);
@@ -287,7 +348,7 @@ export class CodeGraphIndex {
 		} catch {}
 
 		// Clear database
-		this.store.clear();
+		store.clear();
 
 		// Run incremental update (which will index all files since cache is empty)
 		return this.updateIndex();
@@ -297,8 +358,9 @@ export class CodeGraphIndex {
 	 * Find files that depend on a given file
 	 */
 	async findDependents(filePath: string, transitive: boolean = false): Promise<string[]> {
-		// Auto-refresh if enabled
+		// Auto-refresh if enabled (also ensures initialized)
 		await this.ensureFresh();
+		const store = this.getStore();
 
 		const relativePath = filePath.startsWith("/")
 			? relative(this.workspaceRoot, filePath)
@@ -306,59 +368,65 @@ export class CodeGraphIndex {
 		const nodeId = `file:${relativePath}`;
 
 		if (transitive) {
-			return this.store.getTransitiveDependents(nodeId);
+			return store.getTransitiveDependents(nodeId);
 		}
 
-		return this.store.getDependents(nodeId).map((n) => n.filePath);
+		return store.getDependents(nodeId).map((n) => n.filePath);
 	}
 
 	/**
 	 * Find files that a given file depends on
 	 */
 	async findDependencies(filePath: string): Promise<string[]> {
-		// Auto-refresh if enabled
+		// Auto-refresh if enabled (also ensures initialized)
 		await this.ensureFresh();
+		const store = this.getStore();
 
 		const relativePath = filePath.startsWith("/")
 			? relative(this.workspaceRoot, filePath)
 			: filePath;
 		const nodeId = `file:${relativePath}`;
 
-		return this.store.getDependencies(nodeId).map((n) => n.filePath);
+		return store.getDependencies(nodeId).map((n) => n.filePath);
 	}
 
 	/**
 	 * Analyze impact of changing a file
 	 */
 	async analyzeImpact(filePath: string): Promise<ImpactAnalysis> {
-		// Auto-refresh if enabled
+		// Auto-refresh if enabled (also ensures initialized)
 		await this.ensureFresh();
+		const store = this.getStore();
 
 		const relativePath = filePath.startsWith("/")
 			? relative(this.workspaceRoot, filePath)
 			: filePath;
 
-		return this.store.analyzeImpact(relativePath);
+		return store.analyzeImpact(relativePath);
 	}
 
 	/**
 	 * Get graph statistics
 	 */
-	getStats(): { nodeCount: number; edgeCount: number; fileCount: number } {
-		return this.store.getStats();
+	async getStats(): Promise<{ nodeCount: number; edgeCount: number; fileCount: number }> {
+		await this.ensureInitialized();
+		return this.getStore().getStats();
 	}
 
 	/**
 	 * Get the Merkle cache for external access
 	 */
-	getMerkleCache(): MerkleCache {
-		return this.merkleCache;
+	async getMerkleCachePublic(): Promise<MerkleCache> {
+		await this.ensureInitialized();
+		return this.getMerkleCache();
 	}
 
 	/**
 	 * Close the graph store
 	 */
 	close(): void {
-		this.store.close();
+		if (this.store) {
+			this.store.close();
+		}
 	}
 }

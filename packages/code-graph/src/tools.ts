@@ -24,7 +24,7 @@ async function getIndex(): Promise<CodeGraphIndex> {
 	
 	// Auto-build on first use if graph is empty
 	if (!autoBuilt) {
-		const stats = graphIndex.getStats();
+		const stats = await graphIndex.getStats();
 		if (stats.fileCount === 0) {
 			await graphIndex.rebuildGraph();
 		}
@@ -155,7 +155,7 @@ export const graph_status: ToolDefinition = tool({
 	execute: async () => {
 		try {
 			const index = await getIndex();
-			const stats = index.getStats();
+			const stats = await index.getStats();
 
 			const lines = [
 				"## Dependency Graph Status",

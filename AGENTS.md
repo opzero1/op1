@@ -171,15 +171,15 @@ bun run build --filter @op1/install
 op1/
 ├── packages/
 │   ├── install/        # @op1/install - CLI installer
-│   │   └── src/index.ts
+│   │   ├── src/index.ts
+│   │   └── templates/  # Config templates (copied by installer)
+│   │       ├── agent/          # 9 agent definitions
+│   │       ├── command/        # 6 slash commands
+│   │       └── skill/          # 17 loadable skills
 │   ├── notify/         # @op1/notify - Notifications
 │   │   └── src/index.ts
 │   └── workspace/      # @op1/workspace - Workspace tools
 │       └── src/index.ts
-├── templates/          # Config templates (copied by installer)
-│   ├── agent/          # 9 agent definitions
-│   ├── command/        # 6 slash commands
-│   └── skill/          # 17 loadable skills
 ├── package.json        # Bun workspaces root
 ├── tsconfig.json       # Shared TypeScript config
 └── biome.json          # Biome linting/formatting
@@ -211,11 +211,11 @@ Workspace management plugin with:
 - Verification hooks
 - Session state persistence
 
-## Templates (templates/)
+## Templates
 
 Templates are copied to user's `~/.config/opencode/` by the installer.
 
-**Location:** `templates/` at repo root (agents, commands, skills).
+**Location:** `packages/install/templates/` (agents, commands, skills).
 
 ## Dependencies
 

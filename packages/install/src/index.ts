@@ -13,7 +13,7 @@ import { homedir } from "os";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 
-const TEMPLATES_DIR = join(import.meta.dir, "..", "..", "..", "templates");
+const TEMPLATES_DIR = join(import.meta.dir, "..", "templates");
 
 // =========================================
 // MCP DEFINITIONS BY CATEGORY

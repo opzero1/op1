@@ -5,6 +5,8 @@
  */
 
 import { Database } from "bun:sqlite";
+import { dirname } from "path";
+import { mkdirSync, existsSync } from "fs";
 import type { GraphNode, GraphEdge, ImpactAnalysis } from "./types";
 
 /**
@@ -14,6 +16,11 @@ export class GraphStore {
 	private db: Database;
 
 	constructor(dbPath: string) {
+		// Ensure parent directory exists before opening database
+		const dir = dirname(dbPath);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
+		}
 		this.db = new Database(dbPath);
 		this.initTables();
 	}

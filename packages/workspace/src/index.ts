@@ -418,10 +418,11 @@ function formatZodErrors(error: z.ZodError): string {
 	for (const issue of error.issues) {
 		const path = issue.path.length > 0 ? `[${issue.path.join(".")}]` : "[root]";
 		let message = issue.message;
-		if (issue.code === "invalid_enum_value") {
-			const options = (issue as { options?: unknown[] }).options;
+		// Handle invalid_value (zod v4) which replaced invalid_enum_value
+		if (issue.code === "invalid_value") {
+			const values = (issue as { values?: unknown[] }).values;
 			const received = (issue as { received?: unknown }).received;
-			message = `Invalid value "${received}". Expected: ${options?.join(" | ") ?? "valid value"}`;
+			message = `Invalid value "${received}". Expected: ${values?.join(" | ") ?? "valid value"}`;
 		} else if (
 			issue.code === "invalid_type" &&
 			(issue as { received?: unknown }).received === "null"
