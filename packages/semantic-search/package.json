@@ -1,6 +1,6 @@
 {
 	"name": "@op1/semantic-search",
-	"version": "0.2.2",
+	"version": "0.3.0",
 	"description": "Semantic code search plugin for OpenCode - natural language to code search with embeddings",
 	"type": "module",
 	"main": "dist/index.js",

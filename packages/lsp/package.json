@@ -1,6 +1,6 @@
 {
 	"name": "@op1/lsp",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "LSP integration plugin for OpenCode - language server protocol tools for code navigation and refactoring",
 	"type": "module",
 	"main": "dist/index.js",

@@ -1,14 +1,13 @@
 # @op1/notify
 
-Desktop notifications plugin for OpenCode - focus detection, quiet hours, and sounds.
+Desktop notifications plugin for OpenCode - focus detection and quiet hours.
 
 ## Features
 
-- **Desktop Notifications** - Native macOS/Linux/Windows notifications
-- **Focus Detection** - Suppress notifications when app is focused
+- **Desktop Notifications** - Native macOS/Linux/Windows support
+- **Focus Detection** - Suppress when app is focused
 - **Quiet Hours** - Schedule notification-free periods
-- **Sound Alerts** - Audio cues for important events
-- **Smart Batching** - Group rapid notifications
+- **Sound Alerts** - Audio cues for events
 
 ## Installation
 
@@ -17,18 +16,6 @@ bun add @op1/notify
 ```
 
 ## Configuration
-
-Add to your `opencode.json`:
-
-```json
-{
-  "plugin": ["@op1/notify"]
-}
-```
-
-### Options
-
-Configure in your `opencode.json`:
 
 ```json
 {
@@ -45,22 +32,13 @@ Configure in your `opencode.json`:
 }
 ```
 
-## Notification Types
-
-| Event | Description |
-|-------|-------------|
-| Task complete | Background agent finished |
-| Build success/failure | Build command completed |
-| Test results | Test suite finished |
-| Error | Critical errors requiring attention |
-
 ## Platform Support
 
-| Platform | Support |
-|----------|---------|
-| macOS | ✅ Native (osascript) |
-| Linux | ✅ notify-send |
-| Windows | ✅ PowerShell toast |
+| Platform | Method |
+|----------|--------|
+| macOS | osascript |
+| Linux | notify-send |
+| Windows | PowerShell toast |
 
 ## License
 

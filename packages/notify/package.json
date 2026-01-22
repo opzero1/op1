@@ -1,6 +1,6 @@
 {
 	"name": "@op1/notify",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Desktop notifications plugin for OpenCode - focus detection, quiet hours, sounds",
 	"type": "module",
 	"main": "dist/index.js",

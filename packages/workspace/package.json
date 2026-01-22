@@ -1,6 +1,6 @@
 {
 	"name": "@op1/workspace",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Project-scoped plan management plugin for OpenCode - plans, notepads, verification hooks",
 	"type": "module",
 	"main": "dist/index.js",

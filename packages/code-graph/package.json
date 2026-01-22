@@ -1,6 +1,6 @@
 {
 	"name": "@op1/code-graph",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Dependency graph plugin for OpenCode - import/export analysis, call hierarchies, impact analysis",
 	"type": "module",
 	"main": "dist/index.js",

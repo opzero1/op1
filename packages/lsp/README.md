@@ -1,15 +1,14 @@
 # @op1/lsp
 
-LSP integration plugin for OpenCode - language server protocol tools for code navigation and refactoring.
+LSP integration plugin for OpenCode - language server tools for navigation and refactoring.
 
 ## Features
 
 - **Go to Definition** - Jump to symbol definitions
-- **Find References** - Find all usages across the codebase
-- **Document Symbols** - Get file outline/structure
-- **Workspace Symbols** - Search symbols across all files
+- **Find References** - Find all usages across codebase
+- **Workspace Symbols** - Search symbols project-wide
 - **Diagnostics** - Get errors/warnings before build
-- **Rename** - Refactor symbol names safely
+- **Rename** - Refactor symbols safely
 - **50+ Language Servers** - Built-in configurations
 
 ## Installation
@@ -20,63 +19,41 @@ bun add @op1/lsp
 
 ## Configuration
 
-Add to your `opencode.json`:
-
 ```json
 {
   "plugin": ["@op1/lsp"]
 }
 ```
 
-## Tools Provided
+## Tools
 
 | Tool | Description |
 |------|-------------|
-| `lsp_goto_definition` | Jump to where a symbol is defined |
-| `lsp_find_references` | Find all usages of a symbol |
-| `lsp_symbols` | Get document outline or search workspace |
-| `lsp_diagnostics` | Get errors/warnings from language server |
+| `lsp_goto_definition` | Jump to symbol definition |
+| `lsp_find_references` | Find all usages |
+| `lsp_symbols` | Document outline or workspace search |
+| `lsp_diagnostics` | Get errors/warnings |
 | `lsp_prepare_rename` | Check if rename is valid |
-| `lsp_rename` | Rename a symbol across the codebase |
+| `lsp_rename` | Rename across codebase |
 
 ## Supported Languages
 
-The plugin includes built-in configurations for 50+ language servers:
+TypeScript, JavaScript, Python, Go, Rust, C/C++, Java, Ruby, PHP, and 40+ more.
 
-| Language | Server |
-|----------|--------|
-| TypeScript/JavaScript | typescript-language-server |
-| Python | pylsp, pyright |
-| Go | gopls |
-| Rust | rust-analyzer |
-| C/C++ | clangd |
-| Java | jdtls |
-| Ruby | solargraph |
-| PHP | intelephense |
-| And many more... |
+## Custom Server
 
-## Custom Language Server
-
-Add custom servers in `op1-lsp.json`:
+Add in `op1-lsp.json`:
 
 ```json
 {
   "servers": {
     "my-lang": {
       "command": ["my-lang-server", "--stdio"],
-      "fileExtensions": [".mylang"],
-      "languageId": "mylang"
+      "fileExtensions": [".mylang"]
     }
   }
 }
 ```
-
-## How It Works
-
-1. **Lazy Initialization** - Servers start on first use
-2. **Connection Pooling** - Reuses server connections
-3. **Auto-Discovery** - Finds project root automatically
-4. **Graceful Cleanup** - Shuts down idle servers
 
 ## License
 
