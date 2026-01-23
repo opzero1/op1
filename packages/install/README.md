@@ -16,16 +16,18 @@ npx @op1/install
 
 ## What It Installs
 
-### Agents (9)
+### Agents (11)
 
 | Agent | Description |
 |-------|-------------|
+| `backend` | NestJS/Express specialist - APIs, services, databases |
 | `build` | Implementation agent - writes code, runs tests, ships |
-| `plan` | Strategic planner - creates work breakdowns |
 | `coder` | Focused implementation specialist |
 | `explore` | Codebase explorer - finds files and patterns |
 | `frontend` | UI/UX specialist |
+| `infra` | Terraform/Infrastructure specialist - IaC, AWS |
 | `oracle` | High-IQ consultation for architecture |
+| `plan` | Strategic planner - creates work breakdowns |
 | `researcher` | External docs and API research |
 | `reviewer` | Code review specialist |
 | `scribe` | Documentation writer |
@@ -43,16 +45,21 @@ npx @op1/install
 | `/research` | Research external topics |
 | `/ulw` | Activate ULTRAWORK mode |
 
-### Skills (17+)
+### Skills (35)
 
 - `ulw` - ULTRAWORK maximum capability mode
 - `code-philosophy` - The 5 Laws of Elegant Defense
 - `frontend-philosophy` - UI/UX excellence
+- `nestjs-master` - Comprehensive NestJS patterns
+- `terraform-master` - Infrastructure as Code mastery
+- `react-performance` - React/Next.js optimization
 - `analyze-mode` - Deep analysis protocols
 - `search-mode` - Maximum search effort
 - `plan-protocol` - Plan format guidelines
 - `code-review` - Review methodology
 - `git-master` - Git operations mastery
+- `databases` - PostgreSQL/MongoDB patterns
+- `backend-development` - API design, security, testing
 - `playwright` - Browser automation
 - `linear` - Linear issue tracking
 - `figma-design` - Figma integration
