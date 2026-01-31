@@ -29,3 +29,15 @@ export {
 	type EmbeddingCacheOptions,
 	type CacheStats,
 } from "./cache";
+
+// Batch processing
+export {
+	createBatchProcessor,
+	chunksToEmbeddingItems,
+	symbolsToEmbeddingItems,
+	type BatchProcessor,
+	type BatchProcessorConfig,
+	type BatchProgress,
+	type EmbeddingItem,
+	type EmbeddingResult,
+} from "./batch-processor";
