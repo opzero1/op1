@@ -128,6 +128,10 @@ interface SmartQueryArgs {
 	maxTokens?: number;
 	graphDepth?: number;
 	symbolTypes?: string[];
+	/** Search granularity: 'auto' | 'symbol' | 'chunk' | 'file' */
+	granularity?: "auto" | "symbol" | "chunk" | "file";
+	/** Enable reranking for improved precision */
+	rerank?: boolean;
 }
 
 interface SymbolImpactArgs {
@@ -171,6 +175,14 @@ export const smart_query: ToolDefinition = tool({
 			.array(tool.schema.string())
 			.optional()
 			.describe("Filter by symbol types: FUNCTION, CLASS, METHOD, INTERFACE, etc."),
+		granularity: tool.schema
+			.enum(["auto", "symbol", "chunk", "file"])
+			.optional()
+			.describe("Search granularity: 'auto' searches all levels, 'symbol' for functions/classes, 'chunk' for code blocks, 'file' for full files"),
+		rerank: tool.schema
+			.boolean()
+			.optional()
+			.describe("Enable reranking for improved precision (adds ~50-100ms latency)"),
 	},
 	execute: async (args: SmartQueryArgs) => {
 		try {
