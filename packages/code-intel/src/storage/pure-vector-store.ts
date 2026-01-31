@@ -8,11 +8,16 @@
  */
 
 import type { Database } from "bun:sqlite";
+import type { Granularity } from "../types";
 
 export interface VectorSearchResult {
 	symbol_id: string;
 	distance: number;
 	similarity: number;
+}
+
+export interface GranularVectorSearchResult extends VectorSearchResult {
+	granularity: Granularity;
 }
 
 export interface PureVectorStore {
@@ -376,5 +381,183 @@ export async function createHybridVectorStore(db: Database): Promise<HybridVecto
 		},
 
 		getBackend: () => "sqlite-vec",
+	};
+}
+
+// ============================================================================
+// Granular Vector Store (supports multi-granularity indexing)
+// ============================================================================
+
+export interface GranularVectorStore {
+	/** Store embedding with granularity */
+	upsert(id: string, embedding: number[], granularity: Granularity): void;
+
+	/** Store multiple embeddings in a transaction */
+	upsertMany(items: Array<{ id: string; embedding: number[]; granularity: Granularity }>): void;
+
+	/** Search for similar items by embedding, optionally filtered by granularity */
+	search(embedding: number[], options?: { limit?: number; granularity?: Granularity }): GranularVectorSearchResult[];
+
+	/** Delete embedding by ID */
+	delete(id: string): void;
+
+	/** Delete all embeddings for a granularity */
+	deleteByGranularity(granularity: Granularity): number;
+
+	/** Get count of stored embeddings */
+	count(granularity?: Granularity): number;
+
+	/** Clear all embeddings */
+	clear(): void;
+
+	/** Get embedding by ID */
+	get(id: string): { embedding: number[]; granularity: Granularity } | null;
+}
+
+export function createGranularVectorStore(db: Database): GranularVectorStore {
+	// Prepared statements
+	const upsertStmt = db.prepare(`
+		INSERT OR REPLACE INTO js_vectors (symbol_id, embedding, granularity, updated_at)
+		VALUES (?, ?, ?, ?)
+	`);
+
+	const getStmt = db.prepare(`SELECT embedding, granularity FROM js_vectors WHERE symbol_id = ?`);
+	const deleteStmt = db.prepare(`DELETE FROM js_vectors WHERE symbol_id = ?`);
+	const deleteByGranularityStmt = db.prepare(`DELETE FROM js_vectors WHERE granularity = ?`);
+	const countStmt = db.prepare(`SELECT COUNT(*) as count FROM js_vectors`);
+	const countByGranularityStmt = db.prepare(`SELECT COUNT(*) as count FROM js_vectors WHERE granularity = ?`);
+	const getAllStmt = db.prepare(`SELECT symbol_id, embedding, granularity FROM js_vectors`);
+	const getAllByGranularityStmt = db.prepare(`SELECT symbol_id, embedding, granularity FROM js_vectors WHERE granularity = ?`);
+	const clearStmt = db.prepare(`DELETE FROM js_vectors`);
+
+	// In-memory cache for fast search (loaded lazily)
+	let vectorCache: Map<string, { embedding: number[]; granularity: Granularity }> | null = null;
+	let cacheValid = false;
+
+	function loadCache(): Map<string, { embedding: number[]; granularity: Granularity }> {
+		if (vectorCache && cacheValid) {
+			return vectorCache;
+		}
+
+		vectorCache = new Map();
+		const rows = getAllStmt.all() as Array<{ symbol_id: string; embedding: string; granularity: string }>;
+
+		for (const row of rows) {
+			try {
+				const embedding = deserializeEmbedding(row.embedding);
+				vectorCache.set(row.symbol_id, {
+					embedding,
+					granularity: row.granularity as Granularity,
+				});
+			} catch {
+				// Skip corrupted entries
+			}
+		}
+
+		cacheValid = true;
+		return vectorCache;
+	}
+
+	function invalidateCache() {
+		cacheValid = false;
+	}
+
+	return {
+		upsert(id: string, embedding: number[], granularity: Granularity): void {
+			const serialized = serializeEmbedding(embedding);
+			upsertStmt.run(id, serialized, granularity, Date.now());
+			invalidateCache();
+		},
+
+		upsertMany(items: Array<{ id: string; embedding: number[]; granularity: Granularity }>): void {
+			const transaction = db.transaction(
+				(batch: Array<{ id: string; embedding: number[]; granularity: Granularity }>) => {
+					for (const item of batch) {
+						const serialized = serializeEmbedding(item.embedding);
+						upsertStmt.run(item.id, serialized, item.granularity, Date.now());
+					}
+				},
+			);
+			transaction(items);
+			invalidateCache();
+		},
+
+		search(queryEmbedding: number[], options: { limit?: number; granularity?: Granularity } = {}): GranularVectorSearchResult[] {
+			const { limit = 20, granularity } = options;
+			const cache = loadCache();
+
+			if (cache.size === 0) {
+				return [];
+			}
+
+			// Compute similarities for all vectors
+			const results: GranularVectorSearchResult[] = [];
+
+			for (const [id, data] of cache) {
+				// Filter by granularity if specified
+				if (granularity && data.granularity !== granularity) {
+					continue;
+				}
+
+				try {
+					const similarity = cosineSimilarity(queryEmbedding, data.embedding);
+					const distance = similarityToDistance(similarity);
+
+					results.push({
+						symbol_id: id,
+						distance,
+						similarity,
+						granularity: data.granularity,
+					});
+				} catch {
+					// Skip vectors with dimension mismatch
+				}
+			}
+
+			// Sort by distance (ascending - lower is better)
+			results.sort((a, b) => a.distance - b.distance);
+
+			// Return top K results
+			return results.slice(0, limit);
+		},
+
+		delete(id: string): void {
+			deleteStmt.run(id);
+			invalidateCache();
+		},
+
+		deleteByGranularity(granularity: Granularity): number {
+			const result = deleteByGranularityStmt.run(granularity);
+			invalidateCache();
+			return result.changes;
+		},
+
+		count(granularity?: Granularity): number {
+			if (granularity) {
+				const result = countByGranularityStmt.get(granularity) as { count: number };
+				return result.count;
+			}
+			const result = countStmt.get() as { count: number };
+			return result.count;
+		},
+
+		clear(): void {
+			clearStmt.run();
+			invalidateCache();
+		},
+
+		get(id: string): { embedding: number[]; granularity: Granularity } | null {
+			const row = getStmt.get(id) as { embedding: string; granularity: string } | null;
+			if (!row) return null;
+
+			try {
+				return {
+					embedding: deserializeEmbedding(row.embedding),
+					granularity: row.granularity as Granularity,
+				};
+			} catch {
+				return null;
+			}
+		},
 	};
 }
