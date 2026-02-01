@@ -172,24 +172,39 @@ function searchWithPureJs(
 	limit: number,
 	branch?: string,
 ): VectorSearchMatch[] {
-	// Get all vectors from js_vectors table
-	const query = branch
-		? `
-			SELECT jv.symbol_id, jv.embedding
-			FROM js_vectors jv
-			INNER JOIN symbols s ON s.id = jv.symbol_id
-			WHERE s.branch = ?
-		`
-		: `SELECT symbol_id, embedding FROM js_vectors`;
+	// js_vectors contains embeddings for chunks and files, not symbols directly.
+	// We need to:
+	// 1. For chunk embeddings: map through chunks.parent_symbol_id to get symbols
+	// 2. For file embeddings: map through file_path to get symbols
+	// 3. For symbol embeddings (if any): use directly
+
+	// Query all vectors with their granularity and linked data
+	const query = `
+		SELECT 
+			jv.symbol_id as vector_id,
+			jv.embedding,
+			jv.granularity,
+			c.parent_symbol_id as chunk_parent_symbol_id,
+			c.file_path as chunk_file_path,
+			c.content as chunk_content
+		FROM js_vectors jv
+		LEFT JOIN chunks c ON c.id = jv.symbol_id AND jv.granularity = 'chunk'
+		${branch ? "WHERE c.branch = ? OR jv.granularity != 'chunk'" : ""}
+	`;
 
 	const stmt = db.prepare(query);
 	const rows = (branch ? stmt.all(branch) : stmt.all()) as Array<{
-		symbol_id: string;
+		vector_id: string;
 		embedding: string;
+		granularity: string;
+		chunk_parent_symbol_id: string | null;
+		chunk_file_path: string | null;
+		chunk_content: string | null;
 	}>;
 
-	// Compute similarities
+	// Compute similarities and map to symbols
 	const results: VectorSearchMatch[] = [];
+	const seenSymbols = new Set<string>();
 
 	for (const row of rows) {
 		try {
@@ -197,11 +212,38 @@ function searchWithPureJs(
 			const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
 			const distance = 1 - similarity;
 
-			results.push({
-				symbolId: row.symbol_id,
-				distance,
-				similarity,
-			});
+			let symbolId: string | null = null;
+
+			if (row.granularity === "symbol") {
+				// Direct symbol embedding
+				symbolId = row.vector_id;
+			} else if (row.granularity === "chunk" && row.chunk_parent_symbol_id) {
+				// Chunk embedding - map to parent symbol
+				symbolId = row.chunk_parent_symbol_id;
+			} else if (row.granularity === "chunk" && row.chunk_file_path) {
+				// Chunk without parent symbol - use file path to find related symbols
+				// For now, return the chunk itself with file info for context
+				symbolId = row.vector_id; // Will be resolved in hydration
+			} else if (row.granularity === "file") {
+				// File-level embedding - skip for now (we want symbol-level results)
+				continue;
+			}
+
+			if (symbolId && !seenSymbols.has(symbolId)) {
+				seenSymbols.add(symbolId);
+				results.push({
+					symbolId,
+					distance,
+					similarity,
+				});
+			} else if (symbolId && seenSymbols.has(symbolId)) {
+				// Update if this chunk has better similarity
+				const existing = results.find((r) => r.symbolId === symbolId);
+				if (existing && similarity > existing.similarity) {
+					existing.similarity = similarity;
+					existing.distance = distance;
+				}
+			}
 		} catch {
 			// Skip corrupted embeddings
 		}

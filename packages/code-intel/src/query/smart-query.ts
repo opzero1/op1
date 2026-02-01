@@ -11,11 +11,13 @@
 import type { Database } from "bun:sqlite";
 import type { EdgeStore } from "../storage/edge-store";
 import type { SymbolStore } from "../storage/symbol-store";
-import type { QueryOptions, QueryResult, SymbolEdge, SymbolNode, SymbolType } from "../types";
+import type { QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
+import type { Embedder } from "../embeddings";
 import { createGraphExpander, type GraphExpander } from "./graph-expander";
 import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
 import { fuseWithRrf, type FusedResult } from "./rrf-fusion";
 import { createVectorSearcher, type VectorSearcher } from "./vector-search";
+import { createBM25Reranker, type Reranker, type RerankItem } from "./reranker";
 
 // ============================================================================
 // Types
@@ -26,6 +28,11 @@ export interface SmartQueryOptions extends QueryOptions {
 	embedding?: number[];
 	/** Raw query text (required for keyword search) */
 	queryText?: string;
+}
+
+export interface SmartQueryConfig {
+	/** Optional embedder for query-time embedding generation */
+	embedder?: Embedder;
 }
 
 export interface SmartQuery {
@@ -53,16 +60,24 @@ export function createSmartQuery(
 	db: Database,
 	symbolStore: SymbolStore,
 	edgeStore: EdgeStore,
+	config?: SmartQueryConfig,
 ): SmartQuery {
 	const vectorSearcher = createVectorSearcher(db);
 	const keywordSearcher = createKeywordSearcher(db);
 	const graphExpander = createGraphExpander(symbolStore, edgeStore);
+	const reranker = createBM25Reranker();
+	const embedder = config?.embedder;
 
 	return {
 		async search(options: SmartQueryOptions): Promise<QueryResult> {
 			const startTime = Date.now();
 
 			const parsedOptions = parseQueryOptions(options);
+
+			// Generate embedding if not provided but embedder available
+			if (!parsedOptions.embedding && parsedOptions.queryText && embedder) {
+				parsedOptions.embedding = await embedder.embed(parsedOptions.queryText);
+			}
 
 			// Guard: need at least one search method
 			if (!parsedOptions.embedding && !parsedOptions.queryText) {
@@ -77,7 +92,7 @@ export function createSmartQuery(
 			);
 
 			// Step 2: RRF fusion
-			const fusedResults = fuseWithRrf(vectorResults, keywordResults);
+			let fusedResults = fuseWithRrf(vectorResults, keywordResults);
 
 			// Guard: no results from fusion
 			if (fusedResults.length === 0) {
@@ -85,7 +100,17 @@ export function createSmartQuery(
 			}
 
 			// Step 3: Hydrate symbols from fused results
-			const hydratedSymbols = hydrateSymbols(fusedResults, symbolStore);
+			let hydratedSymbols = hydrateSymbols(fusedResults, symbolStore);
+
+			// Step 3.5: Apply reranking if enabled
+			if (parsedOptions.rerankMode && parsedOptions.rerankMode !== "none" && parsedOptions.queryText) {
+				hydratedSymbols = applyReranking(
+					hydratedSymbols,
+					fusedResults,
+					parsedOptions.queryText,
+					reranker,
+				);
+			}
 
 			// Step 4: Graph expansion for top results
 			const expansionResult = expandGraphForTopSymbols(
@@ -131,6 +156,7 @@ interface ParsedQueryOptions {
 	maxFanOut: number;
 	confidenceThreshold: number;
 	symbolTypes: SymbolType[] | null;
+	rerankMode: RerankMode | null;
 }
 
 function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
@@ -143,6 +169,7 @@ function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
 		maxFanOut: options.maxFanOut ?? DEFAULT_MAX_FAN_OUT,
 		confidenceThreshold: options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
 		symbolTypes: options.symbolTypes ?? null,
+		rerankMode: options.rerank ?? null,
 	};
 }
 
@@ -195,6 +222,50 @@ function hydrateSymbols(
 	}
 
 	return symbols;
+}
+
+// ============================================================================
+// Reranking
+// ============================================================================
+
+function applyReranking(
+	symbols: SymbolNode[],
+	fusedResults: FusedResult[],
+	queryText: string,
+	reranker: Reranker,
+): SymbolNode[] {
+	if (symbols.length === 0) return symbols;
+
+	// Build score map from fused results
+	const scoreMap = new Map<string, number>();
+	for (const result of fusedResults) {
+		scoreMap.set(result.symbolId, result.rrfScore);
+	}
+
+	// Convert symbols to rerank items
+	const rerankItems: RerankItem[] = symbols.map((symbol) => ({
+		id: symbol.id,
+		content: symbol.content,
+		file_path: symbol.file_path,
+		initialScore: scoreMap.get(symbol.id) ?? 0,
+		granularity: "symbol" as const,
+	}));
+
+	// Apply reranking
+	const reranked = reranker.rerank(rerankItems, {
+		query: queryText,
+		limit: symbols.length,
+	});
+
+	// Reorder symbols based on reranked order
+	const symbolMap = new Map<string, SymbolNode>();
+	for (const symbol of symbols) {
+		symbolMap.set(symbol.id, symbol);
+	}
+
+	return reranked
+		.map((result) => symbolMap.get(result.id))
+		.filter((s): s is SymbolNode => s !== undefined);
 }
 
 // ============================================================================

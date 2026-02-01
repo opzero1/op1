@@ -18,6 +18,7 @@ import type { SmartQuery } from "./query/smart-query";
 import type { ImpactAnalyzer } from "./query/impact-analysis";
 import type { GraphExpander, GraphExpansionResult } from "./query/graph-expander";
 import type { SymbolNode, SymbolType, RiskLevel, RepoMapEntry } from "./types";
+import type { Embedder } from "./embeddings";
 
 // ============================================================================
 // Singleton State (initialized by plugin)
@@ -28,6 +29,7 @@ let smartQuery: SmartQuery | null = null;
 let impactAnalyzer: ImpactAnalyzer | null = null;
 let graphExpander: GraphExpander | null = null;
 let ensureIndexFn: (() => Promise<void>) | null = null;
+let embedder: Embedder | null = null;
 
 export function setIndexManager(manager: IndexManager | null): void {
 	indexManager = manager;
@@ -47,6 +49,10 @@ export function setGraphExpander(expander: GraphExpander | null): void {
 
 export function setEnsureIndex(fn: () => Promise<void>): void {
 	ensureIndexFn = fn;
+}
+
+export function setEmbedder(embedderInstance: Embedder | null): void {
+	embedder = embedderInstance;
 }
 
 async function ensureInitialized(): Promise<void> {
@@ -192,8 +198,13 @@ export const smart_query: ToolDefinition = tool({
 			}
 
 			const branch = indexManager.getCurrentBranch();
+			
+			// Generate embedding for vector search (if embedder available)
+			const queryEmbedding = embedder ? await embedder.embed(args.query) : undefined;
+			
 			const result = await smartQuery.search({
 				queryText: args.query,
+				embedding: queryEmbedding,
 				branch,
 				maxTokens: args.maxTokens ?? 8000,
 				graphDepth: args.graphDepth ?? 2,
@@ -528,6 +539,15 @@ export const code_intel_status: ToolDefinition = tool({
 			lines.push("### Symbols & Edges");
 			lines.push(`- Symbols: ${status.total_symbols}`);
 			lines.push(`- Edges: ${status.total_edges}`);
+			lines.push("");
+			lines.push("### Chunks & Embeddings");
+			lines.push(`- Total chunks: ${status.total_chunks ?? 0}`);
+			lines.push(`- Total embeddings: ${status.total_embeddings ?? 0}`);
+			if (status.embedding_counts) {
+				lines.push(`- Symbol embeddings: ${status.embedding_counts.symbol ?? 0}`);
+				lines.push(`- Chunk embeddings: ${status.embedding_counts.chunk ?? 0}`);
+				lines.push(`- File embeddings: ${status.embedding_counts.file ?? 0}`);
+			}
 			lines.push("");
 			lines.push("### Configuration");
 			lines.push(`- Embedding model: ${status.embedding_model_id}`);

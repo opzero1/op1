@@ -24,7 +24,9 @@ import {
 	setImpactAnalyzer,
 	setGraphExpander,
 	setEnsureIndex,
+	setEmbedder,
 } from "./tools";
+import { createAutoEmbedder, type Embedder } from "./embeddings";
 
 /**
  * Code Intelligence Plugin for OpenCode
@@ -50,6 +52,7 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 	let smartQuery: SmartQuery | null = null;
 	let impactAnalyzer: ImpactAnalyzer | null = null;
 	let graphExpander: GraphExpander | null = null;
+	let queryEmbedder: Embedder | null = null;
 	let initError: Error | null = null;
 
 	const ensureIndex = async (): Promise<void> => {
@@ -71,11 +74,15 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 			const stores = indexManager.getStores();
 			const db = indexManager.getDatabase();
 
-			// SmartQuery needs the database, symbol store, and edge store
+			// Create embedder for query-time embedding generation
+			queryEmbedder = await createAutoEmbedder();
+
+			// SmartQuery needs the database, symbol store, edge store, AND embedder
 			smartQuery = createSmartQuery(
 				db,
 				stores.symbols,
 				stores.edges,
+				{ embedder: queryEmbedder },
 			);
 
 			impactAnalyzer = createImpactAnalyzer(stores.symbols, stores.edges);
@@ -86,6 +93,7 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 			setSmartQuery(smartQuery);
 			setImpactAnalyzer(impactAnalyzer);
 			setGraphExpander(graphExpander);
+			setEmbedder(queryEmbedder);
 
 			// Note: We intentionally don't register an exit handler.
 			// Calling close() during process exit can cause issues with native modules.
@@ -108,6 +116,7 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 	setSmartQuery(null);
 	setImpactAnalyzer(null);
 	setGraphExpander(null);
+	setEmbedder(null);
 	setEnsureIndex(ensureIndex);
 
 	return {

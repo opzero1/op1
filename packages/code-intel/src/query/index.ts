@@ -73,3 +73,11 @@ export {
 	type SmartQuery,
 	type SmartQueryOptions,
 } from "./smart-query";
+
+export {
+	createTemplateHyDEGenerator,
+	createLLMHyDEGenerator,
+	type HyDEGenerator,
+	type HyDEOptions,
+	type LLMProvider,
+} from "./hyde";
