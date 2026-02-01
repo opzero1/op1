@@ -1,14 +1,15 @@
 /**
- * UniXcoder Embedder
+ * Transformers.js Embedder
  *
- * Code-specialized embeddings using microsoft/unixcoder-base via @huggingface/transformers.
- * UniXcoder is pre-trained on code understanding tasks and produces 768-dim embeddings.
+ * Text embeddings using @huggingface/transformers.
+ * Uses all-MiniLM-L6-v2 which produces 384-dim embeddings.
  *
  * Features:
  * - Lazy model loading (no startup cost)
  * - Singleton pattern for model instance
  * - Batch processing for efficiency
  * - Integrated LRU caching
+ * - No native dependencies (works with Bun)
  */
 
 import type { Embedder, ProgressCallback } from "./embedder";
@@ -43,8 +44,9 @@ export interface UniXcoderOptions {
 	onProgress?: ProgressCallback;
 }
 
-const DEFAULT_MODEL = "Xenova/unixcoder-base";
-const UNIXCODER_DIMENSION = 768;
+// Xenova/unixcoder-base is now private/gated, using all-MiniLM-L6-v2 as fallback
+const DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
+const UNIXCODER_DIMENSION = 384;
 
 /**
  * UniXcoder-based embedder for code intelligence.
@@ -104,7 +106,8 @@ export class UniXcoderEmbedder implements Embedder {
 		this.onProgress?.({ status: "loading", message: "Loading transformers..." });
 
 		try {
-			const { pipeline } = await import("@huggingface/transformers");
+			// Using @huggingface/transformers (with sharp stubbed out for Bun compatibility)
+		const { pipeline } = await import("@huggingface/transformers");
 
 			this.onProgress?.({
 				status: "downloading",
