@@ -21,14 +21,14 @@
 		"dist"
 	],
 	"dependencies": {
+		"@huggingface/transformers": "^3.8.1",
 		"@opencode-ai/plugin": "^1.0.0",
-		"sqlite-vec": "^0.1.7-alpha.2",
-		"@huggingface/transformers": "^3.0.0",
-		"tree-sitter": "^0.22.4",
-		"tree-sitter-typescript": "^0.23.2",
-		"tree-sitter-python": "^0.23.6",
 		"graphology": "^0.25.4",
-		"graphology-metrics": "^2.3.0"
+		"graphology-metrics": "^2.3.0",
+		"sqlite-vec": "^0.1.7-alpha.2",
+		"tree-sitter": "^0.22.4",
+		"tree-sitter-python": "^0.23.6",
+		"tree-sitter-typescript": "^0.23.2"
 	},
 	"trustedDependencies": [
 		"onnxruntime-node",
