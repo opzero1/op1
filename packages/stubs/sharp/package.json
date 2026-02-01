@@ -1,0 +1,7 @@
+{
+	"name": "sharp",
+	"version": "0.34.5",
+	"description": "Stub for sharp - not needed for text embeddings",
+	"main": "index.js",
+	"types": "index.d.ts"
+}
