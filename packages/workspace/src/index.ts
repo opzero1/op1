@@ -16,11 +16,13 @@ import { homedir } from "os";
 import { type Plugin, tool } from "@opencode-ai/plugin";
 
 // ── Modules ────────────────────────────────────────────────
-import { createSafeHook, resolveHookConfig, type HookConfig } from "./hooks/safe-hook.js";
-import { handleToolOutputSafety } from "./hooks/tool-output-safety.js";
+import { createSafeRuntimeHook, resolveHookConfig, type HookConfig } from "./hooks/safe-hook.js";
+import { handleToolOutputSafetyDynamic } from "./hooks/tool-output-safety.js";
 import { handleVerification } from "./hooks/verification.js";
 import { createShellEnvHook } from "./hooks/shell-env.js";
-import { createCompactionHook } from "./hooks/compaction.js";
+import { createCompactionHook, type CompactionDeps } from "./hooks/compaction.js";
+import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
+import { checkPreemptiveCompaction, type CompactionClient } from "./hooks/preemptive-compaction.js";
 
 import {
 	extractMarkdownParts,
@@ -98,37 +100,57 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 	// ── Hook factories ─────────────────────────────────────
 
-	const toolExecuteAfterHook = createSafeHook(
+	const toolExecuteBeforeHook = createSafeRuntimeHook(
+		"tool.execute.before",
+		() => createToolExecuteBeforeHook(),
+		hookConfig,
+	);
+
+	const toolExecuteAfterHook = createSafeRuntimeHook(
 		"tool.execute.after",
 		() =>
 			async (
-				input: { tool: string; args?: unknown },
-				output: { output?: string },
+				input: { tool: string; sessionID: string; callID: string; args?: unknown },
+				output: { title: string; output: string; metadata: unknown },
 			) => {
-				// Synchronous safety: truncation, edit errors, empty tasks, anti-polling
-				handleToolOutputSafety(input, output);
+				// Dynamic context-window-aware truncation (falls back to static)
+				await handleToolOutputSafetyDynamic(input, output, ctx.client);
 
 				// Async: verification reminders after implementer agent tasks
 				await handleVerification(input, output, directory);
+
+				// Preemptive compaction at 78% token usage
+				await checkPreemptiveCompaction(
+					ctx.client as unknown as CompactionClient,
+					input.sessionID,
+					directory,
+				);
 			},
 		hookConfig,
 	);
 
-	const shellEnvHook = createSafeHook(
+	const shellEnvHook = createSafeRuntimeHook(
 		"shell.env",
 		() => createShellEnvHook(),
 		hookConfig,
 	);
 
-	const compactionHook = createSafeHook(
+	const compactionDeps: CompactionDeps = {
+		readActivePlanState: sm.readActivePlanState,
+		getNotepadDir: sm.getNotepadDir,
+		readNotepadFile: sm.readNotepadFile,
+	};
+
+	const compactionHook = createSafeRuntimeHook(
 		"experimental.session.compacting",
-		() => createCompactionHook(),
+		() => createCompactionHook(compactionDeps),
 		hookConfig,
 	);
 
 	// ── Build hook map (only include non-null hooks) ───────
 
 	const hook: Record<string, unknown> = {};
+	if (toolExecuteBeforeHook) hook["tool.execute.before"] = toolExecuteBeforeHook;
 	if (toolExecuteAfterHook) hook["tool.execute.after"] = toolExecuteAfterHook;
 	if (shellEnvHook) hook["shell.env"] = shellEnvHook;
 	if (compactionHook) hook["experimental.session.compacting"] = compactionHook;

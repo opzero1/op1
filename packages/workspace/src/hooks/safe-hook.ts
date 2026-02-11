@@ -71,3 +71,36 @@ export function createSafeHook<T>(
 		return null;
 	}
 }
+
+/**
+ * Create a hook function that is guarded at runtime — any error thrown
+ * during execution is caught and logged instead of propagating into
+ * the OpenCode runtime.
+ *
+ * Use this for hooks that do async I/O (git commands, file reads, API calls)
+ * where an unexpected failure should degrade gracefully.
+ */
+export function createSafeRuntimeHook<
+	TArgs extends unknown[],
+	TReturn,
+>(
+	name: string,
+	factory: () => (...args: TArgs) => Promise<TReturn>,
+	config: HookConfig,
+): ((...args: TArgs) => Promise<TReturn | undefined>) | null {
+	const inner = createSafeHook(name, factory, config);
+	if (!inner) return null;
+
+	const safe = config.safeHookCreation ?? true;
+	if (!safe) return inner as (...args: TArgs) => Promise<TReturn | undefined>;
+
+	return async (...args: TArgs): Promise<TReturn | undefined> => {
+		try {
+			return await inner(...args);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(`[workspace] Hook runtime error: ${name} — ${message}`);
+			return undefined;
+		}
+	};
+}

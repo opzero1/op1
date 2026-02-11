@@ -3,7 +3,38 @@
  *
  * Handles output truncation, edit error recovery, empty task detection,
  * and anti-polling reminders for background tasks.
+ *
+ * Supports two modes:
+ * - Static truncation (default): MAX_OUTPUT_CHARS / MAX_OUTPUT_LINES
+ * - Dynamic truncation: Context-window-aware, uses session token usage
  */
+
+// ==========================================
+// TYPES
+// ==========================================
+
+/**
+ * Minimal client interface for fetching session messages.
+ * We use `unknown` for the result and validate at runtime
+ * to avoid coupling to generated SDK types.
+ */
+export interface TokenAwareClient {
+	session: {
+		messages: (opts: {
+			path: { id: string };
+			query?: { limit?: number };
+		}) => Promise<{ data?: unknown }>;
+	};
+}
+
+/**
+ * Context window usage information
+ */
+interface ContextWindowUsage {
+	usedTokens: number;
+	remainingTokens: number;
+	usageRatio: number;
+}
 
 // ==========================================
 // CONSTANTS
@@ -21,14 +52,26 @@ const TRUNCATABLE_TOOLS = [
 	"Read",
 	"bash",
 	"Bash",
+	"webfetch",
+	"WebFetch",
+	"search_semantic",
+	"smart_query",
 ] as const;
 
 /**
- * Maximum output size before truncation (characters)
- * ~50k tokens = ~200k chars, but we're more conservative
+ * Static truncation limits (fallback when dynamic is unavailable)
  */
 const MAX_OUTPUT_CHARS = 100_000;
 const MAX_OUTPUT_LINES = 2000;
+
+/**
+ * Dynamic truncation constants
+ */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+const DEFAULT_CONTEXT_LIMIT = 200_000; // tokens — conservative default
+const DYNAMIC_HEADROOM_RATIO = 0.5; // Use at most 50% of remaining headroom
+const DEFAULT_MAX_OUTPUT_TOKENS = 50_000; // Static cap for dynamic mode
+const PRESERVE_HEADER_LINES = 3; // Keep first N lines (often contain headers)
 
 /**
  * Edit tool error patterns that indicate AI mistakes
@@ -77,39 +120,158 @@ const ANTI_POLLING_REMINDER = `
 </system-reminder>`;
 
 // ==========================================
-// HELPERS
+// DYNAMIC TRUNCATION
 // ==========================================
 
 /**
- * Truncate large tool output to prevent context overflow
+ * Estimate token count from text length.
+ * Uses the standard ~4 chars per token heuristic.
  */
-function truncateOutput(output: string): { result: string; truncated: boolean } {
-	// Guard against non-string input
+function estimateTokens(text: string): number {
+	return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+/**
+ * Get context window usage for a session.
+ * Returns null if usage cannot be determined.
+ *
+ * Uses session.messages() to fetch message list, then sums tokens
+ * from assistant messages (user messages have no token info).
+ */
+async function getContextWindowUsage(
+	client: TokenAwareClient,
+	sessionID: string,
+	contextLimit: number,
+): Promise<ContextWindowUsage | null> {
+	try {
+		const result = await client.session.messages({
+			path: { id: sessionID },
+		});
+
+		// Runtime validate — SDK returns { data?: unknown }
+		const data = result.data;
+		if (!data || !Array.isArray(data) || data.length === 0) return null;
+
+		let usedTokens = 0;
+		for (const entry of data) {
+			const info = (entry as { info?: { role?: string; tokens?: { input?: number; output?: number } } }).info;
+			if (info?.role === "assistant" && info.tokens) {
+				usedTokens += info.tokens.input ?? 0;
+				usedTokens += info.tokens.output ?? 0;
+			}
+		}
+
+		const remainingTokens = Math.max(0, contextLimit - usedTokens);
+		const usageRatio = usedTokens / contextLimit;
+
+		return { usedTokens, remainingTokens, usageRatio };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Calculate the dynamic maximum output size in characters,
+ * based on remaining context window headroom.
+ */
+function calculateDynamicLimit(usage: ContextWindowUsage): number {
+	const maxOutputTokens = Math.min(
+		usage.remainingTokens * DYNAMIC_HEADROOM_RATIO,
+		DEFAULT_MAX_OUTPUT_TOKENS,
+	);
+	return Math.max(1000, Math.floor(maxOutputTokens * CHARS_PER_TOKEN_ESTIMATE));
+}
+
+// ==========================================
+// STATIC TRUNCATION
+// ==========================================
+
+/**
+ * Truncate output using static limits (line count + char count).
+ * Preserves first PRESERVE_HEADER_LINES lines when truncating.
+ */
+function truncateStatic(output: string): {
+	result: string;
+	truncated: boolean;
+} {
 	if (typeof output !== "string") {
 		return { result: String(output ?? ""), truncated: false };
 	}
+
 	const lines = output.split("\n");
-	
+
 	// Check line count
 	if (lines.length > MAX_OUTPUT_LINES) {
-		const truncated = lines.slice(0, MAX_OUTPUT_LINES).join("\n");
+		const kept = lines.slice(0, MAX_OUTPUT_LINES).join("\n");
 		return {
-			result: `${truncated}\n\n... [OUTPUT TRUNCATED: ${lines.length - MAX_OUTPUT_LINES} more lines. Use grep with specific patterns to narrow results.]`,
+			result: `${kept}\n\n... [OUTPUT TRUNCATED: ${lines.length - MAX_OUTPUT_LINES} more lines. Use grep with specific patterns to narrow results.]`,
 			truncated: true,
 		};
 	}
-	
+
 	// Check character count
 	if (output.length > MAX_OUTPUT_CHARS) {
-		const truncated = output.slice(0, MAX_OUTPUT_CHARS);
+		const kept = output.slice(0, MAX_OUTPUT_CHARS);
 		return {
-			result: `${truncated}\n\n... [OUTPUT TRUNCATED: ${output.length - MAX_OUTPUT_CHARS} more characters. Use more specific search patterns.]`,
+			result: `${kept}\n\n... [OUTPUT TRUNCATED: ${output.length - MAX_OUTPUT_CHARS} more characters. Use more specific search patterns.]`,
 			truncated: true,
 		};
 	}
-	
+
 	return { result: output, truncated: false };
 }
+
+/**
+ * Truncate output using dynamic context-window-aware limits.
+ * Preserves first lines as headers and truncates the middle.
+ */
+function truncateDynamic(
+	output: string,
+	maxChars: number,
+): { result: string; truncated: boolean } {
+	if (typeof output !== "string") {
+		return { result: String(output ?? ""), truncated: false };
+	}
+
+	if (output.length <= maxChars) {
+		return { result: output, truncated: false };
+	}
+
+	const lines = output.split("\n");
+
+	// Preserve header lines
+	const headerLines = lines.slice(0, PRESERVE_HEADER_LINES);
+	const headerText = headerLines.join("\n");
+
+	// Budget remaining characters for body
+	const bodyBudget = maxChars - headerText.length - 200; // 200 for truncation message
+	if (bodyBudget <= 0) {
+		return {
+			result: `${headerText}\n\n... [OUTPUT TRUNCATED: Content exceeded dynamic limit of ${maxChars} chars based on context window usage. Use more specific patterns.]`,
+			truncated: true,
+		};
+	}
+
+	const bodyLines = lines.slice(PRESERVE_HEADER_LINES);
+	const bodyText = bodyLines.join("\n");
+
+	if (bodyText.length <= bodyBudget) {
+		return { result: output, truncated: false };
+	}
+
+	const keptBody = bodyText.slice(0, bodyBudget);
+	const droppedChars = bodyText.length - bodyBudget;
+	const droppedTokensEst = estimateTokens(bodyText) - estimateTokens(keptBody);
+
+	return {
+		result: `${headerText}\n${keptBody}\n\n... [DYNAMICALLY TRUNCATED: ~${droppedTokensEst} tokens (~${droppedChars} chars) removed to preserve context window headroom. Use more specific search patterns.]`,
+		truncated: true,
+	};
+}
+
+// ==========================================
+// HELPERS
+// ==========================================
 
 /**
  * Check if output contains Edit error patterns
@@ -131,12 +293,12 @@ function isEmptyTaskResponse(output: string): boolean {
 }
 
 // ==========================================
-// HOOK HANDLER
+// HOOK HANDLERS
 // ==========================================
 
 /**
  * Process tool output for safety: truncation, error recovery, empty detection.
- * Returns true if the output was modified, false otherwise.
+ * Uses static truncation limits.
  */
 export function handleToolOutputSafety(
 	input: { tool: string; args?: unknown },
@@ -144,13 +306,13 @@ export function handleToolOutputSafety(
 ): void {
 	if (typeof output.output !== "string") return;
 
-	// 1. Tool Output Truncation
+	// 1. Tool Output Truncation (static)
 	if (
 		TRUNCATABLE_TOOLS.includes(
 			input.tool as (typeof TRUNCATABLE_TOOLS)[number],
 		)
 	) {
-		const { result, truncated } = truncateOutput(output.output);
+		const { result, truncated } = truncateStatic(output.output);
 		if (truncated) {
 			output.output = result;
 		}
@@ -176,3 +338,74 @@ export function handleToolOutputSafety(
 		}
 	}
 }
+
+/**
+ * Process tool output with dynamic, context-window-aware truncation.
+ * Falls back to static truncation if session usage can't be determined.
+ */
+export async function handleToolOutputSafetyDynamic(
+	input: { tool: string; sessionID: string; args?: unknown },
+	output: { output?: string },
+	client: TokenAwareClient,
+	contextLimit = DEFAULT_CONTEXT_LIMIT,
+): Promise<void> {
+	if (typeof output.output !== "string") return;
+
+	// 1. Dynamic Tool Output Truncation
+	if (
+		TRUNCATABLE_TOOLS.includes(
+			input.tool as (typeof TRUNCATABLE_TOOLS)[number],
+		)
+	) {
+		const usage = await getContextWindowUsage(
+			client,
+			input.sessionID,
+			contextLimit,
+		);
+
+		if (usage) {
+			const dynamicLimit = calculateDynamicLimit(usage);
+			const { result, truncated } = truncateDynamic(
+				output.output,
+				dynamicLimit,
+			);
+			if (truncated) {
+				output.output = result;
+			}
+		} else {
+			// Fallback to static truncation
+			const { result, truncated } = truncateStatic(output.output);
+			if (truncated) {
+				output.output = result;
+			}
+		}
+	}
+
+	// 2. Edit Error Recovery
+	if (input.tool.toLowerCase() === "edit") {
+		if (hasEditError(output.output)) {
+			output.output += EDIT_ERROR_REMINDER;
+		}
+	}
+
+	// 3. Empty Task Response Detector
+	if (input.tool.toLowerCase() === "task") {
+		if (isEmptyTaskResponse(output.output)) {
+			output.output = EMPTY_TASK_WARNING;
+		}
+
+		// 4. Anti-Polling Reminder for Background Tasks
+		const taskArgs = input.args as { background?: boolean } | undefined;
+		if (taskArgs?.background) {
+			output.output = output.output + ANTI_POLLING_REMINDER;
+		}
+	}
+}
+
+// Re-export for dynamic truncation configuration
+export {
+	DEFAULT_CONTEXT_LIMIT,
+	CHARS_PER_TOKEN_ESTIMATE,
+	DEFAULT_MAX_OUTPUT_TOKENS,
+	DYNAMIC_HEADROOM_RATIO,
+};
