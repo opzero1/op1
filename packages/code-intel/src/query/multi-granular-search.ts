@@ -17,6 +17,7 @@ import type { SymbolStore } from "../storage/symbol-store";
 import { createQueryRewriter, type QueryRewriter, type RewrittenQuery } from "./query-rewriter";
 import { createBM25Reranker, createSimpleReranker, type Reranker, type RerankItem } from "./reranker";
 import { createContextCache, generateCacheKey, type ContextCache, type ContextCacheStats } from "./context-cache";
+import { matchesPathFilters } from "./path-filter";
 
 // ============================================================================
 // Types
@@ -500,18 +501,27 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				filePatterns: effectiveFilePatterns,
 			});
 
-			// Vector search
+			// Vector search — over-fetch when path filters active, post-filter below
+			const hasPathFilters = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+			const vectorFetchLimit = hasPathFilters ? limit * 3 : limit * 2;
 			const vectorResults = granularVectors.search(embedding, {
-				limit: limit * 2,
+				limit: vectorFetchLimit,
 				granularity: granularity === "auto" ? undefined : granularity,
 			});
 
 			// Convert to ranked items
 			const ftsRanked = ftsResultsToRanked(ftsResults);
-			const vectorRanked = vectorResultsToRanked(
+			let vectorRanked = vectorResultsToRanked(
 				vectorResults,
 				(id, g) => getContentById(id, g, branch),
 			);
+
+			// Post-filter vector results by path (FTS is already filtered via filePatterns)
+			if (hasPathFilters) {
+				vectorRanked = vectorRanked.filter((r) =>
+					matchesPathFilters(r.file_path, pathPrefix, filePatterns),
+				);
+			}
 
 			// Separate by granularity for weighted fusion
 			const symbolFTS = ftsRanked.filter((r) => r.granularity === "symbol");
@@ -624,22 +634,31 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				fileWeight = 0.3,
 				rrfK = 60,
 				branch,
-				pathPrefix: _pathPrefix,
+				pathPrefix,
+				filePatterns,
 			} = options;
 
-			// TODO: pathPrefix is not supported for vector search — GranularVectorStore.search()
-			// only accepts `limit` and `granularity`. To support pathPrefix here, post-filtering
-			// on file_path would be needed after vector results are resolved to content.
+			// GranularVectorStore.search() only accepts limit + granularity,
+			// so we over-fetch and post-filter by path after resolving content.
+			const hasPathFilters = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+			const fetchLimit = hasPathFilters ? limit * 3 : limit * 2;
 
 			const vectorResults = granularVectors.search(embedding, {
-				limit: limit * 2,
+				limit: fetchLimit,
 				granularity: granularity === "auto" ? undefined : granularity,
 			});
 
-			const vectorRanked = vectorResultsToRanked(
+			let vectorRanked = vectorResultsToRanked(
 				vectorResults,
 				(id, g) => getContentById(id, g, branch),
 			);
+
+			// Post-filter by path when pathPrefix or filePatterns are active
+			if (hasPathFilters) {
+				vectorRanked = vectorRanked.filter((r) =>
+					matchesPathFilters(r.file_path, pathPrefix, filePatterns),
+				);
+			}
 
 			// Separate by granularity
 			const symbolVector = vectorRanked.filter((r) => r.granularity === "symbol");

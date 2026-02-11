@@ -18,6 +18,7 @@ export interface ChunkStore {
 	deleteByBranch(branch: string): number;
 	deleteByParentSymbol(parentSymbolId: string, branch: string): number;
 	count(branch?: string): number;
+	countByChunkType(chunkType: ChunkType, branch: string): number;
 	countByFilePath(filePath: string, branch: string): number;
 	getAll(branch: string, limit?: number): ChunkNode[];
 }
@@ -62,6 +63,10 @@ export function createChunkStore(db: Database): ChunkStore {
 
 	const countByBranchStmt = db.prepare(
 		"SELECT COUNT(*) as count FROM chunks WHERE branch = ?",
+	);
+
+	const countByChunkTypeStmt = db.prepare(
+		"SELECT COUNT(*) as count FROM chunks WHERE chunk_type = ? AND branch = ?",
 	);
 
 	const countByFilePathStmt = db.prepare(
@@ -169,6 +174,11 @@ export function createChunkStore(db: Database): ChunkStore {
 				return result.count;
 			}
 			const result = countStmt.get() as { count: number };
+			return result.count;
+		},
+
+		countByChunkType(chunkType: ChunkType, branch: string): number {
+			const result = countByChunkTypeStmt.get(chunkType, branch) as { count: number };
 			return result.count;
 		},
 

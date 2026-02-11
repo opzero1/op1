@@ -165,6 +165,7 @@ export async function createIndexManager(
 	let batchProcessor: BatchProcessor | null = null;
 	let fileWatcher: FileWatcher | null = null;
 	let currentBranch = "main";
+	let lastFullIndexTime: number | null = null;
 
 	function ensureInitialized(): void {
 		if (state === "uninitialized") {
@@ -398,6 +399,7 @@ export async function createIndexManager(
 			// Save sync cache
 			await syncCache?.save();
 
+			lastFullIndexTime = Date.now();
 			state = "ready";
 		} catch (error) {
 			state = "error";
@@ -512,10 +514,11 @@ export async function createIndexManager(
 			const totalSymbols = symbolStore!.count(currentBranch);
 			const totalEdges = edgeStore!.count(currentBranch);
 
-			// Chunk counts
+			// Chunk counts by type
 			const totalChunks = chunkStore!.count(currentBranch);
-			const symbolChunks = chunkStore!.getByChunkType("symbol", currentBranch, 1).length > 0 
-				? chunkStore!.count(currentBranch) : 0; // Simplified - count all for now
+			const symbolChunks = chunkStore!.countByChunkType("symbol", currentBranch);
+			const blockChunks = chunkStore!.countByChunkType("block", currentBranch);
+			const fileChunks = chunkStore!.countByChunkType("file", currentBranch);
 			
 			// Embedding counts by granularity
 			const symbolEmbeddings = granularVectorStore!.count("symbol");
@@ -545,8 +548,8 @@ export async function createIndexManager(
 				total_chunks: totalChunks,
 				chunk_counts: {
 					symbol: symbolChunks,
-					block: 0, // TODO: count by type
-					file: 0,
+					block: blockChunks,
+					file: fileChunks,
 				},
 				total_embeddings: totalEmbeddings,
 				embedding_counts: {
@@ -554,7 +557,7 @@ export async function createIndexManager(
 					chunk: chunkEmbeddings,
 					file: fileEmbeddings,
 				},
-				last_full_index: null, // TODO: Track this
+				last_full_index: lastFullIndexTime,
 				current_branch: currentBranch,
 				embedding_model_id: EMBEDDING_MODEL_ID,
 				schema_version: SCHEMA_VERSION,
