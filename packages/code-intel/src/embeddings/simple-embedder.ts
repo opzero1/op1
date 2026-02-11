@@ -133,16 +133,14 @@ export async function createAutoEmbedder(): Promise<Embedder> {
 			// Test that it actually works
 			try {
 				await embedder.embed("test");
-				console.log("[code-intel] Using UniXcoder embedder");
 				return embedder;
-			} catch (error) {
-				console.log("[code-intel] UniXcoder failed, using simple embedder:", (error as Error).message);
+			} catch {
+				// UniXcoder failed, fall through to simple embedder
 			}
 		}
 	} catch {
 		// UniXcoder not available
 	}
 
-	console.log("[code-intel] Using simple hash-based embedder");
 	return new SimpleEmbedder();
 }

@@ -236,8 +236,8 @@ export function createFileWatcher(config: FileWatcherConfig): FileWatcher {
 		for (const handler of handlers) {
 			try {
 				handler(batch);
-			} catch (error) {
-				console.error("[file-watcher] Handler error:", error);
+			} catch {
+				// Swallow handler errors to prevent watcher disruption
 			}
 		}
 	}
@@ -293,8 +293,6 @@ export function createFileWatcher(config: FileWatcherConfig): FileWatcher {
 
 			active = true;
 			await watchWithFsEvents();
-
-			console.log(`[file-watcher] Started watching: ${workspaceRoot}`);
 		},
 
 		stop(): void {
@@ -314,8 +312,6 @@ export function createFileWatcher(config: FileWatcherConfig): FileWatcher {
 				(watcher as any).close();
 				watcher = null;
 			}
-
-			console.log("[file-watcher] Stopped");
 		},
 
 		onChanges(handler: (batch: FileChangeBatch) => void): () => void {

@@ -89,8 +89,7 @@ export function createSymbolExtractor(): SymbolExtractor {
 						revision_id: 0,
 					};
 				});
-			} catch (error) {
-				console.error(`[code-intel] Error extracting symbols from ${filePath}:`, error);
+			} catch {
 				return [];
 			}
 		},

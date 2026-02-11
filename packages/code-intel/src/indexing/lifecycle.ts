@@ -152,8 +152,8 @@ export function createLifecycleManager(): LifecycleManager {
 		for (const handler of handlers) {
 			try {
 				handler(state, t);
-			} catch (error) {
-				console.error("[lifecycle] Handler error:", error);
+			} catch {
+				// Swallow handler errors to prevent lifecycle disruption
 			}
 		}
 	}
@@ -237,8 +237,8 @@ export function createLifecycleManager(): LifecycleManager {
 			for (const handler of handlers) {
 				try {
 					handler(state, t);
-				} catch (error) {
-					console.error("[lifecycle] Handler error:", error);
+				} catch {
+					// Swallow handler errors to prevent lifecycle disruption
 				}
 			}
 		},

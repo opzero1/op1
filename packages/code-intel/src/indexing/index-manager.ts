@@ -327,10 +327,9 @@ export async function createIndexManager(
 								granularity: r.granularity,
 							})),
 						);
-					} catch (error) {
-						console.warn(`[code-intel] Failed to generate embeddings for ${filePath}:`, error);
-						// Continue without embeddings - they can be generated later
-					}
+				} catch {
+					// Continue without embeddings - they can be generated later
+				}
 				}
 			}
 
@@ -366,8 +365,6 @@ export async function createIndexManager(
 
 			return symbols;
 		} catch (error) {
-			console.error(`[code-intel] Error indexing ${filePath}:`, error);
-
 			// Mark file as error
 			fileStore.updateStatus(
 				filePath,
@@ -391,17 +388,13 @@ export async function createIndexManager(
 				await indexFileInternal(filePath);
 				indexed++;
 
-				// Log progress every 10 files or at completion
-				if (indexed % 10 === 0 || indexed === files.length) {
-					console.log(`[code-intel] Indexed ${indexed}/${files.length} files`);
-				}
+				// Progress tracked internally — no console output
 			}
 
 			// Save sync cache
 			await syncCache?.save();
 
 			state = "ready";
-			console.log(`[code-intel] Indexing complete: ${indexed} files`);
 		} catch (error) {
 			state = "error";
 			throw error;
@@ -588,19 +581,12 @@ export async function createIndexManager(
 			for (const filePath of changes.added) {
 				await indexFileInternal(filePath);
 				processed++;
-				// Log progress every 10 files or at completion
-				if (processed % 10 === 0 || processed === totalChanges) {
-					console.log(`[code-intel] Indexed ${processed}/${totalChanges} files`);
-				}
 			}
 
 			// Process modified files
 			for (const filePath of changes.modified) {
 				await indexFileInternal(filePath);
 				processed++;
-				if (processed % 10 === 0 || processed === totalChanges) {
-					console.log(`[code-intel] Indexed ${processed}/${totalChanges} files`);
-				}
 			}
 
 			// Process removed files

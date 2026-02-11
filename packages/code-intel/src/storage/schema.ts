@@ -316,9 +316,6 @@ export async function createSchemaManager(
 
 		for (const migration of MIGRATIONS) {
 			if (migration.version > currentVersion) {
-				console.log(
-					`[code-intel] Running migration ${migration.version}: ${migration.description}`,
-				);
 				db.exec(migration.sql);
 				db.prepare(
 					"INSERT OR REPLACE INTO schema_metadata (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",

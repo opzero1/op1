@@ -276,9 +276,7 @@ export async function createHybridVectorStore(db: Database): Promise<HybridVecto
 		`);
 
 		usingSqliteVec = true;
-		console.log("[code-intel] Using sqlite-vec for vector search");
 	} catch {
-		console.log("[code-intel] sqlite-vec not available, using pure JS vector store");
 	}
 
 	// Create pure JS store as fallback or primary
@@ -345,8 +343,7 @@ export async function createHybridVectorStore(db: Database): Promise<HybridVecto
 					distance: row.distance,
 					similarity: 1 - row.distance,
 				}));
-			} catch (error) {
-				console.error("[code-intel] sqlite-vec search error:", error);
+			} catch {
 				return [];
 			}
 		},

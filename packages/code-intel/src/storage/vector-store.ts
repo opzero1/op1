@@ -88,8 +88,7 @@ export function createVectorStore(db: Database): VectorStore {
 					symbol_id: row.symbol_id,
 					distance: row.distance,
 				}));
-			} catch (error) {
-				console.error("[code-intel] Vector search error:", error);
+			} catch {
 				return [];
 			}
 		},

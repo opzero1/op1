@@ -164,9 +164,6 @@ export function createBatchProcessor(
 
 				// Exponential backoff
 				const delay = cfg.retryDelayMs * Math.pow(2, attempt);
-				console.warn(
-					`[batch-processor] Batch failed (attempt ${attempt + 1}/${cfg.maxRetries}): ${lastError.message}. Retrying in ${delay}ms...`,
-				);
 				await sleep(delay);
 			}
 		}
@@ -195,13 +192,9 @@ export function createBatchProcessor(
 					const batchResults = await processBatch(batch);
 					results.push(...batchResults);
 					progress.processed += batch.length;
-				} catch (error) {
+				} catch {
 					// Isolate batch failure - mark items as failed but continue
 					progress.failed += batch.length;
-					console.error(
-						`[batch-processor] Batch ${currentIndex} failed:`,
-						error,
-					);
 				}
 
 				onProgress?.(progress);
