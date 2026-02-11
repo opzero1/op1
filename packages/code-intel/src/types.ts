@@ -291,6 +291,8 @@ export interface QueryResult {
 		keywordHits: number;
 		graphExpansions: number;
 		confidence: "high" | "medium" | "low" | "degraded";
+		/** Whether the result was served from the enhanced search cache */
+		fromCache?: boolean;
 		/** Effective search scope for observability */
 		scope?: {
 			branch: string;

@@ -121,12 +121,20 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 			// Create embedder for query-time embedding generation
 			queryEmbedder = await createAutoEmbedder();
 
-			// SmartQuery needs the database, symbol store, edge store, AND embedder
+			// SmartQuery needs the database, symbol store, edge store, embedder,
+			// and multi-granular stores for enhanced search pipeline
 			smartQuery = createSmartQuery(
 				db,
 				stores.symbols,
 				stores.edges,
-				{ embedder: queryEmbedder },
+				{
+					embedder: queryEmbedder,
+					multiGranular: {
+						chunkStore: stores.chunks,
+						contentFTS: stores.contentFTS,
+						granularVectors: stores.granularVectors,
+					},
+				},
 			);
 
 			impactAnalyzer = createImpactAnalyzer(stores.symbols, stores.edges);

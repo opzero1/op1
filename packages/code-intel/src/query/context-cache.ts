@@ -222,10 +222,12 @@ export function generateCacheKey(params: {
 	granularity?: string;
 	limit?: number;
 	filePatterns?: string[];
+	pathPrefix?: string;
 }): string {
 	const normalized = {
 		q: params.query.toLowerCase().trim(),
 		b: params.branch,
+		p: params.pathPrefix ?? "",
 		g: params.granularity ?? "auto",
 		l: params.limit ?? 50,
 		f: (params.filePatterns ?? []).sort().join(","),

@@ -18,6 +18,10 @@ import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
 import { fuseWithRrf, type FusedResult } from "./rrf-fusion";
 import { createVectorSearcher, type VectorSearcher } from "./vector-search";
 import { createBM25Reranker, type Reranker, type RerankItem } from "./reranker";
+import type { ChunkStore } from "../storage/chunk-store";
+import type { ContentFTSStore } from "../storage/content-fts-store";
+import type { GranularVectorStore } from "../storage/pure-vector-store";
+import { createEnhancedMultiGranularSearch, type EnhancedMultiGranularSearch, type EnhancedSearchResult } from "./multi-granular-search";
 
 // ============================================================================
 // Types
@@ -33,6 +37,12 @@ export interface SmartQueryOptions extends QueryOptions {
 export interface SmartQueryConfig {
 	/** Optional embedder for query-time embedding generation */
 	embedder?: Embedder;
+	/** Optional multi-granular search dependencies (enables enhanced pipeline) */
+	multiGranular?: {
+		chunkStore: ChunkStore;
+		contentFTS: ContentFTSStore;
+		granularVectors: GranularVectorStore;
+	};
 }
 
 export interface SmartQuery {
@@ -68,6 +78,17 @@ export function createSmartQuery(
 	const reranker = createBM25Reranker();
 	const embedder = config?.embedder;
 
+	// Create enhanced multi-granular search if deps available
+	const enhancedSearch: EnhancedMultiGranularSearch | null =
+		config?.multiGranular
+			? createEnhancedMultiGranularSearch({
+					contentFTS: config.multiGranular.contentFTS,
+					granularVectors: config.multiGranular.granularVectors,
+					chunkStore: config.multiGranular.chunkStore,
+					symbolStore,
+				})
+			: null;
+
 	return {
 		async search(options: SmartQueryOptions): Promise<QueryResult> {
 			const startTime = Date.now();
@@ -84,35 +105,91 @@ export function createSmartQuery(
 				return createEmptyResult(startTime, parsedOptions);
 			}
 
-			// Step 1: Parallel retrieval
-			const [vectorResults, keywordResults] = await runParallelRetrieval(
-				vectorSearcher,
-				keywordSearcher,
-				parsedOptions,
-			);
+			// Determine retrieval path: enhanced multi-granular vs simple
+			let hydratedSymbols: SymbolNode[] = [];
+			let vectorHitCount = 0;
+			let keywordHitCount = 0;
 
-			// Step 2: RRF fusion
-			let fusedResults = fuseWithRrf(vectorResults, keywordResults);
+			let useSimplePath = !enhancedSearch || !parsedOptions.embedding || !parsedOptions.queryText;
 
-			// Guard: no results from fusion
-			if (fusedResults.length === 0) {
+			if (!useSimplePath) {
+				try {
+					// Enhanced path: multi-granular search with rewriting, reranking, caching
+					const enhancedResult = enhancedSearch!.searchEnhanced(
+						parsedOptions.queryText!,
+						parsedOptions.embedding!,
+						{
+							branch: parsedOptions.branch,
+							limit: RETRIEVAL_LIMIT,
+							granularity: parsedOptions.granularity ?? "auto",
+							pathPrefix: parsedOptions.pathPrefix ?? undefined,
+							filePatterns: parsedOptions.filePatterns ?? undefined,
+							enableRewriting: true,
+							enableReranking: parsedOptions.rerankMode !== null && parsedOptions.rerankMode !== "none",
+							rerankerType: "bm25",
+							enableCaching: true,
+						},
+					);
+
+					// Bridge: extract symbols from enhanced result
+					hydratedSymbols = enhancedResult.symbols;
+					vectorHitCount = enhancedResult.metadata.vectorHits;
+					keywordHitCount = enhancedResult.metadata.ftsHits;
+
+					// If enhanced didn't produce symbols but has ranked items, hydrate from ranked
+					if (hydratedSymbols.length === 0 && enhancedResult.ranked.length > 0) {
+						for (const ranked of enhancedResult.ranked) {
+							if (ranked.granularity === "symbol") {
+								const sym = symbolStore.getById(ranked.id);
+								if (sym) hydratedSymbols.push(sym);
+							}
+						}
+					}
+				} catch {
+					// Enhanced search failed — fall back to simple path
+					useSimplePath = true;
+				}
+			}
+
+			if (useSimplePath) {
+				// Simple path: parallel vector + keyword retrieval (original behavior)
+				const [vectorResults, keywordResults] = await runParallelRetrieval(
+					vectorSearcher,
+					keywordSearcher,
+					parsedOptions,
+				);
+
+				vectorHitCount = vectorResults.length;
+				keywordHitCount = keywordResults.length;
+
+				// RRF fusion
+				const fusedResults = fuseWithRrf(vectorResults, keywordResults);
+
+				// Guard: no results from fusion
+				if (fusedResults.length === 0) {
+					return createEmptyResult(startTime, parsedOptions);
+				}
+
+				// Hydrate symbols
+				hydratedSymbols = hydrateSymbols(fusedResults, symbolStore);
+
+				// Apply reranking if enabled
+				if (parsedOptions.rerankMode && parsedOptions.rerankMode !== "none" && parsedOptions.queryText) {
+					hydratedSymbols = applyReranking(
+						hydratedSymbols,
+						fusedResults,
+						parsedOptions.queryText,
+						reranker,
+					);
+				}
+			}
+
+			// Guard: no symbols found from either path
+			if (hydratedSymbols.length === 0) {
 				return createEmptyResult(startTime, parsedOptions);
 			}
 
-			// Step 3: Hydrate symbols from fused results
-			let hydratedSymbols = hydrateSymbols(fusedResults, symbolStore);
-
-			// Step 3.5: Apply reranking if enabled
-			if (parsedOptions.rerankMode && parsedOptions.rerankMode !== "none" && parsedOptions.queryText) {
-				hydratedSymbols = applyReranking(
-					hydratedSymbols,
-					fusedResults,
-					parsedOptions.queryText,
-					reranker,
-				);
-			}
-
-			// Step 4: Graph expansion for top results
+			// Step 4: Graph expansion for top results (shared by both paths)
 			const expansionResult = expandGraphForTopSymbols(
 				hydratedSymbols,
 				graphExpander,
@@ -133,10 +210,10 @@ export function createSmartQuery(
 				tokenCount: contextResult.tokenCount,
 				metadata: {
 					queryTime: Date.now() - startTime,
-					vectorHits: vectorResults.length,
-					keywordHits: keywordResults.length,
+					vectorHits: vectorHitCount,
+					keywordHits: keywordHitCount,
 					graphExpansions: expansionResult.expansionCount,
-					confidence: determineConfidence(vectorResults.length, keywordResults.length),
+					confidence: determineConfidence(vectorHitCount, keywordHitCount),
 					scope: {
 						branch: parsedOptions.branch,
 						pathPrefix: parsedOptions.pathPrefix ?? undefined,

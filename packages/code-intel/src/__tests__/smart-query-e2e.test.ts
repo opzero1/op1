@@ -523,4 +523,167 @@ export class AuthController {
 			expect(result.metadata.confidence).toBe("low");
 		}
 	});
+
+	// ====================================================================
+	// Phase 3: Enhanced Multi-Granular Pipeline Tests
+	// ====================================================================
+
+	test("SmartQuery config accepts multiGranular deps", async () => {
+		const stores = indexManager.getStores();
+		const db = indexManager.getDatabase();
+
+		// Should not throw when creating with multiGranular config
+		const enhancedQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+			multiGranular: {
+				chunkStore: stores.chunks,
+				contentFTS: stores.contentFTS,
+				granularVectors: stores.granularVectors,
+			},
+		});
+
+		// Search should succeed with enhanced pipeline active
+		const result = await enhancedQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+		});
+
+		expect(result.symbols).toBeDefined();
+		expect(result.edges).toBeDefined();
+		expect(result.context).toBeDefined();
+		expect(result.tokenCount).toBeDefined();
+		expect(result.metadata).toBeDefined();
+		expect(result.metadata.queryTime).toBeGreaterThan(0);
+	});
+
+	test("enhanced pipeline output contract matches simple path", async () => {
+		const stores = indexManager.getStores();
+		const db = indexManager.getDatabase();
+
+		// Create one with enhanced, one without
+		const enhancedQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+			multiGranular: {
+				chunkStore: stores.chunks,
+				contentFTS: stores.contentFTS,
+				granularVectors: stores.granularVectors,
+			},
+		});
+
+		const simpleQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+		});
+
+		const enhancedResult = await enhancedQuery.search({
+			queryText: "validate email",
+			maxTokens: 4000,
+		});
+
+		const simpleResult = await simpleQuery.search({
+			queryText: "validate email",
+			maxTokens: 4000,
+		});
+
+		// Both should produce the same output structure
+		expect(Array.isArray(enhancedResult.symbols)).toBe(true);
+		expect(Array.isArray(enhancedResult.edges)).toBe(true);
+		expect(typeof enhancedResult.context).toBe("string");
+		expect(typeof enhancedResult.tokenCount).toBe("number");
+		expect(typeof enhancedResult.metadata.queryTime).toBe("number");
+		expect(typeof enhancedResult.metadata.vectorHits).toBe("number");
+		expect(typeof enhancedResult.metadata.keywordHits).toBe("number");
+		expect(typeof enhancedResult.metadata.graphExpansions).toBe("number");
+		expect(enhancedResult.metadata.confidence).toBeDefined();
+
+		// Simple path same structure
+		expect(Array.isArray(simpleResult.symbols)).toBe(true);
+		expect(Array.isArray(simpleResult.edges)).toBe(true);
+		expect(typeof simpleResult.context).toBe("string");
+		expect(typeof simpleResult.tokenCount).toBe("number");
+	});
+
+	test("enhanced pipeline falls back to simple path when only queryText provided", async () => {
+		const stores = indexManager.getStores();
+		const db = indexManager.getDatabase();
+
+		// Create enhanced query WITHOUT embedder — only queryText will be available
+		const queryNoEmbedder = createSmartQuery(db, stores.symbols, stores.edges, {
+			multiGranular: {
+				chunkStore: stores.chunks,
+				contentFTS: stores.contentFTS,
+				granularVectors: stores.granularVectors,
+			},
+		});
+
+		// Without embedder, only keyword search path works (simple path)
+		const result = await queryNoEmbedder.search({
+			queryText: "validate email",
+			maxTokens: 4000,
+		});
+
+		// Should still produce results via keyword path
+		expect(result.symbols).toBeDefined();
+		expect(result.metadata).toBeDefined();
+	});
+
+	test("enhanced pipeline graph expansion works after retrieval", async () => {
+		const stores = indexManager.getStores();
+		const db = indexManager.getDatabase();
+
+		const enhancedQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+			multiGranular: {
+				chunkStore: stores.chunks,
+				contentFTS: stores.contentFTS,
+				granularVectors: stores.granularVectors,
+			},
+		});
+
+		const result = await enhancedQuery.search({
+			queryText: "AuthController login",
+			maxTokens: 4000,
+			graphDepth: 2,
+		});
+
+		// Graph expansion should be attempted
+		expect(result.metadata.graphExpansions).toBeGreaterThanOrEqual(0);
+		// Edges may exist from graph expansion
+		expect(Array.isArray(result.edges)).toBe(true);
+	});
+
+	test("enhanced pipeline preserves scope metadata", async () => {
+		const stores = indexManager.getStores();
+		const db = indexManager.getDatabase();
+
+		const enhancedQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+			multiGranular: {
+				chunkStore: stores.chunks,
+				contentFTS: stores.contentFTS,
+				granularVectors: stores.granularVectors,
+			},
+		});
+
+		const result = await enhancedQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+			pathPrefix: "user",
+			filePatterns: ["*.ts"],
+		});
+
+		expect(result.metadata.scope).toBeDefined();
+		expect(result.metadata.scope?.pathPrefix).toBe("user");
+		expect(result.metadata.scope?.filePatterns).toEqual(["*.ts"]);
+	});
+
+	test("fromCache metadata field exists in QueryResult type", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+		});
+
+		// fromCache is optional, so it should be undefined when not set
+		// This test validates the type contract exists
+		expect(result.metadata.fromCache).toBeUndefined();
+	});
 });

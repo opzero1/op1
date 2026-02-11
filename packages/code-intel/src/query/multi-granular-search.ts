@@ -65,6 +65,8 @@ export interface MultiGranularSearchOptions {
 	rrfK?: number;
 	/** Current branch */
 	branch: string;
+	/** Path prefix for scoping to a project subdirectory (e.g. "packages/core/") */
+	pathPrefix?: string;
 	/** File patterns to filter */
 	filePatterns?: string[];
 }
@@ -261,6 +263,7 @@ export function createEnhancedMultiGranularSearch(
 				granularity,
 				limit,
 				filePatterns,
+				pathPrefix,
 			} = options;
 
 			// Generate cache key
@@ -270,6 +273,7 @@ export function createEnhancedMultiGranularSearch(
 				granularity: granularity ?? "auto",
 				limit,
 				filePatterns,
+				pathPrefix,
 			});
 
 			// Check cache first (if enabled and not skipped)
@@ -481,13 +485,19 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				rrfK = 60,
 				branch,
 				filePatterns,
+				pathPrefix,
 			} = options;
+
+			// Convert pathPrefix to file pattern for FTS filtering
+			const effectiveFilePatterns = pathPrefix
+				? [...(filePatterns ?? []), `${pathPrefix}**`]
+				: filePatterns;
 
 			// FTS search
 			const ftsResults = contentFTS.search(query, {
 				limit: limit * 2,
 				contentType: granularity === "auto" ? undefined : granularity,
-				filePatterns,
+				filePatterns: effectiveFilePatterns,
 			});
 
 			// Vector search
@@ -555,12 +565,18 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				rrfK = 60,
 				branch,
 				filePatterns,
+				pathPrefix,
 			} = options;
+
+			// Convert pathPrefix to file pattern for FTS filtering
+			const effectiveFilePatterns = pathPrefix
+				? [...(filePatterns ?? []), `${pathPrefix}**`]
+				: filePatterns;
 
 			const ftsResults = contentFTS.search(query, {
 				limit: limit * 2,
 				contentType: granularity === "auto" ? undefined : granularity,
-				filePatterns,
+				filePatterns: effectiveFilePatterns,
 			});
 
 			const ftsRanked = ftsResultsToRanked(ftsResults);
@@ -608,7 +624,12 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				fileWeight = 0.3,
 				rrfK = 60,
 				branch,
+				pathPrefix: _pathPrefix,
 			} = options;
+
+			// TODO: pathPrefix is not supported for vector search — GranularVectorStore.search()
+			// only accepts `limit` and `granularity`. To support pathPrefix here, post-filtering
+			// on file_path would be needed after vector results are resolved to content.
 
 			const vectorResults = granularVectors.search(embedding, {
 				limit: limit * 2,
