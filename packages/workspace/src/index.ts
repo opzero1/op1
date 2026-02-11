@@ -28,6 +28,8 @@ import { createCompletionPromiseHook } from "./hooks/completion-promise.js";
 import { createWritePolicyHook } from "./hooks/write-policy.js";
 import { createTaskReminderHook } from "./hooks/task-reminder.js";
 
+import { createWorktreeTools } from "./worktree/index.js";
+
 import {
 	extractMarkdownParts,
 	parsePlanMarkdown,
@@ -163,6 +165,9 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		() => createCompactionHook(compactionDeps),
 		hookConfig,
 	);
+
+	// ── Worktree tools ─────────────────────────────────────
+	const worktreeTools = createWorktreeTools(directory, projectId);
 
 	// ── Build hook map (only include non-null hooks) ───────
 
@@ -528,6 +533,9 @@ To begin implementation:
 					}
 				},
 			}),
+
+			// ── Worktree Tools ──────────────────────────────
+			...worktreeTools,
 
 			notepad_list: tool({
 				description:
