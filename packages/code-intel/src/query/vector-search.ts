@@ -6,6 +6,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { globToLike, LIKE_ESCAPE_CLAUSE, matchesPathFilters } from "./path-filter";
 
 // ============================================================================
 // Types
@@ -24,6 +25,10 @@ export interface VectorSearchOptions {
 	limit?: number;
 	/** Filter results to specific branch */
 	branch?: string;
+	/** Filter results to files under this path prefix (e.g. "packages/core/") */
+	pathPrefix?: string;
+	/** Filter results to files matching these glob patterns (e.g. ["*.ts", "src/**"]) */
+	filePatterns?: string[];
 }
 
 export interface VectorSearcher {
@@ -92,6 +97,8 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 		search(embedding: number[], options?: VectorSearchOptions): VectorSearchMatch[] {
 			const limit = options?.limit ?? DEFAULT_LIMIT;
 			const branch = options?.branch;
+			const pathPrefix = options?.pathPrefix;
+			const filePatterns = options?.filePatterns;
 
 			// Guard: empty embedding returns empty results
 			if (embedding.length === 0) return [];
@@ -99,7 +106,7 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 			// Try sqlite-vec first
 			if (useSqliteVec) {
 				try {
-					return searchWithSqliteVec(db, embedding, limit, branch);
+					return searchWithSqliteVec(db, embedding, limit, branch, pathPrefix, filePatterns);
 				} catch {
 					// Fall through to JS search
 				}
@@ -107,7 +114,7 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 
 			// Use pure JS vector search
 			if (useJsVectors) {
-				return searchWithPureJs(db, embedding, limit, branch);
+				return searchWithPureJs(db, embedding, limit, branch, pathPrefix, filePatterns);
 			}
 
 			// No vector store available
@@ -130,32 +137,60 @@ function searchWithSqliteVec(
 	embedding: number[],
 	limit: number,
 	branch?: string,
+	pathPrefix?: string,
+	filePatterns?: string[],
 ): VectorSearchMatch[] {
 	const blob = serializeEmbedding(embedding);
+	const needsJoin = !!(branch || pathPrefix || filePatterns?.length);
+	// Over-fetch when path filters active since MATCH returns k rows before WHERE filters
+	const fetchLimit = needsJoin ? limit * 3 : limit;
 
-	const query = branch
-		? `
+	let sql: string;
+	const params: (Uint8Array | string | number)[] = [];
+
+	if (needsJoin) {
+		sql = `
 			SELECT v.symbol_id, v.distance
 			FROM vec_symbols v
 			INNER JOIN symbols s ON s.id = v.symbol_id
 			WHERE v.embedding MATCH ?
-			  AND s.branch = ?
-			ORDER BY v.distance
-			LIMIT ?
-		`
-		: `
+		`;
+		params.push(blob);
+
+		if (branch) {
+			sql += ` AND s.branch = ?`;
+			params.push(branch);
+		}
+		if (pathPrefix) {
+			sql += ` AND s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
+			params.push(`${pathPrefix}%`);
+		}
+		if (filePatterns && filePatterns.length > 0) {
+			const conditions = filePatterns.map(() => `s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`).join(" OR ");
+			sql += ` AND (${conditions})`;
+			for (const pattern of filePatterns) {
+				params.push(globToLike(pattern));
+			}
+		}
+
+		sql += ` ORDER BY v.distance LIMIT ?`;
+		params.push(fetchLimit);
+	} else {
+		sql = `
 			SELECT symbol_id, distance
 			FROM vec_symbols
 			WHERE embedding MATCH ?
 			ORDER BY distance
 			LIMIT ?
 		`;
+		params.push(blob, limit);
+	}
 
-	const stmt = db.prepare(query);
-	const args = branch ? [blob, branch, limit] : [blob, limit];
-	const rows = stmt.all(...args) as Array<{ symbol_id: string; distance: number }>;
+	const stmt = db.prepare(sql);
+	const rows = stmt.all(...params) as Array<{ symbol_id: string; distance: number }>;
 
-	return rows.map((row) => ({
+	// Apply actual limit after filtering
+	return rows.slice(0, limit).map((row) => ({
 		symbolId: row.symbol_id,
 		distance: row.distance,
 		similarity: Math.max(0, 1 - row.distance),
@@ -171,6 +206,8 @@ function searchWithPureJs(
 	queryEmbedding: number[],
 	limit: number,
 	branch?: string,
+	pathPrefix?: string,
+	filePatterns?: string[],
 ): VectorSearchMatch[] {
 	// js_vectors contains embeddings for chunks and files, not symbols directly.
 	// We need to:
@@ -205,9 +242,15 @@ function searchWithPureJs(
 	// Compute similarities and map to symbols
 	const results: VectorSearchMatch[] = [];
 	const seenSymbols = new Set<string>();
+	const hasPathFilter = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
 
 	for (const row of rows) {
 		try {
+			// Skip chunks that don't match path filters early (before deserialization)
+			if (hasPathFilter && row.granularity === "chunk" && row.chunk_file_path) {
+				if (!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns)) continue;
+			}
+
 			const storedEmbedding = deserializeEmbedding(row.embedding);
 			const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
 			const distance = 1 - similarity;
@@ -215,7 +258,11 @@ function searchWithPureJs(
 			let symbolId: string | null = null;
 
 			if (row.granularity === "symbol") {
-				// Direct symbol embedding
+				// Direct symbol embedding — look up file_path for path filtering
+				if (hasPathFilter) {
+					const symRow = db.prepare("SELECT file_path FROM symbols WHERE id = ?").get(row.vector_id) as { file_path: string } | null;
+					if (!matchesPathFilters(symRow?.file_path ?? null, pathPrefix, filePatterns)) continue;
+				}
 				symbolId = row.vector_id;
 			} else if (row.granularity === "chunk" && row.chunk_parent_symbol_id) {
 				// Chunk embedding - map to parent symbol

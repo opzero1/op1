@@ -224,6 +224,80 @@ export class AuthController {
 		expect(result.context).toContain("findByEmail");
 	});
 
+	test("smart_query with boolean rerank=true triggers heuristic reranking", async () => {
+		// boolean true should be mapped to "heuristic" internally
+		const result = await smartQuery.search({
+			queryText: "find user by email address",
+			maxTokens: 4000,
+			rerank: "heuristic", // simulates what tools.ts maps `true` to
+		});
+
+		const resultNoRerank = await smartQuery.search({
+			queryText: "find user by email address",
+			maxTokens: 4000,
+			rerank: "none", // simulates what tools.ts maps `false` to
+		});
+
+		// Both should produce results without errors
+		expect(result.symbols.length).toBeGreaterThan(0);
+		expect(resultNoRerank.symbols.length).toBeGreaterThan(0);
+	});
+
+	test("smart_query accepts granularity option without error", async () => {
+		// granularity is forwarded through ParsedQueryOptions but actual multi-granular
+		// pipeline activation is Phase 3. This test ensures the plumbing doesn't crash.
+		for (const granularity of ["auto", "symbol", "chunk", "file"] as const) {
+			const result = await smartQuery.search({
+				queryText: "user service",
+				maxTokens: 4000,
+				granularity,
+			});
+			// Should not throw, should return valid result structure
+			expect(result.symbols).toBeDefined();
+			expect(result.context).toBeDefined();
+			expect(result.metadata).toBeDefined();
+		}
+	});
+
+	test("smart_query accepts pathPrefix option without error", async () => {
+		// pathPrefix is wired through but actual path filtering is Phase 2.
+		// This test ensures the contract accepts it without crashing.
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+			pathPrefix: "src/",
+		});
+
+		expect(result.symbols).toBeDefined();
+		expect(result.context).toBeDefined();
+	});
+
+	test("smart_query accepts filePatterns option without error", async () => {
+		// filePatterns is wired through but actual filtering is Phase 2.
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+			filePatterns: ["*.ts", "src/**/*.tsx"],
+		});
+
+		expect(result.symbols).toBeDefined();
+		expect(result.context).toBeDefined();
+	});
+
+	test("smart_query accepts all new options combined without error", async () => {
+		const result = await smartQuery.search({
+			queryText: "validate email",
+			maxTokens: 4000,
+			rerank: "heuristic",
+			granularity: "symbol",
+			pathPrefix: "packages/",
+			filePatterns: ["*.ts"],
+		});
+
+		expect(result.symbols).toBeDefined();
+		expect(result.metadata).toBeDefined();
+	});
+
 	test("smart_query respects token budget", async () => {
 		const smallBudget = await smartQuery.search({
 			queryText: "user service",
@@ -282,6 +356,150 @@ export class AuthController {
 		// Should expand to find related UserService methods
 		expect(result.symbols.length).toBeGreaterThan(0);
 		expect(result.metadata.graphExpansions).toBeGreaterThanOrEqual(0);
+	});
+
+	// ====================================================================
+	// Phase 2: Scoped Retrieval Tests
+	// ====================================================================
+
+	test("search result metadata includes scope information", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+			pathPrefix: "src/",
+			filePatterns: ["*.ts"],
+		});
+
+		expect(result.metadata.scope).toBeDefined();
+		expect(result.metadata.scope?.branch).toBe("main");
+		expect(result.metadata.scope?.pathPrefix).toBe("src/");
+		expect(result.metadata.scope?.filePatterns).toEqual(["*.ts"]);
+	});
+
+	test("empty result includes scope metadata when options provided", async () => {
+		const result = await smartQuery.search({
+			queryText: "",
+			maxTokens: 4000,
+			pathPrefix: "nonexistent/",
+		});
+
+		expect(result.symbols.length).toBe(0);
+		expect(result.metadata.scope).toBeDefined();
+		expect(result.metadata.scope?.pathPrefix).toBe("nonexistent/");
+	});
+
+	test("scope metadata omits pathPrefix and filePatterns when not specified", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+		});
+
+		expect(result.metadata.scope).toBeDefined();
+		expect(result.metadata.scope?.branch).toBe("main");
+		expect(result.metadata.scope?.pathPrefix).toBeUndefined();
+		expect(result.metadata.scope?.filePatterns).toBeUndefined();
+	});
+
+	test("pathPrefix filters results to matching paths only", async () => {
+		// Files are at the root of tempDir, so pathPrefix "user" should match "user-service.ts"
+		const result = await smartQuery.search({
+			queryText: "validateEmail createUser",
+			maxTokens: 4000,
+			pathPrefix: "user",
+		});
+
+		// All returned symbols should be from paths starting with "user"
+		for (const symbol of result.symbols) {
+			expect(symbol.file_path.startsWith("user")).toBe(true);
+		}
+		// Verify excluded files are NOT present
+		const hasAuthSymbols = result.symbols.some((s) => s.file_path.startsWith("auth-"));
+		expect(hasAuthSymbols).toBe(false);
+	});
+
+	test("pathPrefix that matches no files returns empty results", async () => {
+		const result = await smartQuery.search({
+			queryText: "login signup authentication",
+			maxTokens: 4000,
+			pathPrefix: "does-not-exist/deeply/nested/",
+		});
+
+		expect(result.symbols.length).toBe(0);
+	});
+
+	test("filePatterns filters results to matching file globs", async () => {
+		// "auth-*" should match "auth-controller.ts" but not "user-service.ts"
+		const result = await smartQuery.search({
+			queryText: "login signup",
+			maxTokens: 4000,
+			filePatterns: ["auth-*"],
+		});
+
+		for (const symbol of result.symbols) {
+			expect(symbol.file_path.startsWith("auth-")).toBe(true);
+		}
+		// Verify user-service symbols are NOT present
+		const hasUserSymbols = result.symbols.some((s) => s.file_path.startsWith("user-"));
+		expect(hasUserSymbols).toBe(false);
+	});
+
+	test("combined pathPrefix and filePatterns applies both filters", async () => {
+		// pathPrefix "user" AND filePatterns ["*.ts"] should only match "user-service.ts"
+		const result = await smartQuery.search({
+			queryText: "validateEmail findById findByEmail",
+			maxTokens: 4000,
+			pathPrefix: "user",
+			filePatterns: ["*.ts"],
+		});
+
+		for (const symbol of result.symbols) {
+			expect(symbol.file_path.startsWith("user")).toBe(true);
+			expect(symbol.file_path.endsWith(".ts")).toBe(true);
+		}
+	});
+
+	test("empty pathPrefix is treated as no filter", async () => {
+		const withEmpty = await smartQuery.search({
+			queryText: "validateEmail login",
+			maxTokens: 4000,
+			pathPrefix: "",
+		});
+
+		const withoutFilter = await smartQuery.search({
+			queryText: "validateEmail login",
+			maxTokens: 4000,
+		});
+
+		// Empty string should behave identically to no filter
+		expect(withEmpty.symbols.length).toBe(withoutFilter.symbols.length);
+	});
+
+	test("empty filePatterns array is treated as no filter", async () => {
+		const withEmpty = await smartQuery.search({
+			queryText: "validateEmail login",
+			maxTokens: 4000,
+			filePatterns: [],
+		});
+
+		const withoutFilter = await smartQuery.search({
+			queryText: "validateEmail login",
+			maxTokens: 4000,
+		});
+
+		// Empty array should behave identically to no filter
+		expect(withEmpty.symbols.length).toBe(withoutFilter.symbols.length);
+	});
+
+	test("exact filename in filePatterns matches correctly", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service email",
+			maxTokens: 4000,
+			filePatterns: ["user-service.ts"],
+		});
+
+		for (const symbol of result.symbols) {
+			expect(symbol.file_path).toBe("user-service.ts");
+		}
 	});
 
 	test("empty query returns empty result", async () => {

@@ -263,8 +263,12 @@ export interface QueryOptions {
 	includeRepoMap?: boolean;
 	/** Filter by symbol types */
 	symbolTypes?: SymbolType[];
-	/** Filter by file patterns */
+	/** Search granularity */
+	granularity?: Granularity | "auto";
+	/** Filter by file patterns (glob-style, e.g. ["*.ts", "src/**"]) */
 	filePatterns?: string[];
+	/** Path prefix for scoping to a project subdirectory (e.g. "packages/core/") */
+	pathPrefix?: string;
 	/** Current branch (auto-detected if not set) */
 	branch?: string;
 }
@@ -287,6 +291,12 @@ export interface QueryResult {
 		keywordHits: number;
 		graphExpansions: number;
 		confidence: "high" | "medium" | "low" | "degraded";
+		/** Effective search scope for observability */
+		scope?: {
+			branch: string;
+			pathPrefix?: string;
+			filePatterns?: string[];
+		};
 	};
 }
 

@@ -11,7 +11,7 @@
 import type { Database } from "bun:sqlite";
 import type { EdgeStore } from "../storage/edge-store";
 import type { SymbolStore } from "../storage/symbol-store";
-import type { QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
+import type { Granularity, QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
 import type { Embedder } from "../embeddings";
 import { createGraphExpander, type GraphExpander } from "./graph-expander";
 import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
@@ -81,7 +81,7 @@ export function createSmartQuery(
 
 			// Guard: need at least one search method
 			if (!parsedOptions.embedding && !parsedOptions.queryText) {
-				return createEmptyResult(startTime);
+				return createEmptyResult(startTime, parsedOptions);
 			}
 
 			// Step 1: Parallel retrieval
@@ -96,7 +96,7 @@ export function createSmartQuery(
 
 			// Guard: no results from fusion
 			if (fusedResults.length === 0) {
-				return createEmptyResult(startTime);
+				return createEmptyResult(startTime, parsedOptions);
 			}
 
 			// Step 3: Hydrate symbols from fused results
@@ -137,6 +137,11 @@ export function createSmartQuery(
 					keywordHits: keywordResults.length,
 					graphExpansions: expansionResult.expansionCount,
 					confidence: determineConfidence(vectorResults.length, keywordResults.length),
+					scope: {
+						branch: parsedOptions.branch,
+						pathPrefix: parsedOptions.pathPrefix ?? undefined,
+						filePatterns: parsedOptions.filePatterns ?? undefined,
+					},
 				},
 			};
 		},
@@ -157,6 +162,9 @@ interface ParsedQueryOptions {
 	confidenceThreshold: number;
 	symbolTypes: SymbolType[] | null;
 	rerankMode: RerankMode | null;
+	granularity: Granularity | "auto" | null;
+	pathPrefix: string | null;
+	filePatterns: string[] | null;
 }
 
 function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
@@ -170,6 +178,9 @@ function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
 		confidenceThreshold: options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
 		symbolTypes: options.symbolTypes ?? null,
 		rerankMode: options.rerank ?? null,
+		granularity: options.granularity ?? null,
+		pathPrefix: options.pathPrefix?.trim() || null,
+		filePatterns: options.filePatterns ?? null,
 	};
 }
 
@@ -187,6 +198,8 @@ async function runParallelRetrieval(
 				vectorSearcher.search(options.embedding, {
 					limit: RETRIEVAL_LIMIT,
 					branch: options.branch,
+					pathPrefix: options.pathPrefix ?? undefined,
+					filePatterns: options.filePatterns ?? undefined,
 				}),
 			)
 		: Promise.resolve([]);
@@ -195,6 +208,8 @@ async function runParallelRetrieval(
 		? Promise.resolve(
 				keywordSearcher.search(options.queryText, {
 					limit: RETRIEVAL_LIMIT,
+					pathPrefix: options.pathPrefix ?? undefined,
+					filePatterns: options.filePatterns ?? undefined,
 				}),
 			)
 		: Promise.resolve([]);
@@ -438,7 +453,7 @@ function truncateToTokens(text: string, maxTokens: number): string {
 // Result Helpers
 // ============================================================================
 
-function createEmptyResult(startTime: number): QueryResult {
+function createEmptyResult(startTime: number, options?: ParsedQueryOptions): QueryResult {
 	return {
 		symbols: [],
 		edges: [],
@@ -450,6 +465,11 @@ function createEmptyResult(startTime: number): QueryResult {
 			keywordHits: 0,
 			graphExpansions: 0,
 			confidence: "low",
+			scope: options ? {
+				branch: options.branch,
+				pathPrefix: options.pathPrefix ?? undefined,
+				filePatterns: options.filePatterns ?? undefined,
+			} : undefined,
 		},
 	};
 }

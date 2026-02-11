@@ -5,6 +5,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { globToLike, LIKE_ESCAPE_CLAUSE } from "./path-filter";
 
 // ============================================================================
 // Types
@@ -26,6 +27,10 @@ export interface KeywordSearchOptions {
 	limit?: number;
 	/** Boost factor for exact symbol name matches (default: 2.0) */
 	exactNameBoost?: number;
+	/** Filter results to files under this path prefix (e.g. "packages/core/") */
+	pathPrefix?: string;
+	/** Filter results to files matching these glob patterns (e.g. ["*.ts", "src/**"]) */
+	filePatterns?: string[];
 }
 
 export interface KeywordSearcher {
@@ -53,7 +58,13 @@ export function createKeywordSearcher(db: Database): KeywordSearcher {
 			const escapedQuery = escapeQueryForFts5(query);
 			if (!escapedQuery) return [];
 
-			const rawResults = executeKeywordSearch(db, escapedQuery, limit * 2);
+			const rawResults = executeKeywordSearch(
+				db,
+				escapedQuery,
+				limit * 2,
+				options?.pathPrefix,
+				options?.filePatterns,
+			);
 			if (rawResults.length === 0) return [];
 
 			const boostedResults = applyExactNameBoost(rawResults, query, exactNameBoost);
@@ -85,8 +96,10 @@ function executeKeywordSearch(
 	db: Database,
 	escapedQuery: string,
 	limit: number,
+	pathPrefix?: string,
+	filePatterns?: string[],
 ): RawFtsResult[] {
-	const searchStmt = db.prepare(`
+	let sql = `
 		SELECT 
 			symbol_id,
 			name,
@@ -95,12 +108,29 @@ function executeKeywordSearch(
 			bm25(fts_symbols) as rank
 		FROM fts_symbols
 		WHERE fts_symbols MATCH ?
-		ORDER BY rank
-		LIMIT ?
-	`);
+	`;
+	const params: (string | number)[] = [escapedQuery];
+
+	if (pathPrefix) {
+		sql += ` AND file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
+		params.push(`${pathPrefix}%`);
+	}
+
+	if (filePatterns && filePatterns.length > 0) {
+		const likeConditions = filePatterns.map(() => `file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`).join(" OR ");
+		sql += ` AND (${likeConditions})`;
+		for (const pattern of filePatterns) {
+			params.push(globToLike(pattern));
+		}
+	}
+
+	sql += ` ORDER BY rank LIMIT ?`;
+	params.push(limit);
+
+	const searchStmt = db.prepare(sql);
 
 	try {
-		return searchStmt.all(escapedQuery, limit) as RawFtsResult[];
+		return searchStmt.all(...params) as RawFtsResult[];
 	} catch {
 		// FTS5 query syntax error - return empty
 		return [];

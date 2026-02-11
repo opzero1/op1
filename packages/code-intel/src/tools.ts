@@ -138,6 +138,10 @@ interface SmartQueryArgs {
 	granularity?: "auto" | "symbol" | "chunk" | "file";
 	/** Enable reranking for improved precision */
 	rerank?: boolean;
+	/** Path prefix for scoping to a project subdirectory (e.g. "packages/core/") */
+	pathPrefix?: string;
+	/** File patterns to filter results (glob-style, e.g. ["*.ts", "src/**"]) */
+	filePatterns?: string[];
 }
 
 interface SymbolImpactArgs {
@@ -189,6 +193,14 @@ export const smart_query: ToolDefinition = tool({
 			.boolean()
 			.optional()
 			.describe("Enable reranking for improved precision (adds ~50-100ms latency)"),
+		pathPrefix: tool.schema
+			.string()
+			.optional()
+			.describe("Path prefix for scoping search to a subdirectory (e.g. 'packages/core/' or 'src/')"),
+		filePatterns: tool.schema
+			.array(tool.schema.string())
+			.optional()
+			.describe("File patterns to filter results (glob-style, e.g. ['*.ts', 'src/**/*.tsx'])"),
 	},
 	execute: async (args: SmartQueryArgs) => {
 		try {
@@ -209,6 +221,10 @@ export const smart_query: ToolDefinition = tool({
 				maxTokens: args.maxTokens ?? 8000,
 				graphDepth: args.graphDepth ?? 2,
 				symbolTypes: args.symbolTypes as SymbolType[] | undefined,
+				granularity: args.granularity,
+				rerank: args.rerank === true ? "heuristic" : args.rerank === false ? "none" : undefined,
+				pathPrefix: args.pathPrefix,
+				filePatterns: args.filePatterns,
 			});
 
 			if (result.symbols.length === 0) {
