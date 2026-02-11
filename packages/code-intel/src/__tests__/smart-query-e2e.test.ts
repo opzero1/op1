@@ -830,4 +830,101 @@ export class AuthController {
 			expect(diagUniqueFiles).toBeGreaterThanOrEqual(1);
 		}
 	});
+
+	// ====================================================================
+	// Phase 5: Multi-Project Disambiguation & Performance
+	// ====================================================================
+
+	test("multi-project disambiguation: pathPrefix isolates results to scoped directory", async () => {
+		// Search for common term that exists in multiple "projects"
+		const allResults = await smartQuery.search({
+			queryText: "validateEmail findById",
+			maxTokens: 4000,
+		});
+
+		const scopedResults = await smartQuery.search({
+			queryText: "validateEmail findById",
+			maxTokens: 4000,
+			pathPrefix: "user",
+		});
+
+		// Scoped results should be a subset of (or equal to) all results  
+		expect(scopedResults.symbols.length).toBeLessThanOrEqual(allResults.symbols.length);
+		
+		// All scoped results should match the path prefix
+		for (const sym of scopedResults.symbols) {
+			expect(sym.file_path.startsWith("user")).toBe(true);
+		}
+	});
+
+	test("multi-project disambiguation: filePatterns isolate by file type", async () => {
+		const tsResults = await smartQuery.search({
+			queryText: "validate login user",
+			maxTokens: 4000,
+			filePatterns: ["*.ts"],
+		});
+
+		for (const sym of tsResults.symbols) {
+			expect(sym.file_path.endsWith(".ts")).toBe(true);
+		}
+	});
+
+	test("query time is within acceptable bounds", async () => {
+		const result = await smartQuery.search({
+			queryText: "validateEmail AuthController login user service",
+			maxTokens: 8000,
+			graphDepth: 2,
+			rerank: "heuristic",
+		});
+
+		// Query should complete within 2 seconds even with reranking and graph expansion
+		expect(result.metadata.queryTime).toBeLessThan(2000);
+	});
+
+	test("candidate expansion is bounded by MAX_RETRIEVAL_LIMIT", async () => {
+		// Even with a very complex query and large budget, candidate limit should be bounded
+		const result = await smartQuery.search({
+			queryText: "how does the authentication controller validate email addresses and create user sessions with JWT tokens in the middleware pipeline",
+			maxTokens: 64000,
+			pathPrefix: "user",
+		});
+
+		// candidateLimit should never exceed 50 (MAX_RETRIEVAL_LIMIT)
+		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(50);
+		expect(result.metadata.candidateLimit).toBeGreaterThanOrEqual(10);
+	});
+
+	test("graph expansion count is bounded", async () => {
+		const result = await smartQuery.search({
+			queryText: "validateEmail login AuthController",
+			maxTokens: 4000,
+			graphDepth: 3,
+		});
+
+		// Graph expansions should not exceed 2 * top_5_symbols = 10
+		// (5 symbols * 2 directions = callers + callees)
+		expect(result.metadata.graphExpansions).toBeLessThanOrEqual(10);
+	});
+
+	test("metadata contains all Phase 4 fields after search", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service login",
+			maxTokens: 4000,
+		});
+
+		// Phase 4 additions
+		expect(result.metadata.candidateLimit).toBeDefined();
+		expect(result.metadata.confidenceDiagnostics).toBeDefined();
+		
+		// Phase 2 additions  
+		expect(result.metadata.scope).toBeDefined();
+		expect(result.metadata.scope?.branch).toBeDefined();
+		
+		// Original fields
+		expect(typeof result.metadata.queryTime).toBe("number");
+		expect(typeof result.metadata.vectorHits).toBe("number");
+		expect(typeof result.metadata.keywordHits).toBe("number");
+		expect(typeof result.metadata.graphExpansions).toBe("number");
+		expect(typeof result.metadata.confidence).toBe("string");
+	});
 });
