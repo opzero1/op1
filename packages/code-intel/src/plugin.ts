@@ -47,6 +47,49 @@ import { createAutoEmbedder, type Embedder } from "./embeddings";
 export const CodeIntelPlugin: Plugin = async (ctx) => {
 	const { directory } = ctx;
 
+	// Toast helper — throttled to prevent spam
+	const client = ctx.client as unknown as {
+		tui?: { showToast?: (opts: { body: { title?: string; message: string; variant: string; duration?: number } }) => Promise<unknown> };
+	};
+	let lastToastTime = 0;
+	const TOAST_THROTTLE_MS = 2500;
+
+	function showToast(title: string, message: string, variant: "info" | "success" | "warning" | "error" = "info", duration?: number) {
+		try {
+			client.tui?.showToast?.({ body: { title, message, variant, duration } })?.catch(() => {});
+		} catch {
+			// TUI not available — ignore
+		}
+	}
+
+	function showThrottledToast(title: string, message: string, variant: "info" | "success" | "warning" | "error" = "info") {
+		const now = Date.now();
+		if (now - lastToastTime < TOAST_THROTTLE_MS) return;
+		lastToastTime = now;
+		showToast(title, message, variant);
+	}
+
+	// Progress callback for index manager
+	const onProgress = (current: number, total: number, phase: string) => {
+		if (total === 0) return;
+		if (current === 0) {
+			// Always show start
+			lastToastTime = 0;
+			const label = phase === "refreshing" ? "Refreshing index" : "Building index";
+			showToast("Code Intel", `${label}... (${total} files)`, "info");
+			return;
+		}
+		if (current >= total) {
+			// Always show completion
+			const label = phase === "refreshing" ? "Index refreshed" : "Index built";
+			showToast("Code Intel", `${label} — ${total} files`, "success", 3000);
+			return;
+		}
+		// Throttled progress updates
+		const pct = Math.round((current / total) * 100);
+		showThrottledToast("Code Intel", `${phase === "refreshing" ? "Refreshing" : "Indexing"}... ${pct}% (${current}/${total})`, "info");
+	};
+
 	// Lazy initialization - only initialize when first tool is used
 	let indexManager: IndexManager | null = null;
 	let smartQuery: SmartQuery | null = null;
@@ -67,6 +110,7 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 			// Create and initialize index manager
 			indexManager = await createIndexManager({
 				workspaceRoot: directory,
+				onProgress,
 			});
 			await indexManager.initialize();
 

@@ -110,12 +110,14 @@ export interface IndexManager {
 export interface IndexManagerConfig {
 	workspaceRoot: string;
 	config?: Partial<CodeIntelConfig>;
+	/** Optional progress callback for indexing operations */
+	onProgress?: (current: number, total: number, phase: string) => void;
 }
 
 export async function createIndexManager(
 	options: IndexManagerConfig,
 ): Promise<IndexManager> {
-	const { workspaceRoot } = options;
+	const { workspaceRoot, onProgress } = options;
 	const config: CodeIntelConfig = {
 		dbPath: ".opencode/code-intel/index.db",
 		cachePath: ".opencode/code-intel/cache.json",
@@ -383,12 +385,14 @@ export async function createIndexManager(
 		try {
 			const files = await collectFiles();
 			let indexed = 0;
+			const total = files.length;
+
+			onProgress?.(0, total, "indexing");
 
 			for (const filePath of files) {
 				await indexFileInternal(filePath);
 				indexed++;
-
-				// Progress tracked internally — no console output
+				onProgress?.(indexed, total, "indexing");
 			}
 
 			// Save sync cache
@@ -574,19 +578,23 @@ export async function createIndexManager(
 			const files = await collectFiles();
 			const changes = await syncCache!.findChangedFiles(files);
 			
-			const totalChanges = changes.added.length + changes.modified.length;
+			const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
 			let processed = 0;
+
+			onProgress?.(0, totalChanges, "refreshing");
 
 			// Process added files
 			for (const filePath of changes.added) {
 				await indexFileInternal(filePath);
 				processed++;
+				onProgress?.(processed, totalChanges, "refreshing");
 			}
 
 			// Process modified files
 			for (const filePath of changes.modified) {
 				await indexFileInternal(filePath);
 				processed++;
+				onProgress?.(processed, totalChanges, "refreshing");
 			}
 
 			// Process removed files
