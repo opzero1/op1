@@ -22,6 +22,7 @@ function createMockMcp(id: string, toolPattern: string, agentAccess: string[]): 
 const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
 	notify: false,
 	workspace: false,
+	codeIntel: false,
 	astGrep: false,
 	lsp: false,
 	semanticSearch: false,
@@ -31,6 +32,7 @@ const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
 const ENABLED_PLUGIN_CHOICES: PluginChoice = {
 	notify: true,
 	workspace: true,
+	codeIntel: false,
 	astGrep: false,
 	lsp: false,
 	semanticSearch: false,

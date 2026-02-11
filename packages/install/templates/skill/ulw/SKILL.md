@@ -85,6 +85,13 @@ batch([read(5 files), grep(3 patterns), glob(2 paths)])
 
 **Priority**: Batch tools FIRST when possible. Spawn agents SECOND for cognitive tasks.
 
+### Momentum & Completion Promise
+
+The `@op1/workspace` plugin provides automatic momentum:
+- **Momentum**: If plan tasks remain unfinished, continuation prompts fire automatically — keep working
+- **Completion tracking**: Work is tracked with iteration counts. Output `<done>COMPLETE</done>` when truly finished
+- **Don't fight it**: The system expects you to keep going until all plan tasks are `[x]` checked
+
 ### Verification Loop
 - Re-read original request after completion
 - Check ALL requirements met before reporting done

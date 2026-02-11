@@ -128,6 +128,16 @@ Your deliverable is a comprehensive, well-researched plan that:
 - Tracked in `.opencode/workspace/active-plan.json`
 - Accessible across sessions for all agents
 
+## Momentum Awareness
+
+After plan approval and save, the build agent receives **momentum prompts** from `@op1/workspace`:
+
+- Unfinished plan tasks trigger automatic continuation prompts
+- The build agent will keep working through phases without stopping
+- Plan progress is tracked via `[x]` checkboxes — status auto-calculates
+
+**Your job**: Create plans with clear, atomic tasks so momentum works effectively. Each task should be independently completable and verifiable.
+
 ## Completion Protocol
 
 **After plan is finalized and approved:**

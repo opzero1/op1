@@ -196,5 +196,18 @@
 	"compaction": {
 		"auto": true,
 		"prune": true
-	}
+	},
+
+	// =============================================
+	// WORKTREE ISOLATION (via @op1/workspace)
+	// =============================================
+	// Git worktree tools for parallel task isolation.
+	// Each worktree gets its own branch and terminal session.
+	// Usage: worktree_create, worktree_list, worktree_delete tools
+	//
+	// "worktree": {
+	//   "basePath": ".worktrees",      // relative to git root
+	//   "autoSnapshot": true,          // commit before delete
+	//   "terminal": "auto"             // auto | tmux | iterm | ghostty | warp | terminal
+	// }
 }

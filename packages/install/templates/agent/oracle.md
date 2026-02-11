@@ -38,6 +38,20 @@ skill("skill-creator")      # When designing new skills
 | Performance optimization strategy | Oracle FIRST, then implement |
 | Security-sensitive design | Oracle FIRST, then implement |
 
+## Code Intelligence Tools
+
+Oracle has access to code-intel tools for deep analysis during consultation:
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `smart_query` | Hybrid semantic + keyword search | Find relevant code by natural language |
+| `symbol_search` | Find symbols by name pattern | Locate functions, classes, types |
+| `call_graph` | Caller/callee relationships | Understand execution flow |
+| `symbol_impact` | Change impact analysis | Assess risk of modifications |
+| `repo_map` | File importance by PageRank | Identify critical files |
+
+Use these tools to ground your analysis in actual code rather than speculation.
+
 ## When NOT to Consult
 
 - Simple CRUD operations

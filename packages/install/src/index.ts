@@ -219,6 +219,7 @@ interface InstallOptions {
 interface PluginChoice {
 	notify: boolean;
 	workspace: boolean;
+	codeIntel: boolean;
 	astGrep: boolean;
 	lsp: boolean;
 	semanticSearch: boolean;
@@ -386,9 +387,38 @@ function mergeConfig(
 		if (originalConfig.tools && !base.tools) {
 			base.tools = { ...originalConfig.tools };
 		}
-		// Preserve existing agent config
+		// Preserve existing agent config (deep-merge per-agent properties)
 		if (originalConfig.agent && !base.agent) {
-			base.agent = { ...originalConfig.agent };
+			base.agent = {};
+			for (const [agentName, agentConf] of Object.entries(originalConfig.agent)) {
+				base.agent[agentName] = {
+					...agentConf,
+					tools: agentConf.tools ? { ...agentConf.tools } : undefined,
+				};
+			}
+		} else if (originalConfig.agent && base.agent) {
+			// Deep-merge: preserve original agent settings not already in base
+			for (const [agentName, agentConf] of Object.entries(originalConfig.agent)) {
+				if (!base.agent[agentName]) {
+					base.agent[agentName] = {
+						...agentConf,
+						tools: agentConf.tools ? { ...agentConf.tools } : undefined,
+					};
+				} else {
+					// Merge individual properties (model, temperature, etc.)
+					for (const [key, value] of Object.entries(agentConf)) {
+						if (key === "tools") {
+							// Deep-merge tools
+							base.agent[agentName].tools = {
+								...(agentConf.tools || {}),
+								...(base.agent[agentName].tools || {}),
+							};
+						} else if (base.agent[agentName][key] === undefined) {
+							base.agent[agentName][key] = value;
+						}
+					}
+				}
+			}
 		}
 		// Preserve model settings
 		if (originalConfig.model && !base.model) {
@@ -418,6 +448,9 @@ function mergeConfig(
 	}
 	if (pluginChoices.workspace && !existingPlugins.includes("@op1/workspace")) {
 		newPlugins.push("@op1/workspace");
+	}
+	if (pluginChoices.codeIntel && !existingPlugins.includes("@op1/code-intel")) {
+		newPlugins.push("@op1/code-intel");
 	}
 	if (pluginChoices.astGrep && !existingPlugins.includes("@op1/ast-grep")) {
 		newPlugins.push("@op1/ast-grep");
@@ -690,7 +723,7 @@ export async function main() {
 	};
 
 	// Plugin selection - workspace is always included, others optional
-	let pluginChoices: PluginChoice = { notify: false, workspace: true, astGrep: false, lsp: false, semanticSearch: false, codeGraph: false };
+	let pluginChoices: PluginChoice = { notify: false, workspace: true, codeIntel: false, astGrep: false, lsp: false, semanticSearch: false, codeGraph: false };
 	if (options.plugins) {
 		const wantNotify = await p.confirm({
 			message: "Enable desktop notifications? (sounds, focus detection, quiet hours)",
@@ -699,6 +732,15 @@ export async function main() {
 
 		if (!p.isCancel(wantNotify)) {
 			pluginChoices.notify = wantNotify;
+		}
+
+		const wantCodeIntel = await p.confirm({
+			message: "Enable code-intel? (hybrid semantic search, symbol graphs, call analysis — recommended)",
+			initialValue: true,
+		});
+
+		if (!p.isCancel(wantCodeIntel)) {
+			pluginChoices.codeIntel = wantCodeIntel;
 		}
 
 		const wantAstGrep = await p.confirm({
@@ -719,22 +761,25 @@ export async function main() {
 			pluginChoices.lsp = wantLsp;
 		}
 
-		const wantSemanticSearch = await p.confirm({
-			message: "Enable semantic search? (natural language code search with embeddings)",
-			initialValue: true,
-		});
+		// Only offer deprecated plugins if code-intel was not selected
+		if (!pluginChoices.codeIntel) {
+			const wantSemanticSearch = await p.confirm({
+				message: "Enable semantic search? (deprecated — use code-intel instead)",
+				initialValue: false,
+			});
 
-		if (!p.isCancel(wantSemanticSearch)) {
-			pluginChoices.semanticSearch = wantSemanticSearch;
-		}
+			if (!p.isCancel(wantSemanticSearch)) {
+				pluginChoices.semanticSearch = wantSemanticSearch;
+			}
 
-		const wantCodeGraph = await p.confirm({
-			message: "Enable code graph? (dependency analysis, impact assessment)",
-			initialValue: true,
-		});
+			const wantCodeGraph = await p.confirm({
+				message: "Enable code graph? (deprecated — use code-intel instead)",
+				initialValue: false,
+			});
 
-		if (!p.isCancel(wantCodeGraph)) {
-			pluginChoices.codeGraph = wantCodeGraph;
+			if (!p.isCancel(wantCodeGraph)) {
+				pluginChoices.codeGraph = wantCodeGraph;
+			}
 		}
 	}
 
