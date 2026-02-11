@@ -60,6 +60,17 @@ Before searching, analyze the request:
 smart_query(query="authentication middleware", maxTokens=8000)
 ```
 
+**Scope to a project/directory** in multi-project workspaces:
+```
+smart_query(query="auth middleware", pathPrefix="packages/api/", maxTokens=8000)
+smart_query(query="React components", filePatterns=["*.tsx"], maxTokens=8000)
+```
+
+**Use rerank for precision-critical searches:**
+```
+smart_query(query="database connection pool cleanup", rerank=true)
+```
+
 **Use Symbol Search** for known symbol names:
 ```
 symbol_search(query="validateToken", symbolType="FUNCTION")
@@ -159,6 +170,13 @@ smart_query(query="authentication login middleware", maxTokens=8000)
 grep(pattern="authenticate|auth|login", include="*.ts")
 ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
 call_graph(symbolName="authenticate", direction="callers")
+```
+
+**Good Request:** "Find auth in the API package only"
+```
+// Scoped search to avoid cross-project noise
+smart_query(query="authentication middleware", pathPrefix="packages/api/", rerank=true)
+grep(pattern="authenticate|auth", include="*.ts", path="packages/api")
 ```
 
 **Good Request:** "Find all usages of validateUser function"
