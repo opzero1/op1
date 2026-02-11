@@ -299,7 +299,27 @@ export interface QueryResult {
 			pathPrefix?: string;
 			filePatterns?: string[];
 		};
+		/** Confidence diagnostics — multi-signal breakdown for tuning */
+		confidenceDiagnostics?: ConfidenceDiagnostics;
+		/** Candidate sizing used for this query */
+		candidateLimit?: number;
 	};
+}
+
+/** Multi-signal confidence breakdown for observability and tuning */
+export interface ConfidenceDiagnostics {
+	/** Do both vector and keyword channels agree on top results? */
+	retrievalAgreement: number;
+	/** How spread out are the RRF scores? Higher = more decisive ranking */
+	scoreSpread: number;
+	/** What fraction of results come from the same directory? Higher = more focused */
+	scopeConcentration: number;
+	/** How many unique files are represented in the results? */
+	uniqueFiles: number;
+	/** Total candidate count before filtering */
+	totalCandidates: number;
+	/** Tier explanation for debugging */
+	tierReason: string;
 }
 
 // ============================================================================

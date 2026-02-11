@@ -11,7 +11,7 @@
 import type { Database } from "bun:sqlite";
 import type { EdgeStore } from "../storage/edge-store";
 import type { SymbolStore } from "../storage/symbol-store";
-import type { Granularity, QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
+import type { ConfidenceDiagnostics, Granularity, QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
 import type { Embedder } from "../embeddings";
 import { createGraphExpander, type GraphExpander } from "./graph-expander";
 import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
@@ -57,7 +57,13 @@ const DEFAULT_MAX_TOKENS = 8000;
 const DEFAULT_GRAPH_DEPTH = 2;
 const DEFAULT_MAX_FAN_OUT = 10;
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
-const RETRIEVAL_LIMIT = 20;
+
+/** Base retrieval limit — overridden by adaptive sizing */
+const BASE_RETRIEVAL_LIMIT = 20;
+/** Minimum candidates to fetch per channel */
+const MIN_RETRIEVAL_LIMIT = 10;
+/** Maximum candidates to fetch per channel (latency guard) */
+const MAX_RETRIEVAL_LIMIT = 50;
 
 // Rough token estimation: ~4 chars per token
 const CHARS_PER_TOKEN = 4;
@@ -105,10 +111,14 @@ export function createSmartQuery(
 				return createEmptyResult(startTime, parsedOptions);
 			}
 
+			// Adaptive candidate sizing based on query complexity
+			const retrievalLimit = computeAdaptiveLimit(parsedOptions);
+
 			// Determine retrieval path: enhanced multi-granular vs simple
 			let hydratedSymbols: SymbolNode[] = [];
 			let vectorHitCount = 0;
 			let keywordHitCount = 0;
+			let fusedResults: FusedResult[] = [];
 
 			let useSimplePath = !enhancedSearch || !parsedOptions.embedding || !parsedOptions.queryText;
 
@@ -120,7 +130,7 @@ export function createSmartQuery(
 						parsedOptions.embedding!,
 						{
 							branch: parsedOptions.branch,
-							limit: RETRIEVAL_LIMIT,
+							limit: retrievalLimit,
 							granularity: parsedOptions.granularity ?? "auto",
 							pathPrefix: parsedOptions.pathPrefix ?? undefined,
 							filePatterns: parsedOptions.filePatterns ?? undefined,
@@ -157,13 +167,14 @@ export function createSmartQuery(
 					vectorSearcher,
 					keywordSearcher,
 					parsedOptions,
+					retrievalLimit,
 				);
 
 				vectorHitCount = vectorResults.length;
 				keywordHitCount = keywordResults.length;
 
 				// RRF fusion
-				const fusedResults = fuseWithRrf(vectorResults, keywordResults);
+				fusedResults = fuseWithRrf(vectorResults, keywordResults);
 
 				// Guard: no results from fusion
 				if (fusedResults.length === 0) {
@@ -203,6 +214,14 @@ export function createSmartQuery(
 				parsedOptions.maxTokens,
 			);
 
+			// Multi-signal confidence scoring
+			const confidenceResult = computeMultiSignalConfidence(
+				vectorHitCount,
+				keywordHitCount,
+				hydratedSymbols,
+				fusedResults,
+			);
+
 			return {
 				symbols: contextResult.symbols,
 				edges: expansionResult.edges,
@@ -213,7 +232,9 @@ export function createSmartQuery(
 					vectorHits: vectorHitCount,
 					keywordHits: keywordHitCount,
 					graphExpansions: expansionResult.expansionCount,
-					confidence: determineConfidence(vectorHitCount, keywordHitCount),
+					confidence: confidenceResult.tier,
+					confidenceDiagnostics: confidenceResult.diagnostics,
+					candidateLimit: retrievalLimit,
 					scope: {
 						branch: parsedOptions.branch,
 						pathPrefix: parsedOptions.pathPrefix ?? undefined,
@@ -269,11 +290,12 @@ async function runParallelRetrieval(
 	vectorSearcher: VectorSearcher,
 	keywordSearcher: KeywordSearcher,
 	options: ParsedQueryOptions,
+	retrievalLimit: number,
 ): Promise<[Array<{ symbolId: string }>, Array<{ symbolId: string }>]> {
 	const vectorPromise = options.embedding
 		? Promise.resolve(
 				vectorSearcher.search(options.embedding, {
-					limit: RETRIEVAL_LIMIT,
+					limit: retrievalLimit,
 					branch: options.branch,
 					pathPrefix: options.pathPrefix ?? undefined,
 					filePatterns: options.filePatterns ?? undefined,
@@ -284,7 +306,7 @@ async function runParallelRetrieval(
 	const keywordPromise = options.queryText
 		? Promise.resolve(
 				keywordSearcher.search(options.queryText, {
-					limit: RETRIEVAL_LIMIT,
+					limit: retrievalLimit,
 					pathPrefix: options.pathPrefix ?? undefined,
 					filePatterns: options.filePatterns ?? undefined,
 				}),
@@ -542,6 +564,15 @@ function createEmptyResult(startTime: number, options?: ParsedQueryOptions): Que
 			keywordHits: 0,
 			graphExpansions: 0,
 			confidence: "low",
+			confidenceDiagnostics: {
+				retrievalAgreement: 0,
+				scoreSpread: 0,
+				scopeConcentration: 0,
+				uniqueFiles: 0,
+				totalCandidates: 0,
+				tierReason: "Empty result — no candidates found",
+			},
+			candidateLimit: options ? computeAdaptiveLimit(options) : BASE_RETRIEVAL_LIMIT,
 			scope: options ? {
 				branch: options.branch,
 				pathPrefix: options.pathPrefix ?? undefined,
@@ -551,14 +582,177 @@ function createEmptyResult(startTime: number, options?: ParsedQueryOptions): Que
 	};
 }
 
-function determineConfidence(
+// ============================================================================
+// Adaptive Candidate Sizing
+// ============================================================================
+
+/**
+ * Compute retrieval limit based on query complexity heuristics.
+ *
+ * Sizing policy:
+ * - Short queries (1-2 tokens): fewer candidates — likely navigational
+ * - Medium queries (3-5 tokens): baseline candidates
+ * - Long/complex queries (6+ tokens): more candidates — disambiguation needed
+ * - Path-scoped queries: can afford more candidates (smaller search space)
+ * - Higher maxTokens budget: allows more candidates to fill context
+ */
+function computeAdaptiveLimit(options: ParsedQueryOptions): number {
+	const queryText = options.queryText ?? "";
+	const wordCount = queryText.split(/\s+/).filter((w) => w.length > 0).length;
+
+	let limit = BASE_RETRIEVAL_LIMIT;
+
+	// Query complexity scaling
+	if (wordCount <= 2) {
+		// Short navigational queries — fewer candidates suffice
+		limit = Math.round(BASE_RETRIEVAL_LIMIT * 0.75);
+	} else if (wordCount >= 6) {
+		// Complex queries — need more candidates for disambiguation
+		limit = Math.round(BASE_RETRIEVAL_LIMIT * 1.5);
+	}
+
+	// Scoped queries can afford more candidates (smaller search space = faster)
+	if (options.pathPrefix || (options.filePatterns && options.filePatterns.length > 0)) {
+		limit = Math.round(limit * 1.25);
+	}
+
+	// Higher token budgets can benefit from more candidates
+	if (options.maxTokens > DEFAULT_MAX_TOKENS) {
+		const budgetMultiplier = Math.min(options.maxTokens / DEFAULT_MAX_TOKENS, 2);
+		limit = Math.round(limit * Math.sqrt(budgetMultiplier));
+	}
+
+	// Clamp to bounds
+	return Math.max(MIN_RETRIEVAL_LIMIT, Math.min(MAX_RETRIEVAL_LIMIT, limit));
+}
+
+// ============================================================================
+// Multi-Signal Confidence Scoring
+// ============================================================================
+
+interface ConfidenceResult {
+	tier: "high" | "medium" | "low" | "degraded";
+	diagnostics: ConfidenceDiagnostics;
+}
+
+/**
+ * Multi-signal confidence replaces the coarse hit-count-only heuristic.
+ *
+ * Signals:
+ * 1. Retrieval agreement — do vector and keyword channels overlap?
+ * 2. Score spread — is the top result decisively ahead of the rest?
+ * 3. Scope concentration — are results focused in a few files/dirs?
+ *
+ * Each signal contributes to a weighted composite score [0-1].
+ * Tier thresholds: high ≥ 0.7, medium ≥ 0.4, low ≥ 0.1, degraded < 0.1
+ */
+function computeMultiSignalConfidence(
 	vectorHits: number,
 	keywordHits: number,
-): "high" | "medium" | "low" | "degraded" {
+	symbols: SymbolNode[],
+	fusedResults: FusedResult[],
+): ConfidenceResult {
 	const totalHits = vectorHits + keywordHits;
 
-	if (totalHits === 0) return "low";
-	if (vectorHits > 0 && keywordHits > 0) return "high";
-	if (totalHits >= 5) return "medium";
-	return "low";
+	// Edge case: no results at all
+	if (totalHits === 0 && symbols.length === 0) {
+		return {
+			tier: "degraded",
+			diagnostics: {
+				retrievalAgreement: 0,
+				scoreSpread: 0,
+				scopeConcentration: 0,
+				uniqueFiles: 0,
+				totalCandidates: 0,
+				tierReason: "No results from any retrieval channel",
+			},
+		};
+	}
+
+	// Signal 1: Retrieval agreement (0-1)
+	// How many fused results appear in BOTH vector and keyword channels?
+	let agreementRatio = 0;
+	if (fusedResults.length > 0) {
+		const bothChannels = fusedResults.filter(
+			(r) => r.sourceRanks.vector !== undefined && r.sourceRanks.keyword !== undefined,
+		).length;
+		agreementRatio = bothChannels / Math.max(fusedResults.length, 1);
+	} else if (vectorHits > 0 && keywordHits > 0) {
+		// Enhanced path — no fused results, but both channels contributed
+		agreementRatio = 0.5;
+	} else if (totalHits > 0) {
+		// Single channel only
+		agreementRatio = 0.1;
+	}
+
+	// Signal 2: Score spread (0-1)
+	// Is the top result decisively ahead? Higher spread = more decisive ranking
+	let scoreSpread = 0;
+	if (fusedResults.length >= 2) {
+		const topScore = fusedResults[0].rrfScore;
+		const secondScore = fusedResults[1].rrfScore;
+		const lastScore = fusedResults[fusedResults.length - 1].rrfScore;
+
+		// Ratio of gap between top and second vs total range
+		const totalRange = topScore - lastScore;
+		if (totalRange > 0) {
+			scoreSpread = Math.min((topScore - secondScore) / totalRange, 1);
+		}
+	} else if (symbols.length === 1) {
+		// Single result — maximally decisive but uncertain
+		scoreSpread = 0.5;
+	}
+
+	// Signal 3: Scope concentration (0-1)
+	// Are results clustered in the same directory? Higher = more focused
+	let scopeConcentration = 0;
+	const uniqueFiles = new Set<string>();
+	const dirCounts = new Map<string, number>();
+
+	for (const sym of symbols) {
+		uniqueFiles.add(sym.file_path);
+		const dir = sym.file_path.split("/").slice(0, -1).join("/");
+		dirCounts.set(dir, (dirCounts.get(dir) ?? 0) + 1);
+	}
+
+	if (symbols.length > 0 && dirCounts.size > 0) {
+		const maxDirCount = Math.max(...dirCounts.values());
+		scopeConcentration = maxDirCount / symbols.length;
+	}
+
+	// Composite score: weighted combination
+	const compositeScore =
+		agreementRatio * 0.45 +
+		scoreSpread * 0.25 +
+		scopeConcentration * 0.30;
+
+	// Determine tier from composite
+	let tier: "high" | "medium" | "low" | "degraded";
+	let tierReason: string;
+
+	if (compositeScore >= 0.7) {
+		tier = "high";
+		tierReason = `Strong signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+	} else if (compositeScore >= 0.4) {
+		tier = "medium";
+		tierReason = `Moderate signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+	} else if (compositeScore >= 0.1) {
+		tier = "low";
+		tierReason = `Weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+	} else {
+		tier = "degraded";
+		tierReason = `Very weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+	}
+
+	return {
+		tier,
+		diagnostics: {
+			retrievalAgreement: agreementRatio,
+			scoreSpread,
+			scopeConcentration,
+			uniqueFiles: uniqueFiles.size,
+			totalCandidates: totalHits,
+			tierReason,
+		},
+	};
 }

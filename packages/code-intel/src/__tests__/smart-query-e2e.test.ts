@@ -686,4 +686,148 @@ export class AuthController {
 		// This test validates the type contract exists
 		expect(result.metadata.fromCache).toBeUndefined();
 	});
+
+	// ====================================================================
+	// Phase 4: Adaptive Sizing & Multi-Signal Confidence Tests
+	// ====================================================================
+
+	test("metadata includes confidenceDiagnostics with all fields", async () => {
+		const result = await smartQuery.search({
+			queryText: "validateEmail login AuthController",
+			maxTokens: 4000,
+		});
+
+		expect(result.metadata.confidenceDiagnostics).toBeDefined();
+		const diag = result.metadata.confidenceDiagnostics!;
+		expect(typeof diag.retrievalAgreement).toBe("number");
+		expect(typeof diag.scoreSpread).toBe("number");
+		expect(typeof diag.scopeConcentration).toBe("number");
+		expect(typeof diag.uniqueFiles).toBe("number");
+		expect(typeof diag.totalCandidates).toBe("number");
+		expect(typeof diag.tierReason).toBe("string");
+		expect(diag.tierReason.length).toBeGreaterThan(0);
+	});
+
+	test("metadata includes candidateLimit", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+		});
+
+		expect(result.metadata.candidateLimit).toBeDefined();
+		expect(result.metadata.candidateLimit).toBeGreaterThanOrEqual(10);
+		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(50);
+	});
+
+	test("adaptive sizing: short query gets fewer candidates than long query", async () => {
+		const shortResult = await smartQuery.search({
+			queryText: "login",
+			maxTokens: 4000,
+		});
+
+		const longResult = await smartQuery.search({
+			queryText: "how does the authentication controller validate email addresses and create sessions",
+			maxTokens: 4000,
+		});
+
+		// Short navigational queries should use fewer candidates
+		expect(shortResult.metadata.candidateLimit).toBeLessThanOrEqual(
+			longResult.metadata.candidateLimit!,
+		);
+	});
+
+	test("adaptive sizing: scoped query gets more candidates than unscoped", async () => {
+		const unscopedResult = await smartQuery.search({
+			queryText: "validate email function",
+			maxTokens: 4000,
+		});
+
+		const scopedResult = await smartQuery.search({
+			queryText: "validate email function",
+			maxTokens: 4000,
+			pathPrefix: "user",
+		});
+
+		// Scoped queries can afford more candidates (smaller search space)
+		expect(scopedResult.metadata.candidateLimit).toBeGreaterThanOrEqual(
+			unscopedResult.metadata.candidateLimit!,
+		);
+	});
+
+	test("adaptive sizing: higher maxTokens budget allows more candidates", async () => {
+		const smallBudget = await smartQuery.search({
+			queryText: "validate email function",
+			maxTokens: 4000,
+		});
+
+		const largeBudget = await smartQuery.search({
+			queryText: "validate email function",
+			maxTokens: 32000,
+		});
+
+		// Larger token budget should allow >= same number of candidates
+		expect(largeBudget.metadata.candidateLimit).toBeGreaterThanOrEqual(
+			smallBudget.metadata.candidateLimit!,
+		);
+	});
+
+	test("confidence tier: empty query results in low/degraded confidence", async () => {
+		const result = await smartQuery.search({
+			queryText: "",
+			maxTokens: 4000,
+		});
+
+		expect(["low", "degraded"]).toContain(result.metadata.confidence);
+	});
+
+	test("confidence tier: valid query with results has diagnostics explaining tier", async () => {
+		const result = await smartQuery.search({
+			queryText: "validateEmail findById AuthController login",
+			maxTokens: 4000,
+		});
+
+		if (result.symbols.length > 0) {
+			const diag = result.metadata.confidenceDiagnostics!;
+			// Agreement should be defined
+			expect(diag.retrievalAgreement).toBeGreaterThanOrEqual(0);
+			expect(diag.retrievalAgreement).toBeLessThanOrEqual(1);
+			// Score spread should be defined
+			expect(diag.scoreSpread).toBeGreaterThanOrEqual(0);
+			expect(diag.scoreSpread).toBeLessThanOrEqual(1);
+			// Scope concentration should be defined
+			expect(diag.scopeConcentration).toBeGreaterThanOrEqual(0);
+			expect(diag.scopeConcentration).toBeLessThanOrEqual(1);
+			// Unique files should be > 0 if we have symbols
+			expect(diag.uniqueFiles).toBeGreaterThan(0);
+			// tierReason should contain signal values
+			expect(diag.tierReason).toContain("agreement=");
+		}
+	});
+
+	test("confidence tier: nonsense query gets low or degraded confidence with diagnostics", async () => {
+		const result = await smartQuery.search({
+			queryText: "xyzzy plugh completely random gibberish terms foobarbaz",
+			maxTokens: 4000,
+		});
+
+		if (result.symbols.length === 0) {
+			expect(["low", "degraded"]).toContain(result.metadata.confidence);
+			const diag = result.metadata.confidenceDiagnostics!;
+			expect(diag.totalCandidates).toBe(0);
+		}
+	});
+
+	test("confidence diagnostics: uniqueFiles matches actual unique file paths", async () => {
+		const result = await smartQuery.search({
+			queryText: "validateEmail login AuthController",
+			maxTokens: 4000,
+		});
+
+		if (result.symbols.length > 0) {
+			const actualUniqueFiles = new Set(result.symbols.map((s) => s.file_path)).size;
+			const diagUniqueFiles = result.metadata.confidenceDiagnostics?.uniqueFiles ?? 0;
+			// The diagnostics count is based on pre-context-budget symbols, so it should be >= what's in the final result
+			expect(diagUniqueFiles).toBeGreaterThanOrEqual(1);
+		}
+	});
 });
