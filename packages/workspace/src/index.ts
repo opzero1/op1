@@ -23,6 +23,10 @@ import { createShellEnvHook } from "./hooks/shell-env.js";
 import { createCompactionHook, type CompactionDeps } from "./hooks/compaction.js";
 import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
 import { checkPreemptiveCompaction, type CompactionClient } from "./hooks/preemptive-compaction.js";
+import { createMomentumHook, type MomentumDeps } from "./hooks/momentum.js";
+import { createCompletionPromiseHook } from "./hooks/completion-promise.js";
+import { createWritePolicyHook } from "./hooks/write-policy.js";
+import { createTaskReminderHook } from "./hooks/task-reminder.js";
 
 import {
 	extractMarkdownParts,
@@ -106,6 +110,13 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		hookConfig,
 	);
 
+	// Phase 3 hook factories (created once, reused in tool.execute.after)
+	const momentumDeps: MomentumDeps = { readActivePlanState: sm.readActivePlanState };
+	const momentumHandler = createSafeRuntimeHook("momentum", () => createMomentumHook(momentumDeps), hookConfig);
+	const completionPromiseHandler = createSafeRuntimeHook("completionPromise", () => createCompletionPromiseHook(), hookConfig);
+	const writePolicyHandler = createSafeRuntimeHook("writePolicy", () => createWritePolicyHook(), hookConfig);
+	const taskReminderHandler = createSafeRuntimeHook("taskReminder", () => createTaskReminderHook(), hookConfig);
+
 	const toolExecuteAfterHook = createSafeRuntimeHook(
 		"tool.execute.after",
 		() =>
@@ -125,6 +136,12 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					input.sessionID,
 					directory,
 				);
+
+				// Phase 3: Continuation & enforcement hooks
+				if (momentumHandler) await momentumHandler(input, output);
+				if (completionPromiseHandler) await completionPromiseHandler(input, output);
+				if (writePolicyHandler) await writePolicyHandler(input, output);
+				if (taskReminderHandler) await taskReminderHandler(input, output);
 			},
 		hookConfig,
 	);

@@ -28,6 +28,10 @@ function buildVerificationReminder(
 The ${agentType} agent has completed. Subagents can make mistakes.
 You MUST verify before marking this task complete.
 
+**DO NOT TRUST MEMORY. Read the plan file NOW:**
+→ Use \`plan_read\` to get the current state
+→ Use \`notepad_read\` to check accumulated wisdom
+
 **Files Changed:**
 ${fileChanges}
 
@@ -50,7 +54,8 @@ ${fileChanges}
 - Either fix yourself or delegate again with specific fix instructions
 
 **IF VERIFICATION PASSES:**
-- Mark task complete in your todo list
+- Update the plan: mark task \`[x]\` via \`plan_save\`
+- Record learnings via \`notepad_write\`
 - Proceed to next task
 </system-reminder>`;
 }
