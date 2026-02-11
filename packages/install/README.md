@@ -66,16 +66,17 @@ npx @op1/install
 - `newrelic` - Observability
 - And more...
 
-### Plugins (6)
+### Plugins (7)
 
 | Plugin | Description |
 |--------|-------------|
 | `@op1/workspace` | Plan management, notepads (always included) |
 | `@op1/notify` | Desktop notifications |
+| `@op1/code-intel` | **Code intelligence — hybrid search, symbol graphs, impact analysis** |
 | `@op1/ast-grep` | Structural code search |
 | `@op1/lsp` | Language server tools |
-| `@op1/semantic-search` | Natural language code search |
-| `@op1/code-graph` | Dependency analysis |
+| ~~`@op1/semantic-search`~~ | *Deprecated — use `@op1/code-intel`* |
+| ~~`@op1/code-graph`~~ | *Deprecated — use `@op1/code-intel`* |
 
 ## Installation Flow
 

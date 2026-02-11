@@ -31,11 +31,11 @@ While agents run, use direct tools:
 
 | Tool | Purpose |
 |------|---------|
-| `search_semantic` | Natural language code search |
-| `find_similar` | Find similar code patterns |
-| `find_dependencies` | What depends on X? |
+| `smart_query` | Natural language code search (hybrid vector + BM25 + graph) |
+| `symbol_search` | Find symbols by name pattern |
 | `call_graph` | Function caller/callee relationships |
-| `impact_analysis` | Change risk assessment |
+| `symbol_impact` | Change risk assessment |
+| `repo_map` | Find most important files |
 | `grep` | Find specific patterns |
 | `ast_grep_search` | Structural analysis |
 | `lsp_goto_definition` | Jump to symbol definition |

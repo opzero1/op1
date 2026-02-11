@@ -30,10 +30,11 @@ task(agent="researcher", prompt="Find GitHub examples...", background=true)
 
 | Tool | Purpose |
 |------|---------|
-| `search_semantic` | Natural language code search |
-| `find_similar` | Find similar code patterns |
-| `find_dependencies` | What depends on X? |
+| `smart_query` | Natural language code search (hybrid vector + BM25 + graph) |
+| `symbol_search` | Find symbols by name pattern |
 | `call_graph` | Function caller/callee relationships |
+| `symbol_impact` | Change risk assessment |
+| `repo_map` | Find most important files |
 | `grep` | Text pattern search |
 | `glob` | File pattern matching |
 | `ast_grep_search` | Structural code patterns |
@@ -61,6 +62,7 @@ task(agent="explore", prompt="Find JWT/session handling", background=true)
 task(agent="researcher", prompt="Find NextAuth.js best practices", background=true)
 
 // Direct tools (in parallel)
+smart_query(query="authentication login middleware session", maxTokens=8000)
 grep(pattern="authenticate|authorization|jwt|session", include="*.ts")
 glob(pattern="**/auth/**/*.ts")
 ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")

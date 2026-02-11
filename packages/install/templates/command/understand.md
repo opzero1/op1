@@ -1,5 +1,5 @@
 ---
-description: Explain codebase structure, architecture, and patterns using semantic search
+description: Explain codebase structure, architecture, and patterns using code intelligence
 agent: explore
 ---
 
@@ -11,15 +11,15 @@ Provide a comprehensive explanation of the specified codebase component, file, o
 
 ## Workflow
 
-1. **Semantic Search First** - Use `search_semantic` to find relevant code:
+1. **Smart Query First** - Use `smart_query` to find relevant code:
    ```
-   search_semantic(query="$ARGUMENTS", limit=20)
+   smart_query(query="$ARGUMENTS", maxTokens=8000)
    ```
 
 2. **Dependency Analysis** - Map the component's relationships:
    ```
-   find_dependencies(filePath="[discovered file]", direction="both")
-   call_graph(filePath="[discovered file]", symbolName="[main function]", direction="both")
+   call_graph(symbolName="[main function]", direction="both", depth=2)
+   symbol_impact(symbolName="[main symbol]", maxDepth=5)
    ```
 
 3. **Symbol Navigation** - Explore the structure:
@@ -28,9 +28,9 @@ Provide a comprehensive explanation of the specified codebase component, file, o
    lsp_find_references(filePath="[discovered file]", line=[key line], character=[col])
    ```
 
-4. **Similar Patterns** - Find related implementations:
+4. **Repo Map** - Find the most important files in the area:
    ```
-   find_similar(code="[key code snippet]", limit=5)
+   repo_map(directory="[relevant directory]", limit=10)
    ```
 
 ## Output Format

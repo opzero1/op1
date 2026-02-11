@@ -1,5 +1,5 @@
 ---
-description: Contextual grep for codebases - find files, patterns, implementations
+description: Codebase explorer - semantic search, symbol analysis, dependency graphs, and pattern matching
 mode: subagent
 temperature: 0.1
 permission:
@@ -37,11 +37,13 @@ Before searching, analyze the request:
 
 | Purpose | Tool | When to Use |
 |---------|------|-------------|
-| **Semantic Search** | `search_semantic` | Natural language queries ("find auth logic") |
-| **Similar Code** | `find_similar` | Find code like a given snippet |
-| **Dependencies** | `find_dependencies` | What depends on X? |
+| **Code Search** | `smart_query` | Natural language queries ("find auth logic"). Hybrid vector + BM25 + graph |
+| **Symbol Lookup** | `symbol_search` | Find symbols by name pattern (fast BM25 match) |
 | **Call Graph** | `call_graph` | Function caller/callee relationships |
-| **Impact Analysis** | `impact_analysis` | Change risk assessment |
+| **Impact Analysis** | `symbol_impact` | Change risk assessment with transitive dependents |
+| **Repo Map** | `repo_map` | Find most important files by PageRank |
+| **Index Status** | `code_intel_status` | Check index health |
+| **Refresh Index** | `code_intel_refresh` | Update index after file changes |
 | **Jump to Definition** | `lsp_goto_definition` | Navigate to symbol source |
 | **Find All Usages** | `lsp_find_references` | All references across workspace |
 | **Document Symbols** | `lsp_symbols` | Outline or workspace symbol search |
@@ -53,9 +55,14 @@ Before searching, analyze the request:
 
 ### Tool Selection Guide
 
-**Start with Semantic Search** for natural language queries:
+**Start with Smart Query** for natural language queries:
 ```
-search_semantic(query="authentication middleware", limit=10)
+smart_query(query="authentication middleware", maxTokens=8000)
+```
+
+**Use Symbol Search** for known symbol names:
+```
+symbol_search(query="validateToken", symbolType="FUNCTION")
 ```
 
 **Use LSP tools** for precise navigation:
@@ -64,10 +71,15 @@ lsp_goto_definition(filePath="src/auth.ts", line=42, character=10)
 lsp_find_references(filePath="src/auth.ts", line=42, character=10)
 ```
 
-**Use Dependency Graph** for impact analysis:
+**Use Call Graph** for dependency analysis:
 ```
-find_dependencies(filePath="src/core/auth.ts", direction="dependents")
-call_graph(filePath="src/handlers/login.ts", symbolName="handleLogin", direction="callers")
+call_graph(symbolName="handleLogin", direction="callers", depth=2)
+symbol_impact(symbolName="UserService", maxDepth=5)
+```
+
+**Use Repo Map** to find structural entry points:
+```
+repo_map(directory="src/", limit=10)
 ```
 
 **Use AST-grep** for structural patterns:
@@ -77,9 +89,9 @@ ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
 
 ## Execution Rules
 
-1. **Semantic First (MANDATORY)**: For ANY natural language query, you MUST call `search_semantic` as your first tool
+1. **Smart Query First (MANDATORY)**: For ANY natural language query, you MUST call `smart_query` as your first tool
 2. **Parallel Launch**: Fire 3+ tools simultaneously in first action
-3. **Semantic + Structural**: Always combine `search_semantic` with `ast_grep_search` or `grep` for coverage
+3. **Semantic + Structural**: Always combine `smart_query` with `ast_grep_search` or `grep` for coverage
 4. **Be Exhaustive**: Don't stop at first result
 5. **Structured Output**: Return findings in consistent format
 
@@ -87,24 +99,36 @@ ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
 
 **For natural language queries** (e.g., "find auth logic", "where is X implemented"):
 ```
-1. search_semantic(query="...", limit=15)  ← ALWAYS FIRST
-2. grep(pattern="...", include="*.ts")     ← Pattern fallback
-3. ast_grep_search(...)                    ← Structural patterns
+1. smart_query(query="...", maxTokens=8000) ← ALWAYS FIRST
+2. grep(pattern="...", include="*.ts")      ← Pattern fallback
+3. ast_grep_search(...)                     ← Structural patterns
+```
+
+**For symbol lookup** (e.g., "find function named X"):
+```
+1. symbol_search(query="X", symbolType="FUNCTION") ← ALWAYS FIRST
+2. lsp_find_references(...)                 ← All usages
 ```
 
 **For code similarity** (e.g., "find code like this"):
 ```
-1. find_similar(code="...", limit=10)      ← ALWAYS FIRST
-2. grep(pattern="...", include="*.ts")     ← Pattern fallback
+1. smart_query(query="<paste snippet>")     ← Use snippet as query
+2. grep(pattern="...", include="*.ts")      ← Pattern fallback
 ```
 
 **For symbol navigation** (e.g., "find usages of X"):
 ```
-1. lsp_find_references(...)                ← All usages
-2. find_dependents(...)                    ← Dependency graph
+1. lsp_find_references(...)                 ← All usages
+2. call_graph(symbolName="X")              ← Caller/callee graph
 ```
 
-⚠️ **NEVER skip semantic tools** - `grep` and `glob` alone miss semantic relationships
+**For impact analysis** (e.g., "what breaks if I change X"):
+```
+1. symbol_impact(symbolName="X")           ← Risk + transitive deps
+2. call_graph(symbolName="X", direction="callers") ← Who calls it
+```
+
+⚠️ **NEVER skip code-intel tools** - `grep` and `glob` alone miss semantic relationships
 
 ## Output Format
 
@@ -130,25 +154,32 @@ ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
 
 **Good Request:** "Find all authentication implementations"
 ```
-// Fire parallel searches - semantic + structural + pattern
-search_semantic(query="authentication login middleware", limit=15)
+// Fire parallel searches - code-intel + structural + pattern
+smart_query(query="authentication login middleware", maxTokens=8000)
 grep(pattern="authenticate|auth|login", include="*.ts")
 ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
-find_dependencies(filePath="src/auth/index.ts", direction="dependents")
+call_graph(symbolName="authenticate", direction="callers")
 ```
 
 **Good Request:** "Find all usages of validateUser function"
 ```
-// Use LSP for semantic search + dependency graph
-lsp_goto_definition(filePath="src/auth.ts", line=42, character=10)
+// Use symbol search + LSP + call graph
+symbol_search(query="validateUser", symbolType="FUNCTION")
 lsp_find_references(filePath="src/auth.ts", line=42, character=10)
-call_graph(filePath="src/auth.ts", symbolName="validateUser", direction="callers")
+call_graph(symbolName="validateUser", direction="callers")
+```
+
+**Good Request:** "What breaks if I change UserService?"
+```
+// Use impact analysis
+symbol_impact(symbolName="UserService", maxDepth=5)
+call_graph(symbolName="UserService", direction="callers", depth=2)
 ```
 
 **Good Request:** "Find code similar to this error handler"
 ```
-// Use semantic similarity search
-find_similar(code="try { await handler() } catch (e) { logger.error(e) }", limit=10)
+// Use smart_query with the snippet as query
+smart_query(query="try catch await handler error logger", maxTokens=8000)
 ```
 
 **Bad Request:** "How does NextAuth work?"

@@ -8,9 +8,9 @@
 
 	// =============================================
 	// PLUGINS
-	// Install: bun add @op1/notify @op1/workspace
+	// Install: bun add @op1/notify @op1/workspace @op1/code-intel
 	// =============================================
-	"plugin": ["@op1/notify", "@op1/workspace"],
+	"plugin": ["@op1/notify", "@op1/workspace", "@op1/code-intel"],
 
 	// Default model - change to your preferred model
 	"model": "anthropic/claude-sonnet-4-20250514",
@@ -150,14 +150,14 @@
 	"agent": {
 		"explore": {
 			"tools": {
-				"search_semantic": true,
-				"find_similar": true,
-				"semantic_status": true,
-				"semantic_reindex": true,
-				"find_dependencies": true,
-				"find_dependents": true,
-				"impact_analysis": true,
-				"graph_status": true,
+				"smart_query": true,
+				"symbol_search": true,
+				"symbol_impact": true,
+				"call_graph": true,
+				"repo_map": true,
+				"code_intel_status": true,
+				"code_intel_rebuild": true,
+				"code_intel_refresh": true,
 				"lsp_*": true,
 				"ast_grep_*": true
 			}

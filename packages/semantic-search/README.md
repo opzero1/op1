@@ -1,5 +1,17 @@
 # @op1/semantic-search
 
+> **DEPRECATED**: This package is superseded by [`@op1/code-intel`](../code-intel/). The `smart_query` tool in code-intel provides hybrid vector + BM25 retrieval with graph expansion, which is strictly superior to pure vector search. Migrate by replacing `@op1/semantic-search` with `@op1/code-intel` in your `opencode.json` plugin list.
+>
+> **Migration:**
+> | Old Tool | New Tool | Notes |
+> |----------|----------|-------|
+> | `search_semantic` | `smart_query` | Hybrid search with better recall |
+> | `find_similar` | `smart_query` | Use with code snippet as query |
+> | `semantic_status` | `code_intel_status` | Richer stats |
+> | `semantic_reindex` | `code_intel_rebuild` / `code_intel_refresh` | Full or incremental |
+
+---
+
 Semantic code search plugin for OpenCode - natural language to code search with embeddings.
 
 ## Features
