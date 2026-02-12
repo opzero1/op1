@@ -1,11 +1,12 @@
 /**
  * Embeddings Module
  *
- * Code embedding generation using UniXcoder for semantic code search.
+ * Code embedding generation for semantic code search.
+ * Supports Voyage AI (voyage-code-3), UniXcoder, and hash-based fallback.
  */
 
 // Core interface
-export type { Embedder, ModelLoadProgress, ProgressCallback } from "./embedder";
+export type { Embedder, EmbedOptions, ModelLoadProgress, ProgressCallback } from "./embedder";
 
 // UniXcoder implementation
 export {
@@ -14,6 +15,14 @@ export {
 	isTransformersAvailable,
 	type UniXcoderOptions,
 } from "./unixcoder";
+
+// Voyage AI embedder
+export {
+	VoyageEmbedder,
+	createVoyageEmbedder,
+	isVoyageAvailable,
+	type VoyageEmbedderOptions,
+} from "./voyage-embedder";
 
 // Simple fallback embedder
 export {

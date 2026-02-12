@@ -103,7 +103,7 @@ export function createSmartQuery(
 
 			// Generate embedding if not provided but embedder available
 			if (!parsedOptions.embedding && parsedOptions.queryText && embedder) {
-				parsedOptions.embedding = await embedder.embed(parsedOptions.queryText);
+				parsedOptions.embedding = await embedder.embed(parsedOptions.queryText, { inputType: 'query' });
 			}
 
 			// Guard: need at least one search method
@@ -125,7 +125,7 @@ export function createSmartQuery(
 			if (!useSimplePath) {
 				try {
 					// Enhanced path: multi-granular search with rewriting, reranking, caching
-					const enhancedResult = enhancedSearch!.searchEnhanced(
+					const enhancedResult = await enhancedSearch!.searchEnhanced(
 						parsedOptions.queryText!,
 						parsedOptions.embedding!,
 						{
@@ -136,7 +136,7 @@ export function createSmartQuery(
 							filePatterns: parsedOptions.filePatterns ?? undefined,
 							enableRewriting: true,
 							enableReranking: parsedOptions.rerankMode !== null && parsedOptions.rerankMode !== "none",
-							rerankerType: "bm25",
+							rerankerType: mapRerankModeToType(parsedOptions.rerankMode),
 							enableCaching: true,
 						},
 					);
@@ -280,6 +280,24 @@ function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
 		pathPrefix: options.pathPrefix?.trim() || null,
 		filePatterns: options.filePatterns ?? null,
 	};
+}
+
+// ============================================================================
+// Rerank Mode Mapping
+// ============================================================================
+
+/**
+ * Map high-level RerankMode to the rerankerType used by EnhancedSearchOptions.
+ *
+ * - "none"      → "bm25" (reranking is disabled at the caller, type is irrelevant)
+ * - "heuristic" → "bm25" (fast, local BM25 reranker)
+ * - "llm"       → "voyage" (Voyage AI API reranker, falls back to BM25 if unavailable)
+ * - "hybrid"    → "voyage" (same as llm — fallback handled inside applyVoyageReranking)
+ * - null        → "bm25" (default)
+ */
+function mapRerankModeToType(mode: RerankMode | null): "bm25" | "simple" | "voyage" {
+	if (mode === "llm" || mode === "hybrid") return "voyage";
+	return "bm25";
 }
 
 // ============================================================================

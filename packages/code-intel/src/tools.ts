@@ -136,8 +136,10 @@ interface SmartQueryArgs {
 	symbolTypes?: string[];
 	/** Search granularity: 'auto' | 'symbol' | 'chunk' | 'file' */
 	granularity?: "auto" | "symbol" | "chunk" | "file";
-	/** Enable reranking for improved precision */
+	/** Enable reranking for improved precision (legacy boolean, prefer rerankMode) */
 	rerank?: boolean;
+	/** Rerank mode: 'none' | 'heuristic' | 'llm' | 'hybrid' (takes priority over boolean rerank) */
+	rerankMode?: "none" | "heuristic" | "llm" | "hybrid";
 	/** Path prefix for scoping to a project subdirectory (e.g. "packages/core/") */
 	pathPrefix?: string;
 	/** File patterns to filter results (glob-style, e.g. ["*.ts", "src/**"]) */
@@ -193,6 +195,10 @@ export const smart_query: ToolDefinition = tool({
 			.boolean()
 			.optional()
 			.describe("Enable reranking for improved precision (adds ~50-100ms latency)"),
+		rerankMode: tool.schema
+			.enum(["none", "heuristic", "llm", "hybrid"])
+			.optional()
+			.describe("Rerank mode: 'none' disables, 'heuristic' uses BM25, 'llm' uses Voyage AI, 'hybrid' uses Voyage with BM25 fallback. Takes priority over boolean rerank."),
 		pathPrefix: tool.schema
 			.string()
 			.optional()
@@ -212,7 +218,7 @@ export const smart_query: ToolDefinition = tool({
 			const branch = indexManager.getCurrentBranch();
 			
 			// Generate embedding for vector search (if embedder available)
-			const queryEmbedding = embedder ? await embedder.embed(args.query) : undefined;
+			const queryEmbedding = embedder ? await embedder.embed(args.query, { inputType: 'query' }) : undefined;
 			
 			const result = await smartQuery.search({
 				queryText: args.query,
@@ -222,7 +228,8 @@ export const smart_query: ToolDefinition = tool({
 				graphDepth: args.graphDepth ?? 2,
 				symbolTypes: args.symbolTypes as SymbolType[] | undefined,
 				granularity: args.granularity,
-				rerank: args.rerank === true ? "heuristic" : args.rerank === false ? "none" : undefined,
+				rerank: args.rerankMode
+					?? (args.rerank === true ? "heuristic" : args.rerank === false ? "none" : undefined),
 				pathPrefix: args.pathPrefix,
 				filePatterns: args.filePatterns,
 			});

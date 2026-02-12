@@ -45,17 +45,22 @@ export class EmbeddingCache {
 	/**
 	 * Generate a hash key for content.
 	 * Uses SHA-256 truncated to 16 chars for balance of uniqueness and memory.
+	 * When inputType is provided, it's prefixed to the content before hashing
+	 * so asymmetric embeddings (query vs document) get distinct cache keys.
 	 */
-	private hashContent(content: string): string {
-		return createHash("sha256").update(content).digest("hex").slice(0, 16);
+	private hashKey(content: string, inputType?: string): string {
+		const input = inputType ? `${inputType}:${content}` : content;
+		return createHash("sha256").update(input).digest("hex").slice(0, 16);
 	}
 
 	/**
 	 * Get embedding from cache by content.
 	 * Moves entry to end (most recently used) on hit.
+	 * @param content - The text content to look up
+	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	get(content: string): number[] | undefined {
-		const key = this.hashContent(content);
+	get(content: string, inputType?: string): number[] | undefined {
+		const key = this.hashKey(content, inputType);
 		const value = this.cache.get(key);
 
 		if (value === undefined) {
@@ -74,9 +79,12 @@ export class EmbeddingCache {
 	/**
 	 * Store embedding in cache.
 	 * Evicts oldest entry if at capacity.
+	 * @param content - The text content to cache
+	 * @param embedding - The embedding vector
+	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	set(content: string, embedding: number[]): void {
-		const key = this.hashContent(content);
+	set(content: string, embedding: number[], inputType?: string): void {
+		const key = this.hashKey(content, inputType);
 
 		// If key exists, delete first to update LRU order
 		if (this.cache.has(key)) {
@@ -94,21 +102,25 @@ export class EmbeddingCache {
 
 	/**
 	 * Check if content is cached (without affecting LRU order).
+	 * @param content - The text content to check
+	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	has(content: string): boolean {
-		const key = this.hashContent(content);
+	has(content: string, inputType?: string): boolean {
+		const key = this.hashKey(content, inputType);
 		return this.cache.has(key);
 	}
 
 	/**
 	 * Get multiple embeddings, returning map of content -> embedding.
 	 * Only includes entries that exist in cache.
+	 * @param contents - Array of text contents to look up
+	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	getMany(contents: string[]): Map<string, number[]> {
+	getMany(contents: string[], inputType?: string): Map<string, number[]> {
 		const results = new Map<string, number[]>();
 
 		for (const content of contents) {
-			const embedding = this.get(content);
+			const embedding = this.get(content, inputType);
 			if (embedding !== undefined) {
 				results.set(content, embedding);
 			}
@@ -119,10 +131,12 @@ export class EmbeddingCache {
 
 	/**
 	 * Store multiple embeddings.
+	 * @param entries - Array of content/embedding pairs
+	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	setMany(entries: Array<{ content: string; embedding: number[] }>): void {
+	setMany(entries: Array<{ content: string; embedding: number[] }>, inputType?: string): void {
 		for (const { content, embedding } of entries) {
-			this.set(content, embedding);
+			this.set(content, embedding, inputType);
 		}
 	}
 

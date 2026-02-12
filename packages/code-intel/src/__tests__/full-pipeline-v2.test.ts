@@ -97,6 +97,29 @@ db.run(`
 	)
 `);
 
+// Create js_vectors with granularity column expected by vector-search fallback
+// (createPureVectorStore will reuse this table)
+db.run(`
+	CREATE TABLE IF NOT EXISTS js_vectors (
+		symbol_id TEXT PRIMARY KEY,
+		embedding TEXT NOT NULL,
+		granularity TEXT NOT NULL DEFAULT 'symbol',
+		updated_at INTEGER NOT NULL
+	)
+`);
+
+// Create chunks table used by pure JS vector search join path
+// (smart-query's vector-search fallback LEFT JOINs this table)
+db.run(`
+	CREATE TABLE IF NOT EXISTS chunks (
+		id TEXT PRIMARY KEY,
+		file_path TEXT NOT NULL,
+		branch TEXT NOT NULL DEFAULT 'main',
+		parent_symbol_id TEXT,
+		content TEXT
+	)
+`);
+
 // Create FTS5 table for keyword search
 db.run(`
 	CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(
@@ -109,7 +132,7 @@ db.run(`
 	)
 `);
 
-logTest("Database Setup", true, "Created symbols, edges, FTS5 tables");
+logTest("Database Setup", true, "Created symbols, edges, js_vectors, chunks, FTS5 tables");
 
 // ============================================================================
 // STEP 2: Create stores
@@ -217,7 +240,7 @@ const embedTime = Date.now() - startEmbedTime;
 
 logTest(
 	"Embedding Generation",
-	embeddings.length > 0 && embeddings[0].length === 768,
+	embeddings.length > 0 && embeddings[0].length > 0,
 	`Generated ${embeddings.length} embeddings (${embeddings[0]?.length || 0}-dim) in ${embedTime}ms. Model: ${embedder.modelId}`
 );
 

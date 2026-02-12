@@ -12,7 +12,7 @@
  * - No native dependencies (works with Bun)
  */
 
-import type { Embedder, ProgressCallback } from "./embedder";
+import type { Embedder, EmbedOptions, ProgressCallback } from "./embedder";
 import { EmbeddingCache } from "./cache";
 
 // Singleton state for lazy loading
@@ -152,7 +152,7 @@ export class UniXcoderEmbedder implements Embedder {
 	/**
 	 * Generate embedding for a single text.
 	 */
-	async embed(text: string): Promise<number[]> {
+	async embed(text: string, _options?: EmbedOptions): Promise<number[]> {
 		// Guard: empty text
 		if (!text.trim()) {
 			return new Array(this.dimension).fill(0);
@@ -187,7 +187,7 @@ export class UniXcoderEmbedder implements Embedder {
 	 * Generate embeddings for multiple texts.
 	 * Optimizes by batching uncached texts.
 	 */
-	async embedBatch(texts: string[]): Promise<number[][]> {
+	async embedBatch(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
 		// Guard: empty input
 		if (texts.length === 0) {
 			return [];

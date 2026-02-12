@@ -53,10 +53,17 @@ export {
 	createBM25Reranker,
 	createCompositeReranker,
 	type Reranker,
+	type AsyncReranker,
 	type RerankItem,
 	type RerankResult,
 	type RerankOptions,
 } from "./reranker";
+
+export {
+	createVoyageReranker,
+	isVoyageRerankerAvailable,
+	type VoyageRerankerOptions,
+} from "./voyage-reranker";
 
 export {
 	createContextCache,

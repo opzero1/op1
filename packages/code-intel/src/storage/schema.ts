@@ -10,11 +10,12 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 // Current schema version - increment when schema changes
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
-// Embedding model ID - change triggers re-embedding
-export const EMBEDDING_MODEL_ID = "microsoft/unixcoder-base";
-export const EMBEDDING_DIMENSIONS = 768;
+// Default model ID — actual model is determined at runtime by createAutoEmbedder()
+export const DEFAULT_EMBEDDING_MODEL_ID = "microsoft/unixcoder-base";
+// Maximum supported embedding dimensions (for schema purposes)
+export const MAX_EMBEDDING_DIMENSIONS = 1024;
 
 // ============================================================================
 // Schema SQL
@@ -246,6 +247,17 @@ const MIGRATIONS: Migration[] = [
 			);
 		`,
 	},
+	// Version 3: Voyage AI embedder support
+	{
+		version: 3,
+		description: "Voyage AI embedder support — wipe vectors for dimension change",
+		sql: `
+			-- Wipe all vectors since dimensions may have changed
+			DELETE FROM js_vectors;
+			-- Drop and recreate vec_symbols if it exists (sqlite-vec)
+			DROP TABLE IF EXISTS vec_symbols;
+		`,
+	},
 ];
 
 // ============================================================================
@@ -260,6 +272,7 @@ export interface SchemaManager {
 	getEmbeddingModelId(): string | null;
 	setEmbeddingModelId(modelId: string): void;
 	needsReembedding(modelId: string): boolean;
+	wipeVectorsForModelChange(newModelId: string): void;
 	close(): void;
 }
 
@@ -311,6 +324,12 @@ export async function createSchemaManager(
 		return current !== null && current !== modelId;
 	}
 
+	function wipeVectorsForModelChange(newModelId: string): void {
+		db.exec("DELETE FROM js_vectors");
+		db.exec("DROP TABLE IF EXISTS vec_symbols");
+		setEmbeddingModelId(newModelId);
+	}
+
 	async function runMigrations(): Promise<void> {
 		const currentVersion = getCurrentVersion();
 
@@ -352,6 +371,7 @@ export async function createSchemaManager(
 		getEmbeddingModelId,
 		setEmbeddingModelId,
 		needsReembedding,
+		wipeVectorsForModelChange,
 		close,
 	};
 }

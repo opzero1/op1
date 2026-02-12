@@ -12,7 +12,7 @@
  * - Per-batch failure isolation
  */
 
-import type { Embedder } from "./embedder";
+import type { Embedder, EmbedOptions } from "./embedder";
 import type { Granularity } from "../types";
 
 // ============================================================================
@@ -45,6 +45,8 @@ export interface BatchProcessorConfig {
 	retryDelayMs?: number;
 	/** Rate limit: max batches per second (default: 10) */
 	maxBatchesPerSecond?: number;
+	/** Embed options to pass to the embedder (e.g., inputType for asymmetric embeddings) */
+	embedOptions?: EmbedOptions;
 }
 
 export interface BatchProgress {
@@ -81,12 +83,13 @@ export interface BatchProcessor {
 // Implementation
 // ============================================================================
 
-const DEFAULT_CONFIG: Required<BatchProcessorConfig> = {
+const DEFAULT_CONFIG: Required<Omit<BatchProcessorConfig, 'embedOptions'>> & Pick<BatchProcessorConfig, 'embedOptions'> = {
 	batchSize: 32,
 	concurrency: 2,
 	maxRetries: 3,
 	retryDelayMs: 1000,
 	maxBatchesPerSecond: 10,
+	embedOptions: undefined,
 };
 
 /**
@@ -146,7 +149,7 @@ export function createBatchProcessor(
 				const texts = batch.map((item) => item.text);
 
 				// Generate embeddings
-				const embeddings = await embedder.embedBatch(texts);
+				const embeddings = await embedder.embedBatch(texts, cfg.embedOptions);
 
 				// Map back to results
 				return batch.map((item, index) => ({

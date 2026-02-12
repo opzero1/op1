@@ -68,7 +68,7 @@ smart_query(query="React components", filePatterns=["*.tsx"], maxTokens=8000)
 
 **Use rerank for precision-critical searches:**
 ```
-smart_query(query="database connection pool cleanup", rerank=true)
+smart_query(query="database connection pool cleanup", rerankMode="heuristic")
 ```
 
 **Use Symbol Search** for known symbol names:
@@ -175,7 +175,7 @@ call_graph(symbolName="authenticate", direction="callers")
 **Good Request:** "Find auth in the API package only"
 ```
 // Scoped search to avoid cross-project noise
-smart_query(query="authentication middleware", pathPrefix="packages/api/", rerank=true)
+smart_query(query="authentication middleware", pathPrefix="packages/api/", rerankMode="heuristic")
 grep(pattern="authenticate|auth", include="*.ts", path="packages/api")
 ```
 

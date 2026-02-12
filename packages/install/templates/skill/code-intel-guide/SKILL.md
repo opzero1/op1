@@ -44,7 +44,7 @@ description: Decision matrix for choosing between code-intel, LSP, and AST-grep 
 ```
 smart_query(query="authentication middleware that validates JWT tokens")
 smart_query(query="database connection pooling", pathPrefix="packages/core/")
-smart_query(query="React hooks", filePatterns=["*.tsx", "*.ts"], rerank=true)
+smart_query(query="React hooks", filePatterns=["*.tsx", "*.ts"], rerankMode="heuristic")
 smart_query(query="error handling", granularity="symbol", maxTokens=4000)
 symbol_search(query="validateToken", symbolType="FUNCTION")
 call_graph(symbolName="handleLogin", direction="callees", depth=2)
@@ -61,7 +61,8 @@ repo_map(directory="src/", limit=10)
 | `graphDepth` | number | 2 | Graph traversal depth (max 3) |
 | `symbolTypes` | string[] | all | Filter: FUNCTION, CLASS, METHOD, INTERFACE, etc. |
 | `granularity` | enum | auto | `"auto"` \| `"symbol"` \| `"chunk"` \| `"file"` |
-| `rerank` | boolean | false | Enable BM25 reranking (~50-100ms extra latency) |
+| `rerankMode` | enum | none | `"none"` \| `"heuristic"` (BM25) \| `"llm"` (Voyage AI) \| `"hybrid"` (Voyage + BM25 fallback) |
+| `rerank` | boolean | _(deprecated)_ | Legacy alias: `true` → `"heuristic"`, `false` → `"none"`. Prefer `rerankMode` |
 | `pathPrefix` | string | none | Scope to subdirectory (e.g. `"packages/core/"`) |
 | `filePatterns` | string[] | none | Glob filter (e.g. `["*.ts", "src/**/*.tsx"]`) |
 
@@ -77,6 +78,29 @@ Results include a `confidence` field with multi-signal scoring:
 | `degraded` | < 0.1 | Very poor match — likely wrong search strategy |
 
 **Confidence signals:** retrieval agreement (vector ∩ keyword overlap), score spread (top result decisiveness), scope concentration (results from same directory).
+
+### Embedding & Reranking
+
+Code intelligence uses embeddings to understand code semantics. The embedding model is auto-selected:
+
+| Condition | Model | Dimensions | Quality |
+|-----------|-------|------------|---------|
+| `VOYAGE_AI_API_KEY` set | Voyage `voyage-code-3` | 1024 | Best (purpose-built for code) |
+| No API key | Local UniXcoder | 384 | Good (offline, no API cost) |
+
+- **Auto-migration**: When the embedding model changes (e.g., API key added/removed), the index is automatically wiped and rebuilt on next use. No manual intervention needed.
+- **Asymmetric embeddings**: Voyage uses `input_type: 'query'` for searches and `input_type: 'document'` for indexing, improving retrieval quality.
+
+**Rerank modes** (`rerankMode` parameter):
+
+| Mode | Engine | Latency | When to Use |
+|------|--------|---------|-------------|
+| `none` | _(disabled)_ | 0ms | Exploratory browsing, speed-critical |
+| `heuristic` | BM25 | ~50-100ms | Default precision boost, always available |
+| `llm` | Voyage `rerank-2.5` | ~200-500ms | Maximum precision, requires `VOYAGE_AI_API_KEY` |
+| `hybrid` | Voyage + BM25 fallback | ~200-500ms | Best of both — uses Voyage when available, falls back to BM25 |
+
+**Recommendation**: Use `rerankMode="heuristic"` for precision-critical searches. Use `"hybrid"` when Voyage API is available and you want the best results with graceful degradation.
 
 ### LSP Tools (`@op1/lsp`)
 
@@ -146,7 +170,7 @@ glob(pattern="**/middleware/*.ts")
 ### Investigating a Bug
 
 ```
-1. smart_query(query="error handling in payment flow", rerank=true) → Precision search
+1. smart_query(query="error handling in payment flow", rerankMode="heuristic") → Precision search
 2. call_graph(symbolName="processPayment")     → Trace the call chain
 3. lsp_goto_definition(...)                    → Navigate to specifics
 4. lsp_diagnostics(...)                        → Check for type errors
@@ -175,7 +199,7 @@ glob(pattern="**/middleware/*.ts")
 4. **Using `call_graph` with depth > 3** — Exponential growth. Keep depth at 2-3.
 5. **Skipping `repo_map` on new codebases** — Always start here to find structural entry points.
 6. **Not scoping in multi-project workspaces** — Use `pathPrefix` to avoid cross-project noise. Without it, results from unrelated packages pollute your search.
-7. **Using `rerank=true` on every query** — Reranking adds 50-100ms latency. Use it for precision-critical searches, skip it for exploratory browsing.
+7. **Using `rerankMode` on every query** — Reranking adds latency (50ms for `heuristic`, 200-500ms for `llm`/`hybrid`). Use it for precision-critical searches, skip it for exploratory browsing.
 8. **Ignoring confidence tiers** — When confidence is `low` or `degraded`, don't trust results blindly. Try narrower scope, different terms, or switch to `symbol_search` / `grep`.
 9. **Over-specifying `granularity`** — Leave it as `auto` unless you specifically need symbol-only or file-only results. Auto adapts to query complexity.
 
@@ -183,7 +207,9 @@ glob(pattern="**/middleware/*.ts")
 
 If upgrading from a prior version of `smart_query`:
 
-- **New parameters**: `pathPrefix`, `filePatterns`, `granularity`, `rerank` are all optional additions. No breaking changes.
+- **`rerankMode` replaces boolean `rerank`**: The boolean `rerank` parameter still works (`true` → `"heuristic"`, `false` → `"none"`) but prefer the enum `rerankMode` for finer control. `rerankMode` takes priority when both are specified.
+- **Voyage AI embeddings**: Set `VOYAGE_AI_API_KEY` env var to auto-upgrade from local UniXcoder to Voyage `voyage-code-3`. The index auto-migrates (schema v3) — vectors are wiped and re-embedded on first use.
+- **New parameters**: `pathPrefix`, `filePatterns`, `granularity` are optional additions. No breaking changes.
 - **Confidence is now multi-signal**: Previously based on hit-count only. Now uses retrieval agreement, score spread, and scope concentration. Confidence tiers (`high`/`medium`/`low`/`degraded`) are more nuanced.
 - **Result metadata** now includes `confidenceDiagnostics` (signal breakdown) and `candidateLimit` (adaptive sizing). These are informational — no action needed.
 - **Adaptive candidate sizing**: The number of candidates evaluated scales with query complexity, scope, and token budget. Short queries fetch fewer candidates; long, scoped queries with high budgets fetch more.

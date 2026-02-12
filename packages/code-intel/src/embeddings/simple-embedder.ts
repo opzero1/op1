@@ -6,7 +6,7 @@
  * offline and is fast.
  */
 
-import type { Embedder } from "./embedder";
+import type { Embedder, EmbedOptions } from "./embedder";
 
 // Match all-MiniLM-L6-v2 dimension (384) for consistency
 const EMBEDDING_DIM = 384;
@@ -94,14 +94,14 @@ export class SimpleEmbedder implements Embedder {
 	readonly dimension = EMBEDDING_DIM;
 	readonly modelId = "simple-hash-embedder";
 
-	async embed(text: string): Promise<number[]> {
+	async embed(text: string, _options?: EmbedOptions): Promise<number[]> {
 		if (!text.trim()) {
 			return new Array(this.dimension).fill(0);
 		}
 		return createHashEmbedding(text);
 	}
 
-	async embedBatch(texts: string[]): Promise<number[][]> {
+	async embedBatch(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
 		return texts.map(text => {
 			if (!text.trim()) {
 				return new Array(this.dimension).fill(0);
@@ -120,11 +120,27 @@ export function createSimpleEmbedder(): SimpleEmbedder {
 
 /**
  * Auto-select the best available embedder.
- * Tries UniXcoder first, falls back to simple embedder.
+ * Priority: Voyage AI (if API key set) → UniXcoder → simple embedder.
  */
 export async function createAutoEmbedder(): Promise<Embedder> {
+	// Priority 1: Voyage AI (best quality, requires API key)
 	try {
-		// Try to load UniXcoder
+		const { createVoyageEmbedder, isVoyageAvailable } = await import("./voyage-embedder");
+		
+		if (isVoyageAvailable()) {
+			const embedder = createVoyageEmbedder();
+			
+			// Test connectivity
+			if (await embedder.testConnectivity()) {
+				return embedder;
+			}
+		}
+	} catch {
+		// Voyage not available
+	}
+
+	// Priority 2: UniXcoder (local, no API key needed)
+	try {
 		const { createUniXcoderEmbedder, isTransformersAvailable } = await import("./unixcoder");
 		
 		if (await isTransformersAvailable()) {
@@ -142,5 +158,6 @@ export async function createAutoEmbedder(): Promise<Embedder> {
 		// UniXcoder not available
 	}
 
+	// Priority 3: Simple hash-based embedder (always works)
 	return new SimpleEmbedder();
 }

@@ -42,6 +42,11 @@ export interface Reranker {
 	rerank(items: RerankItem[], options: RerankOptions): RerankResult[];
 }
 
+export interface AsyncReranker {
+	/** Rerank a list of items asynchronously (e.g. via external API) */
+	rerank(items: RerankItem[], options: RerankOptions): Promise<RerankResult[]>;
+}
+
 // ============================================================================
 // Simple Reranker Implementation
 // ============================================================================

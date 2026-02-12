@@ -8,7 +8,6 @@
  * - Context caching (LRU with TTL)
  */
 
-import type { Database } from "bun:sqlite";
 import type { ChunkNode, Granularity, SymbolNode } from "../types";
 import type { ContentFTSStore, FTSSearchResult } from "../storage/content-fts-store";
 import type { GranularVectorStore, GranularVectorSearchResult } from "../storage/pure-vector-store";
@@ -16,6 +15,7 @@ import type { ChunkStore } from "../storage/chunk-store";
 import type { SymbolStore } from "../storage/symbol-store";
 import { createQueryRewriter, type QueryRewriter, type RewrittenQuery } from "./query-rewriter";
 import { createBM25Reranker, createSimpleReranker, type Reranker, type RerankItem } from "./reranker";
+import { createVoyageReranker, isVoyageRerankerAvailable } from "./voyage-reranker";
 import { createContextCache, generateCacheKey, type ContextCache, type ContextCacheStats } from "./context-cache";
 import { matchesPathFilters } from "./path-filter";
 
@@ -151,8 +151,8 @@ export interface EnhancedSearchOptions extends MultiGranularSearchOptions {
 	enableRewriting?: boolean;
 	/** Enable result reranking */
 	enableReranking?: boolean;
-	/** Reranker type: 'bm25' | 'simple' */
-	rerankerType?: "bm25" | "simple";
+	/** Reranker type: 'bm25' | 'simple' | 'voyage' */
+	rerankerType?: "bm25" | "simple" | "voyage";
 	/** Enable result caching */
 	enableCaching?: boolean;
 	/** Skip cache for this query (force fresh results) */
@@ -178,7 +178,7 @@ export interface EnhancedMultiGranularSearch extends MultiGranularSearch {
 		query: string,
 		embedding: number[],
 		options: EnhancedSearchOptions,
-	): EnhancedSearchResult;
+	): Promise<EnhancedSearchResult>;
 
 	/** Get cache statistics */
 	getCacheStats(): ContextCacheStats;
@@ -202,8 +202,6 @@ export interface EnhancedMultiGranularSearchDeps extends MultiGranularSearchDeps
 export function createEnhancedMultiGranularSearch(
 	deps: EnhancedMultiGranularSearchDeps,
 ): EnhancedMultiGranularSearch {
-	const { contentFTS, granularVectors, chunkStore, symbolStore } = deps;
-
 	// Create or use provided components
 	const queryRewriter = deps.queryRewriter ?? createQueryRewriter();
 	const bm25Reranker = createBM25Reranker();
@@ -242,17 +240,51 @@ export function createEnhancedMultiGranularSearch(
 		}));
 	}
 
+	async function applyVoyageReranking(
+		ranked: RankedItem[],
+		query: string,
+	): Promise<RankedItem[]> {
+		if (!isVoyageRerankerAvailable()) {
+			return applyReranking(ranked, query, "bm25");
+		}
+
+		try {
+			const voyageReranker = createVoyageReranker();
+
+			const rerankItems: RerankItem[] = ranked.map((r) => ({
+				id: r.id,
+				content: r.content,
+				file_path: r.file_path,
+				initialScore: r.score,
+				granularity: r.granularity,
+			}));
+
+			const reranked = await voyageReranker.rerank(rerankItems, { query, limit: ranked.length });
+
+			return reranked.map((r) => ({
+				id: r.id,
+				granularity: r.granularity,
+				score: r.finalScore,
+				file_path: r.file_path,
+				content: r.content,
+			}));
+		} catch {
+			// Voyage API error — fall back to BM25 reranker
+			return applyReranking(ranked, query, "bm25");
+		}
+	}
+
 	return {
 		// Inherit base methods
 		search: baseSearch.search,
 		searchKeywords: baseSearch.searchKeywords,
 		searchVectors: baseSearch.searchVectors,
 
-		searchEnhanced(
+		async searchEnhanced(
 			query: string,
 			embedding: number[],
 			options: EnhancedSearchOptions,
-		): EnhancedSearchResult {
+		): Promise<EnhancedSearchResult> {
 			const startTime = Date.now();
 			const {
 				enableRewriting = true,
@@ -324,7 +356,9 @@ export function createEnhancedMultiGranularSearch(
 
 			if (enableReranking && baseResult.ranked.length > 0) {
 				const rerankStart = Date.now();
-				finalRanked = applyReranking(baseResult.ranked, query, rerankerType);
+				finalRanked = rerankerType === "voyage"
+					? await applyVoyageReranking(baseResult.ranked, query)
+					: applyReranking(baseResult.ranked, query, rerankerType);
 				rerankTime = Date.now() - rerankStart;
 			}
 
@@ -414,7 +448,6 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 	function getContentById(
 		id: string,
 		granularity: Granularity,
-		branch: string,
 	): { content: string; file_path: string; start_line?: number; end_line?: number } | null {
 		if (granularity === "symbol") {
 			const symbol = symbolStore.getById(id);
@@ -443,7 +476,6 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 
 	function extractResults(
 		ranked: RankedItem[],
-		branch: string,
 	): { symbols: SymbolNode[]; chunks: ChunkNode[]; files: Array<{ file_path: string; score: number }> } {
 		const symbols: SymbolNode[] = [];
 		const chunks: ChunkNode[] = [];
@@ -513,7 +545,7 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			const ftsRanked = ftsResultsToRanked(ftsResults);
 			let vectorRanked = vectorResultsToRanked(
 				vectorResults,
-				(id, g) => getContentById(id, g, branch),
+				(id, g) => getContentById(id, g),
 			);
 
 			// Post-filter vector results by path (FTS is already filtered via filePatterns)
@@ -546,7 +578,7 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				limit,
 			);
 
-			const { symbols, chunks, files } = extractResults(ranked, branch);
+			const { symbols, chunks, files } = extractResults(ranked);
 
 			return {
 				symbols,
@@ -606,7 +638,7 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				limit,
 			);
 
-			const { symbols, chunks, files } = extractResults(ranked, branch);
+			const { symbols, chunks, files } = extractResults(ranked);
 
 			return {
 				symbols,
@@ -633,10 +665,10 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				chunkWeight = 0.7,
 				fileWeight = 0.3,
 				rrfK = 60,
-				branch,
-				pathPrefix,
 				filePatterns,
+				pathPrefix,
 			} = options;
+
 
 			// GranularVectorStore.search() only accepts limit + granularity,
 			// so we over-fetch and post-filter by path after resolving content.
@@ -650,7 +682,7 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 
 			let vectorRanked = vectorResultsToRanked(
 				vectorResults,
-				(id, g) => getContentById(id, g, branch),
+				(id, g) => getContentById(id, g),
 			);
 
 			// Post-filter by path when pathPrefix or filePatterns are active
@@ -675,7 +707,7 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				limit,
 			);
 
-			const { symbols, chunks, files } = extractResults(ranked, branch);
+			const { symbols, chunks, files } = extractResults(ranked);
 
 			return {
 				symbols,

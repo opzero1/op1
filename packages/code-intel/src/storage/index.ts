@@ -2,7 +2,7 @@
  * Storage Layer exports
  */
 
-export { createSchemaManager, SCHEMA_VERSION, EMBEDDING_MODEL_ID, EMBEDDING_DIMENSIONS } from "./schema";
+export { createSchemaManager, SCHEMA_VERSION, DEFAULT_EMBEDDING_MODEL_ID, MAX_EMBEDDING_DIMENSIONS } from "./schema";
 export type { SchemaManager } from "./schema";
 
 export { createSymbolStore } from "./symbol-store";

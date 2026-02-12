@@ -24,7 +24,7 @@ import {
 	createFileContentStore,
 	createContentFTSStore,
 	createGranularVectorStore,
-	EMBEDDING_MODEL_ID,
+	DEFAULT_EMBEDDING_MODEL_ID,
 	SCHEMA_VERSION,
 	type SchemaManager,
 	type SymbolStore,
@@ -461,10 +461,23 @@ export async function createIndexManager(
 
 				// Create embedder and batch processor for vector generation
 				embedder = await createAutoEmbedder();
+
+				// Check if embedding model changed — wipe vectors if so
+				if (schemaManager.needsReembedding(embedder.modelId)) {
+					schemaManager.wipeVectorsForModelChange(embedder.modelId);
+				} else if (!schemaManager.getEmbeddingModelId()) {
+					// First run — record the model
+					schemaManager.setEmbeddingModelId(embedder.modelId);
+				}
+
+				// Use larger batches and worker pool for API-based embedders
+				const isApiEmbedder = embedder.modelId.startsWith("voyageai/");
 				batchProcessor = createBatchProcessor(embedder, {
-					batchSize: 32,
-					concurrency: 2,
+					batchSize: isApiEmbedder ? 128 : 32,
+					// Increased for Voyage reindex throughput (tunable if rate limits appear)
+					concurrency: isApiEmbedder ? 7 : 2,
 					maxRetries: 3,
+					embedOptions: { inputType: "document" },
 				});
 
 				// Create file watcher for real-time indexing
@@ -559,7 +572,7 @@ export async function createIndexManager(
 				},
 				last_full_index: lastFullIndexTime,
 				current_branch: currentBranch,
-				embedding_model_id: EMBEDDING_MODEL_ID,
+				embedding_model_id: embedder?.modelId ?? DEFAULT_EMBEDDING_MODEL_ID,
 				schema_version: SCHEMA_VERSION,
 				watcher: watcherStatus,
 			};

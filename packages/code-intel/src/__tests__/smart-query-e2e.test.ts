@@ -927,4 +927,56 @@ export class AuthController {
 		expect(typeof result.metadata.graphExpansions).toBe("number");
 		expect(typeof result.metadata.confidence).toBe("string");
 	});
+
+	// ============================================================================
+	// Voyage AI Rerank Mode Tests (graceful fallback when no API key)
+	// ============================================================================
+
+	test("rerank mode 'llm' falls back gracefully without VOYAGE_AI_API_KEY", async () => {
+		const result = await smartQuery.search({
+			queryText: "user authentication login",
+			maxTokens: 4000,
+			rerank: "llm",
+		});
+
+		// Should return valid results via BM25 fallback
+		expect(result.symbols.length).toBeGreaterThanOrEqual(0);
+		expect(typeof result.metadata.queryTime).toBe("number");
+		expect(typeof result.metadata.confidence).toBe("string");
+	});
+
+	test("rerank mode 'hybrid' falls back gracefully without VOYAGE_AI_API_KEY", async () => {
+		const result = await smartQuery.search({
+			queryText: "email validation",
+			maxTokens: 4000,
+			rerank: "hybrid",
+		});
+
+		// Should return valid results via BM25 fallback
+		expect(result.symbols.length).toBeGreaterThanOrEqual(0);
+		expect(typeof result.metadata.queryTime).toBe("number");
+		expect(typeof result.metadata.confidence).toBe("string");
+	});
+
+	test("rerank mode 'none' skips reranking entirely", async () => {
+		const result = await smartQuery.search({
+			queryText: "user service",
+			maxTokens: 4000,
+			rerank: "none",
+		});
+
+		expect(result.symbols.length).toBeGreaterThanOrEqual(0);
+		expect(typeof result.metadata.queryTime).toBe("number");
+	});
+
+	test("rerank mode 'heuristic' uses BM25 reranker", async () => {
+		const result = await smartQuery.search({
+			queryText: "order processing",
+			maxTokens: 4000,
+			rerank: "heuristic",
+		});
+
+		expect(result.symbols.length).toBeGreaterThanOrEqual(0);
+		expect(typeof result.metadata.queryTime).toBe("number");
+	});
 });
