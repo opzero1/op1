@@ -905,28 +905,34 @@ export async function main() {
 		// Create config directory
 		await mkdir(globalConfigDir, { recursive: true });
 
-		// Copy agents
+		// Copy agents (prefer plural directory layout, fallback to singular for compatibility)
 		if (options.agents) {
-			const src = join(TEMPLATES_DIR, "agent");
-			const dest = join(globalConfigDir, "agent");
+			const srcPlural = join(TEMPLATES_DIR, "agents");
+			const srcSingular = join(TEMPLATES_DIR, "agent");
+			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
+			const dest = join(globalConfigDir, "agents");
 			if (await dirExists(src)) {
 				totalFiles += await copyDir(src, dest);
 			}
 		}
 
-		// Copy commands
+		// Copy commands (prefer plural directory layout, fallback to singular for compatibility)
 		if (options.commands) {
-			const src = join(TEMPLATES_DIR, "command");
-			const dest = join(globalConfigDir, "command");
+			const srcPlural = join(TEMPLATES_DIR, "commands");
+			const srcSingular = join(TEMPLATES_DIR, "command");
+			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
+			const dest = join(globalConfigDir, "commands");
 			if (await dirExists(src)) {
 				totalFiles += await copyDir(src, dest);
 			}
 		}
 
-		// Copy skills
+		// Copy skills (prefer plural directory layout, fallback to singular for compatibility)
 		if (options.skills) {
-			const src = join(TEMPLATES_DIR, "skill");
-			const dest = join(globalConfigDir, "skill");
+			const srcPlural = join(TEMPLATES_DIR, "skills");
+			const srcSingular = join(TEMPLATES_DIR, "skill");
+			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
+			const dest = join(globalConfigDir, "skills");
 			if (await dirExists(src)) {
 				totalFiles += await copyDir(src, dest);
 			}
@@ -951,13 +957,13 @@ export async function main() {
 		summaryLines.push(`${pc.blue("↩")} Config backup: ${pc.dim(configBackupPath)}`);
 	}
 	if (options.agents) {
-		summaryLines.push(`${pc.green("✓")} Agents installed to ${pc.dim("~/.config/opencode/agent/")}`);
+		summaryLines.push(`${pc.green("✓")} Agents installed to ${pc.dim("~/.config/opencode/agents/")}`);
 	}
 	if (options.commands) {
-		summaryLines.push(`${pc.green("✓")} Commands installed to ${pc.dim("~/.config/opencode/command/")}`);
+		summaryLines.push(`${pc.green("✓")} Commands installed to ${pc.dim("~/.config/opencode/commands/")}`);
 	}
 	if (options.skills) {
-		summaryLines.push(`${pc.green("✓")} Skills installed to ${pc.dim("~/.config/opencode/skill/")}`);
+		summaryLines.push(`${pc.green("✓")} Skills installed to ${pc.dim("~/.config/opencode/skills/")}`);
 	}
 	if (options.plugins) {
 		summaryLines.push(`${pc.green("✓")} Plugins configured in opencode.json`);
