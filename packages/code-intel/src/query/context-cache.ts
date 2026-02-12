@@ -223,6 +223,8 @@ export function generateCacheKey(params: {
 	limit?: number;
 	filePatterns?: string[];
 	pathPrefix?: string;
+	rerankerType?: string;
+	enableReranking?: boolean;
 }): string {
 	const normalized = {
 		q: params.query.toLowerCase().trim(),
@@ -231,6 +233,7 @@ export function generateCacheKey(params: {
 		g: params.granularity ?? "auto",
 		l: params.limit ?? 50,
 		f: (params.filePatterns ?? []).sort().join(","),
+		r: params.enableReranking ? (params.rerankerType ?? "bm25") : "none",
 	};
 
 	return JSON.stringify(normalized);

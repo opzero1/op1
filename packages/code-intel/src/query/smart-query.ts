@@ -723,7 +723,11 @@ export function computeEnhancedAgreement(vectorHits: number, keywordHits: number
 	if (vectorHits <= 0 && keywordHits <= 0) return 0;
 	if (vectorHits <= 0 || keywordHits <= 0) return 0.1;
 
-	return Math.min(vectorHits, keywordHits) / Math.max(vectorHits, keywordHits);
+	// Both channels contributing is a strong positive signal.
+	// Use a log-dampened ratio so large imbalances don't crush the score.
+	const ratio = Math.min(vectorHits, keywordHits) / Math.max(vectorHits, keywordHits);
+	// Boost: having both channels active is inherently valuable (floor at 0.5)
+	return 0.5 + 0.5 * ratio;
 }
 
 /**
@@ -793,10 +797,20 @@ export function computeMultiSignalConfidence(
 		const secondScore = fusedResults[1].rrfScore;
 		const lastScore = fusedResults[fusedResults.length - 1].rrfScore;
 
-		// Ratio of gap between top and second vs total range
+		// Use logarithmic score spread to amplify small RRF gaps
 		const totalRange = topScore - lastScore;
 		if (totalRange > 0) {
-			scoreSpread = Math.min((topScore - secondScore) / totalRange, 1);
+			const rawSpread = (topScore - secondScore) / totalRange;
+			// Log-amplify: makes small but meaningful gaps more visible
+			scoreSpread = Math.min(-Math.log10(1 - Math.min(rawSpread, 0.99)) / 2, 1);
+		}
+
+		// Bonus: if top result has significantly higher score (e.g., exact match in both channels)
+		if (topScore > 0 && secondScore > 0) {
+			const dominanceRatio = topScore / secondScore;
+			if (dominanceRatio > 1.2) {
+				scoreSpread = Math.min(scoreSpread + 0.3, 1);
+			}
 		}
 	} else if (symbols.length === 1) {
 		// Single result — maximally decisive but uncertain

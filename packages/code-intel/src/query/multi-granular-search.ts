@@ -383,6 +383,8 @@ export function createEnhancedMultiGranularSearch(
 				limit,
 				filePatterns,
 				pathPrefix,
+				rerankerType,
+				enableReranking,
 			});
 
 			// Check cache first (if enabled and not skipped)
@@ -469,7 +471,7 @@ export function createEnhancedMultiGranularSearch(
 					chunks: result.chunks,
 					files: result.files,
 					ranked: result.ranked,
-					metadata: baseResult.metadata,
+					metadata: result.metadata,
 				});
 			}
 

@@ -447,11 +447,11 @@ export async function createIndexManager(
 
 					for (const chunk of chunks) {
 						const cached = oldChunkEmbeddingsByHash.get(chunk.content_hash);
-						if (cached) {
+					if (cached) {
 							cachedEmbeddingEntries.push({
 								id: chunk.id,
 								embedding: cached.embedding,
-								granularity: cached.granularity,
+								granularity: (chunk.chunk_type === "file" ? "file" : "chunk") as import("../types").Granularity,
 							});
 						} else {
 							chunksNeedingEmbedding.push(chunk);
@@ -747,10 +747,10 @@ export async function createIndexManager(
 							cachedEmbeddingEntries.push({
 								id: chunk.id,
 								embedding: cached.embedding,
-								granularity: cached.granularity,
-							});
-						} else {
-							chunksNeedingEmbedding.push(chunk);
+					granularity: (chunk.chunk_type === "file" ? "file" : "chunk") as import("../types").Granularity,
+						});
+					} else {
+						chunksNeedingEmbedding.push(chunk);
 						}
 					}
 
