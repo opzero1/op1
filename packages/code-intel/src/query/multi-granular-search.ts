@@ -20,6 +20,16 @@ import { createContextCache, generateCacheKey, type ContextCache, type ContextCa
 import { matchesPathFilters } from "./path-filter";
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Minimum similarity threshold for vector results.
+ * Matches the threshold in vector-search.ts — code embeddings score lower than NL.
+ */
+const MIN_SIMILARITY = 0.25;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -87,7 +97,7 @@ export interface MultiGranularSearch {
 // RRF Fusion
 // ============================================================================
 
-interface RankedItem {
+export interface RankedItem {
 	id: string;
 	granularity: Granularity;
 	score: number;
@@ -95,6 +105,26 @@ interface RankedItem {
 	content: string;
 	start_line?: number;
 	end_line?: number;
+}
+
+/** Escape regex special chars for use in RegExp constructor */
+export function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Boost score for items where short query tokens appear as whole words */
+export function applyWordBoundaryBoost(ranked: RankedItem[], query: string): RankedItem[] {
+	const tokens = query.split(/\s+/).filter(t => t.length > 0 && t.length < 4);
+	if (tokens.length === 0) return ranked; // No short tokens to boost
+
+	const patterns = tokens.map(t => new RegExp(`\\b${escapeRegExp(t)}\\b`, 'i'));
+
+	return ranked.map(item => {
+		const hasWordBoundaryMatch = patterns.some(p => p.test(item.content));
+		return hasWordBoundaryMatch
+			? { ...item, score: item.score * 1.5 }
+			: item;
+	}).sort((a, b) => b.score - a.score);
 }
 
 /**
@@ -116,6 +146,10 @@ function rrfFusion(
 			const existing = scores.get(item.id);
 			if (existing) {
 				existing.score += rrfScore;
+				// Merge metadata from later occurrences (e.g., vector results carry start_line/end_line but FTS doesn't)
+				if (item.start_line !== undefined && existing.item.start_line === undefined) {
+					existing.item = { ...existing.item, start_line: item.start_line, end_line: item.end_line };
+				}
 			} else {
 				scores.set(item.id, { item, score: rrfScore });
 			}
@@ -214,12 +248,46 @@ export function createEnhancedMultiGranularSearch(
 	// Create base search
 	const baseSearch = createMultiGranularSearch(deps);
 
+	// Re-derive symbols/chunks/files from ranked items (shared between base and enhanced)
+	function extractResults(
+		ranked: RankedItem[],
+	): { symbols: SymbolNode[]; chunks: ChunkNode[]; files: Array<{ file_path: string; score: number }> } {
+		const symbols: SymbolNode[] = [];
+		const chunks: ChunkNode[] = [];
+		const fileScores = new Map<string, number>();
+
+		for (const item of ranked) {
+			const existing = fileScores.get(item.file_path) ?? 0;
+			fileScores.set(item.file_path, existing + item.score);
+
+			if (item.granularity === "symbol") {
+				const symbol = deps.symbolStore.getById(item.id);
+				if (symbol) symbols.push(symbol);
+			} else if (item.granularity === "chunk" || item.granularity === "file") {
+				const chunk = deps.chunkStore.getById(item.id);
+				if (chunk) chunks.push(chunk);
+			}
+		}
+
+		const files = Array.from(fileScores.entries())
+			.map(([file_path, score]) => ({ file_path, score }))
+			.sort((a, b) => b.score - a.score);
+
+		return { symbols, chunks, files };
+	}
+
 	function applyReranking(
 		ranked: RankedItem[],
 		query: string,
 		rerankerType: "bm25" | "simple",
 	): RankedItem[] {
 		const reranker = rerankerType === "bm25" ? bm25Reranker : simpleReranker;
+
+		// Build metadata map to preserve start_line/end_line through reranking
+		const metadataMap = new Map<string, { start_line?: number; end_line?: number }>();
+		for (const r of ranked) {
+			metadataMap.set(r.id, { start_line: r.start_line, end_line: r.end_line });
+		}
 
 		const rerankItems: RerankItem[] = ranked.map((r) => ({
 			id: r.id,
@@ -237,6 +305,7 @@ export function createEnhancedMultiGranularSearch(
 			score: r.finalScore,
 			file_path: r.file_path,
 			content: r.content,
+			...metadataMap.get(r.id),
 		}));
 	}
 
@@ -250,6 +319,12 @@ export function createEnhancedMultiGranularSearch(
 
 		try {
 			const voyageReranker = createVoyageReranker();
+
+			// Build metadata map to preserve start_line/end_line through reranking
+			const metadataMap = new Map<string, { start_line?: number; end_line?: number }>();
+			for (const r of ranked) {
+				metadataMap.set(r.id, { start_line: r.start_line, end_line: r.end_line });
+			}
 
 			const rerankItems: RerankItem[] = ranked.map((r) => ({
 				id: r.id,
@@ -267,6 +342,7 @@ export function createEnhancedMultiGranularSearch(
 				score: r.finalScore,
 				file_path: r.file_path,
 				content: r.content,
+				...metadataMap.get(r.id),
 			}));
 		} catch {
 			// Voyage API error — fall back to BM25 reranker
@@ -362,11 +438,14 @@ export function createEnhancedMultiGranularSearch(
 				rerankTime = Date.now() - rerankStart;
 			}
 
+			// Re-derive symbols/chunks/files from finalRanked to preserve reranked order
+			const { symbols: finalSymbols, chunks: finalChunks, files: finalFiles } = extractResults(finalRanked);
+
 			// Build final result
 			const result: EnhancedSearchResult = {
-				symbols: baseResult.symbols,
-				chunks: baseResult.chunks,
-				files: baseResult.files,
+				symbols: finalSymbols,
+				chunks: finalChunks,
+				files: finalFiles,
 				ranked: finalRanked,
 				rewrittenQuery,
 				fromCache: false,
@@ -430,6 +509,9 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 	): RankedItem[] {
 		const ranked: RankedItem[] = [];
 		for (const r of results) {
+			// Skip results below minimum similarity threshold
+			if (r.similarity < MIN_SIMILARITY) continue;
+
 			const data = getContent(r.symbol_id, r.granularity);
 			if (!data) continue;
 			ranked.push({
@@ -501,6 +583,10 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				const symbol = symbolStore.getById(item.id);
 				if (symbol) symbols.push(symbol);
 			} else if (item.granularity === "chunk") {
+				const chunk = chunkStore.getById(item.id);
+				if (chunk) chunks.push(chunk);
+			} else if (item.granularity === "file") {
+				// File-granularity results are stored as chunks with chunk_type = "file"
 				const chunk = chunkStore.getById(item.id);
 				if (chunk) chunks.push(chunk);
 			}
@@ -589,13 +675,16 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				limit,
 			);
 
-			const { symbols, chunks, files } = extractResults(ranked);
+			// Boost whole-word matches for short query tokens
+			const boostedRanked = applyWordBoundaryBoost(ranked, query);
+
+			const { symbols, chunks, files } = extractResults(boostedRanked);
 
 			return {
 				symbols,
 				chunks,
 				files,
-				ranked,
+				ranked: boostedRanked,
 				metadata: {
 					queryTime: Date.now() - startTime,
 					symbolHits: symbols.length,
@@ -649,13 +738,16 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				limit,
 			);
 
-			const { symbols, chunks, files } = extractResults(ranked);
+			// Boost whole-word matches for short query tokens
+			const boostedRanked = applyWordBoundaryBoost(ranked, query);
+
+			const { symbols, chunks, files } = extractResults(boostedRanked);
 
 			return {
 				symbols,
 				chunks,
 				files,
-				ranked,
+				ranked: boostedRanked,
 				metadata: {
 					queryTime: Date.now() - startTime,
 					symbolHits: symbols.length,

@@ -716,7 +716,7 @@ export class AuthController {
 
 		expect(result.metadata.candidateLimit).toBeDefined();
 		expect(result.metadata.candidateLimit).toBeGreaterThanOrEqual(10);
-		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(50);
+		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(75);
 	});
 
 	test("adaptive sizing: short query gets fewer candidates than long query", async () => {
@@ -890,7 +890,7 @@ export class AuthController {
 		});
 
 		// candidateLimit should never exceed 50 (MAX_RETRIEVAL_LIMIT)
-		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(50);
+		expect(result.metadata.candidateLimit).toBeLessThanOrEqual(75);
 		expect(result.metadata.candidateLimit).toBeGreaterThanOrEqual(10);
 	});
 

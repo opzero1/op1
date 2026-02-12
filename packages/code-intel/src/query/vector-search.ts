@@ -41,6 +41,15 @@ export interface VectorSearcher {
 
 const DEFAULT_LIMIT = 20;
 
+/**
+ * Minimum similarity threshold for vector results.
+ *
+ * Code embeddings have lower similarity ranges than natural-language embeddings.
+ * Relevant code results typically score 0.3–0.5 cosine similarity. A threshold
+ * of 0.25 filters garbage while keeping useful results.
+ */
+export const MIN_SIMILARITY = 0.25;
+
 // ============================================================================
 // Vector Math Utilities (for pure JS fallback)
 // ============================================================================
@@ -163,7 +172,8 @@ function searchWithSqliteVec(
 		}
 		if (pathPrefix) {
 			sql += ` AND s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
-			params.push(`${pathPrefix}%`);
+			const escapedPrefix = pathPrefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+			params.push(`${escapedPrefix}%`);
 		}
 		if (filePatterns && filePatterns.length > 0) {
 			const conditions = filePatterns.map(() => `s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`).join(" OR ");
@@ -189,12 +199,15 @@ function searchWithSqliteVec(
 	const stmt = db.prepare(sql);
 	const rows = stmt.all(...params) as Array<{ symbol_id: string; distance: number }>;
 
-	// Apply actual limit after filtering
-	return rows.slice(0, limit).map((row) => ({
-		symbolId: row.symbol_id,
-		distance: row.distance,
-		similarity: Math.max(0, 1 - row.distance),
-	}));
+	// Apply actual limit after filtering and drop low-similarity garbage
+	return rows
+		.slice(0, limit)
+		.filter((row) => (1 - row.distance) >= MIN_SIMILARITY)
+		.map((row) => ({
+			symbolId: row.symbol_id,
+			distance: row.distance,
+			similarity: Math.max(0, 1 - row.distance),
+		}));
 }
 
 // ============================================================================
@@ -225,8 +238,8 @@ function searchWithPureJs(
 			c.file_path as chunk_file_path,
 			c.content as chunk_content
 		FROM js_vectors jv
-		LEFT JOIN chunks c ON c.id = jv.symbol_id AND jv.granularity = 'chunk'
-		${branch ? "WHERE c.branch = ? OR jv.granularity != 'chunk'" : ""}
+		LEFT JOIN chunks c ON c.id = jv.symbol_id AND jv.granularity IN ('chunk', 'file')
+		${branch ? "WHERE c.branch = ? OR jv.granularity NOT IN ('chunk', 'file')" : ""}
 	`;
 
 	const stmt = db.prepare(query);
@@ -253,6 +266,10 @@ function searchWithPureJs(
 
 			const storedEmbedding = deserializeEmbedding(row.embedding);
 			const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
+
+			// Skip results below minimum similarity threshold
+			if (similarity < MIN_SIMILARITY) continue;
+
 			const distance = 1 - similarity;
 
 			let symbolId: string | null = null;
@@ -272,8 +289,11 @@ function searchWithPureJs(
 				// For now, return the chunk itself with file info for context
 				symbolId = row.vector_id; // Will be resolved in hydration
 			} else if (row.granularity === "file") {
-				// File-level embedding - skip for now (we want symbol-level results)
-				continue;
+				// File-level embedding — resolve to vector_id (chunk ID in chunks table)
+				if (hasPathFilter && row.chunk_file_path) {
+					if (!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns)) continue;
+				}
+				symbolId = row.vector_id; // Will be resolved in hydration via chunkStore
 			}
 
 			if (symbolId && !seenSymbols.has(symbolId)) {

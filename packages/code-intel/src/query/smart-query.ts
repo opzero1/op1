@@ -63,7 +63,7 @@ const BASE_RETRIEVAL_LIMIT = 20;
 /** Minimum candidates to fetch per channel */
 const MIN_RETRIEVAL_LIMIT = 10;
 /** Maximum candidates to fetch per channel (latency guard) */
-const MAX_RETRIEVAL_LIMIT = 50;
+const MAX_RETRIEVAL_LIMIT = 75;
 
 // Rough token estimation: ~4 chars per token
 const CHARS_PER_TOKEN = 4;
@@ -152,9 +152,37 @@ export function createSmartQuery(
 							if (ranked.granularity === "symbol") {
 								const sym = symbolStore.getById(ranked.id);
 								if (sym) hydratedSymbols.push(sym);
+							} else if (ranked.granularity === "file" || ranked.granularity === "chunk") {
+								// Create lightweight SymbolNode wrapper for file/chunk results
+								hydratedSymbols.push({
+									id: ranked.id,
+									name: ranked.file_path.split("/").pop() ?? ranked.id,
+									qualified_name: ranked.file_path,
+									type: "MODULE" as SymbolType,
+									file_path: ranked.file_path,
+									language: inferLanguageType(ranked.file_path),
+									start_line: ranked.start_line ?? 1,
+									end_line: ranked.end_line ?? 1,
+									content: ranked.content,
+									content_hash: "",
+									is_external: false,
+									branch: parsedOptions.branch,
+									updated_at: Date.now(),
+									revision_id: 0,
+								});
 							}
 						}
 					}
+
+					// Also create pseudo-FusedResults from ranked for confidence scoring
+					fusedResults = enhancedResult.ranked.map((r, i) => ({
+						symbolId: r.id,
+						rrfScore: r.score,
+						sourceRanks: {
+							vector: i,
+							keyword: i,
+						},
+					}));
 				} catch {
 					// Enhanced search failed — fall back to simple path
 					useSimplePath = true;
@@ -215,11 +243,19 @@ export function createSmartQuery(
 			);
 
 			// Multi-signal confidence scoring
+			// For the Enhanced path, compute agreement from actual hit counts
+			// rather than relying on pseudo-FusedResults (which always set both
+			// sourceRanks to the same position, inflating agreement to 1.0).
+			const agreementOverride = !useSimplePath
+				? computeEnhancedAgreement(vectorHitCount, keywordHitCount)
+				: undefined;
+
 			const confidenceResult = computeMultiSignalConfidence(
 				vectorHitCount,
 				keywordHitCount,
 				hydratedSymbols,
 				fusedResults,
+				agreementOverride,
 			);
 
 			return {
@@ -495,7 +531,7 @@ interface ContextResult {
 	tokenCount: number;
 }
 
-function buildContextWithinBudget(
+export function buildContextWithinBudget(
 	symbols: SymbolNode[],
 	edges: SymbolEdge[],
 	maxTokens: number,
@@ -503,9 +539,18 @@ function buildContextWithinBudget(
 	const includedSymbols: SymbolNode[] = [];
 	const contextParts: string[] = [];
 	let currentTokens = 0;
+	const seenContentHashes = new Set<string>();
 
 	// Sort symbols by importance (original search order is already ranked)
 	for (const symbol of symbols) {
+		// Deduplicate by content_hash (worktree copies have same content)
+		if (symbol.content_hash && seenContentHashes.has(symbol.content_hash)) {
+			continue;
+		}
+		if (symbol.content_hash) {
+			seenContentHashes.add(symbol.content_hash);
+		}
+
 		const symbolContext = formatSymbolContext(symbol);
 		const symbolTokens = estimateTokens(symbolContext);
 
@@ -564,6 +609,16 @@ function truncateToTokens(text: string, maxTokens: number): string {
 
 	// Truncate and add ellipsis
 	return text.slice(0, maxChars - 3) + "...";
+}
+
+// ============================================================================
+// Language Inference
+// ============================================================================
+
+function inferLanguageType(filePath: string): "typescript" | "python" {
+	const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+	if (ext === ".py") return "python";
+	return "typescript"; // Default — SymbolNode only supports typescript | python
 }
 
 // ============================================================================
@@ -636,8 +691,8 @@ function computeAdaptiveLimit(options: ParsedQueryOptions): number {
 
 	// Higher token budgets can benefit from more candidates
 	if (options.maxTokens > DEFAULT_MAX_TOKENS) {
-		const budgetMultiplier = Math.min(options.maxTokens / DEFAULT_MAX_TOKENS, 2);
-		limit = Math.round(limit * Math.sqrt(budgetMultiplier));
+		const budgetMultiplier = Math.min(options.maxTokens / DEFAULT_MAX_TOKENS, 3);
+		limit = Math.round(limit * (0.5 + 0.5 * budgetMultiplier));
 	}
 
 	// Clamp to bounds
@@ -654,6 +709,24 @@ interface ConfidenceResult {
 }
 
 /**
+ * Compute agreement for the Enhanced search path from actual hit counts.
+ *
+ * The Enhanced path fuses vector and FTS results internally via RRF,
+ * so we can't reconstruct per-item channel membership. Instead, we use
+ * the ratio of overlap between channel hit counts as a proxy for agreement:
+ *   - Both channels contributing equally → high agreement (~1.0)
+ *   - One channel dominating → low agreement (ratio skewed)
+ *   - Only one channel present → minimal agreement (0.1)
+ *   - No channels → zero agreement
+ */
+export function computeEnhancedAgreement(vectorHits: number, keywordHits: number): number {
+	if (vectorHits <= 0 && keywordHits <= 0) return 0;
+	if (vectorHits <= 0 || keywordHits <= 0) return 0.1;
+
+	return Math.min(vectorHits, keywordHits) / Math.max(vectorHits, keywordHits);
+}
+
+/**
  * Multi-signal confidence replaces the coarse hit-count-only heuristic.
  *
  * Signals:
@@ -663,12 +736,18 @@ interface ConfidenceResult {
  *
  * Each signal contributes to a weighted composite score [0-1].
  * Tier thresholds: high ≥ 0.7, medium ≥ 0.4, low ≥ 0.1, degraded < 0.1
+ *
+ * @param agreementOverride - When provided, skips computing agreement from
+ *   fusedResults and uses this value directly. Used by the Enhanced path
+ *   where pseudo-FusedResults always have both sourceRanks set (inflating
+ *   agreement to 1.0).
  */
-function computeMultiSignalConfidence(
+export function computeMultiSignalConfidence(
 	vectorHits: number,
 	keywordHits: number,
 	symbols: SymbolNode[],
 	fusedResults: FusedResult[],
+	agreementOverride?: number,
 ): ConfidenceResult {
 	const totalHits = vectorHits + keywordHits;
 
@@ -688,19 +767,22 @@ function computeMultiSignalConfidence(
 	}
 
 	// Signal 1: Retrieval agreement (0-1)
-	// How many fused results appear in BOTH vector and keyword channels?
-	let agreementRatio = 0;
-	if (fusedResults.length > 0) {
+	// When agreementOverride is provided (Enhanced path), use it directly.
+	// Otherwise compute from fusedResults' sourceRanks.
+	let agreementRatio: number;
+	if (agreementOverride !== undefined) {
+		agreementRatio = agreementOverride;
+	} else if (fusedResults.length > 0) {
 		const bothChannels = fusedResults.filter(
 			(r) => r.sourceRanks.vector !== undefined && r.sourceRanks.keyword !== undefined,
 		).length;
 		agreementRatio = bothChannels / Math.max(fusedResults.length, 1);
 	} else if (vectorHits > 0 && keywordHits > 0) {
-		// Enhanced path — no fused results, but both channels contributed
 		agreementRatio = 0.5;
 	} else if (totalHits > 0) {
-		// Single channel only
 		agreementRatio = 0.1;
+	} else {
+		agreementRatio = 0;
 	}
 
 	// Signal 2: Score spread (0-1)

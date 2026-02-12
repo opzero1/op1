@@ -113,7 +113,8 @@ function executeKeywordSearch(
 
 	if (pathPrefix) {
 		sql += ` AND file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
-		params.push(`${pathPrefix}%`);
+		const escapedPrefix = pathPrefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+		params.push(`${escapedPrefix}%`);
 	}
 
 	if (filePatterns && filePatterns.length > 0) {
