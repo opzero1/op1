@@ -42,14 +42,46 @@ export interface FTSSearchOptions {
 }
 
 /**
- * Escape special FTS5 characters in query
+ * FTS5 reserved words that must not appear as bare terms in a MATCH expression.
+ * These are case-insensitive in FTS5.
  */
-function escapeFTS5Query(query: string): string {
-	// Escape quotes and special chars
-	return query
-		.replace(/"/g, '""')
-		.replace(/[*:^()]/g, " ")
-		.trim();
+const FTS5_OPERATORS = new Set(["and", "or", "not", "near"]);
+
+/**
+ * Tokenize and sanitize a user query for FTS5 MATCH.
+ *
+ * Strategy:
+ * - Split into individual tokens
+ * - Remove FTS5 operator words (AND/OR/NOT/NEAR) to prevent syntax errors
+ * - Remove special FTS5 characters (* : ^ ( ) ")
+ * - Filter out tokens that are too short (< 2 chars) or empty
+ * - Add prefix matching with trailing * for tokens >= 4 chars (partial matching)
+ * - Return tokens joined by space (FTS5 implicit AND for unquoted space-separated terms)
+ *
+ * Returns empty string if no valid tokens remain.
+ */
+function buildFTS5Query(query: string): string {
+	const tokens = query
+		.replace(/[":^()]/g, " ") // Remove FTS5 special chars (keep * for now)
+		.split(/\s+/)
+		.map((t) => t.trim())
+		.filter((t) => t.length >= 2)
+		.filter((t) => !FTS5_OPERATORS.has(t.toLowerCase()));
+
+	if (tokens.length === 0) return "";
+
+	// For each token, add prefix matching if token is >= 4 chars
+	// This helps with partial matches: "recipien" -> "recipien*"
+	return tokens
+		.map((t) => {
+			// If token already ends with *, keep as-is
+			if (t.endsWith("*")) return `"${t.replace(/\*/g, "")}"*`;
+			// For longer tokens, add prefix match
+			if (t.length >= 4) return `"${t}" OR "${t}"*`;
+			// Short tokens: exact match only (quoted to avoid FTS5 interpretation)
+			return `"${t}"`;
+		})
+		.join(" AND ");
 }
 
 export function createContentFTSStore(db: Database): ContentFTSStore {
@@ -102,9 +134,9 @@ export function createContentFTSStore(db: Database): ContentFTSStore {
 
 		search(query: string, options: FTSSearchOptions = {}): FTSSearchResult[] {
 			const { limit = 50, contentType, filePatterns } = options;
-			const escapedQuery = escapeFTS5Query(query);
+			const fts5Query = buildFTS5Query(query);
 
-			if (!escapedQuery) {
+			if (!fts5Query) {
 				return [];
 			}
 
@@ -117,7 +149,7 @@ export function createContentFTSStore(db: Database): ContentFTSStore {
 				WHERE fts_content MATCH ?
 			`;
 
-			const params: (string | number)[] = [`"${escapedQuery}"`];
+			const params: (string | number)[] = [fts5Query];
 
 			if (contentType) {
 				sql += " AND content_type = ?";

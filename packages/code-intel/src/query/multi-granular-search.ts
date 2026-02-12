@@ -469,8 +469,19 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 					end_line: chunk.end_line,
 				};
 			}
+		} else if (granularity === "file") {
+			// File-granularity vectors use chunk IDs where chunk_type = "file"
+			// These are stored in the chunks table alongside symbol and block chunks
+			const chunk = chunkStore.getById(id);
+			if (chunk) {
+				return {
+					content: chunk.content,
+					file_path: chunk.file_path,
+					start_line: chunk.start_line,
+					end_line: chunk.end_line,
+				};
+			}
 		}
-		// For file granularity, we'd need fileContentStore
 		return null;
 	}
 

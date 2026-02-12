@@ -98,6 +98,31 @@ const FILE_PATTERNS: Array<{ pattern: RegExp; glob: string }> = [
 	{ pattern: /\bmiddleware\b/i, glob: "**/middleware*" },
 ];
 
+/**
+ * Terms that match FILE_PATTERNS but are too common as search terms
+ * to safely use as file path filters. When these appear in a query,
+ * they should be treated as search terms, not file path hints.
+ *
+ * File patterns are only extracted when the query contains explicit
+ * path-like syntax (slashes, file extensions) — see extractFilePatterns.
+ */
+const FILE_PATTERN_EXCLUSIONS = new Set([
+	"service", "services",
+	"model", "models",
+	"type", "types",
+	"route", "routes",
+	"controller", "controllers",
+	"component", "components",
+	"hook", "hooks",
+	"util", "utils",
+	"helper", "helpers",
+	"config",
+	"test", "tests", "spec",
+	"middleware",
+	"schema",
+	"api",
+]);
+
 // ============================================================================
 // Language Detection
 // ============================================================================
@@ -151,14 +176,33 @@ export function createQueryRewriter(
 		if (!enablePathExtraction) return [];
 
 		const patterns: string[] = [];
+		const queryLower = query.toLowerCase();
+
+		// Only extract glob patterns from FILE_PATTERNS when the query
+		// contains explicit path-like syntax (slash, dot+extension, etc.)
+		// General terms like "service" or "model" are too ambiguous —
+		// they're common search terms and shouldn't restrict results to
+		// files whose paths happen to contain the word.
+		const hasExplicitPathSyntax = /[\/\\]|\.(?:ts|tsx|js|jsx|py)\b/.test(query);
 
 		for (const { pattern, glob } of FILE_PATTERNS) {
-			if (pattern.test(query)) {
+			if (!pattern.test(query)) continue;
+
+			// With explicit path syntax, trust all pattern matches
+			if (hasExplicitPathSyntax) {
 				patterns.push(glob);
+				continue;
 			}
+
+			// Without path syntax, skip patterns triggered by excluded terms
+			// (e.g. "service" in "payment service" is a search term, not a path hint)
+			const matchedWord = queryLower.match(pattern)?.[0];
+			if (matchedWord && FILE_PATTERN_EXCLUSIONS.has(matchedWord)) continue;
+
+			patterns.push(glob);
 		}
 
-		// Also extract explicit file mentions
+		// Always extract explicit file mentions (e.g., "user.service.ts")
 		const fileMatch = query.match(/\b[\w-]+\.(ts|tsx|js|jsx|py)\b/gi);
 		if (fileMatch) {
 			patterns.push(...fileMatch.map((f) => `**/${f}`));
@@ -186,11 +230,22 @@ export function createQueryRewriter(
 			const filePatterns = extractFilePatterns(query);
 			const languages = detectLanguages(query);
 
-			// Build expanded query
-			const expanded =
-				expansions.length > 0
-					? `${query} ${expansions.join(" ")}`
-					: query;
+			// Build expanded query: original terms kept as-is, synonyms added as OR alternatives
+			// Format: "(term1 OR syn1 OR syn2) term2" — FTS5 ANDs the groups, ORs within them
+			const expandedParts: string[] = [];
+			for (const term of terms) {
+				const synonyms = enableSynonyms
+					? (CODE_SYNONYMS[term] ?? []).slice(0, maxExpansionsPerTerm)
+					: [];
+				if (synonyms.length > 0) {
+					expandedParts.push(`(${[term, ...synonyms].join(" OR ")})`);
+				} else {
+					expandedParts.push(term);
+				}
+			}
+			const expanded = expandedParts.length > 0
+				? expandedParts.join(" ")
+				: query;
 
 			return {
 				original: query,
