@@ -113,6 +113,16 @@
 		"url": "https://mcp.figma.com/mcp"
 	},
 
+	// Storybook MCP - Component library, props, design system
+	"storybook": {
+		"type": "local",
+		"enabled": true,
+		"command": ["bunx", "-y", "@reaphq/design-mcp@latest"],
+		"environment": {
+			"STORYBOOK_URL": "https://design.reap.global/index.json"
+		}
+	},
+
 	// ----- Utility MCPs -----
 
 		// Context7 - Library/docs lookup
@@ -140,6 +150,7 @@
 		"notion_*": false,
 		"newrelic_*": false,
 		"figma_*": false,
+		"storybook_*": false,
 		"context7_*": false,
 		"grep_app_*": false
 	},
@@ -164,6 +175,7 @@
 		},
 		"researcher": {
 			"tools": {
+				"storybook_*": true,
 				"zai-search_*": true,
 				"zai-reader_*": true,
 				"zai-zread_*": true,
@@ -178,12 +190,14 @@
 		"coder": {
 			"tools": {
 				"context7_*": true,
+				"storybook_*": true,
 				"zai-vision_*": true
 			}
 		},
 		"frontend": {
 			"tools": {
 				"context7_*": true,
+				"storybook_*": true,
 				"zai-vision_*": true,
 				"figma_*": true
 			}
