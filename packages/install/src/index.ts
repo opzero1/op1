@@ -693,7 +693,7 @@ export async function main() {
 			{
 				value: "commands",
 				label: "Commands",
-				hint: "6 slash commands (/plan, /review, /ulw, etc.)",
+				hint: "7 slash commands (/init, /plan, /review, /ulw, etc.)",
 			},
 			{
 				value: "skills",
