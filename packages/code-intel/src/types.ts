@@ -303,6 +303,10 @@ export interface QueryResult {
 		confidenceDiagnostics?: ConfidenceDiagnostics;
 		/** Candidate sizing used for this query */
 		candidateLimit?: number;
+		/** Which rerank mode was used (if any) */
+		rerankMode?: RerankMode;
+		/** Time spent on reranking in ms (0 if disabled or simple path) */
+		rerankTime?: number;
 	};
 }
 

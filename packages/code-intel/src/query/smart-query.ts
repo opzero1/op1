@@ -119,6 +119,7 @@ export function createSmartQuery(
 			let vectorHitCount = 0;
 			let keywordHitCount = 0;
 			let fusedResults: FusedResult[] = [];
+			let rerankTimeMs = 0;
 
 			let useSimplePath = !enhancedSearch || !parsedOptions.embedding || !parsedOptions.queryText;
 
@@ -145,6 +146,7 @@ export function createSmartQuery(
 					hydratedSymbols = enhancedResult.symbols;
 					vectorHitCount = enhancedResult.metadata.vectorHits;
 					keywordHitCount = enhancedResult.metadata.ftsHits;
+					rerankTimeMs = enhancedResult.metadata.rerankTime ?? 0;
 
 					// If enhanced didn't produce symbols but has ranked items, hydrate from ranked
 					if (hydratedSymbols.length === 0 && enhancedResult.ranked.length > 0) {
@@ -191,6 +193,7 @@ export function createSmartQuery(
 
 			if (useSimplePath) {
 				// Simple path: parallel vector + keyword retrieval (original behavior)
+				rerankTimeMs = 0;
 				const [vectorResults, keywordResults] = await runParallelRetrieval(
 					vectorSearcher,
 					keywordSearcher,
@@ -228,12 +231,16 @@ export function createSmartQuery(
 				return createEmptyResult(startTime, parsedOptions);
 			}
 
-			// Step 4: Graph expansion for top results (shared by both paths)
-			const expansionResult = expandGraphForTopSymbols(
-				hydratedSymbols,
-				graphExpander,
-				parsedOptions,
-			);
+		// Step 4: Graph expansion for top results (shared by both paths)
+		// Skip for file-granularity results — they're pseudo-symbols with no graph edges
+		const isFileGranularity = parsedOptions.granularity === "file";
+		const expansionResult = isFileGranularity
+			? { symbols: hydratedSymbols, edges: [], expansionCount: 0 }
+			: expandGraphForTopSymbols(
+					hydratedSymbols,
+					graphExpander,
+					parsedOptions,
+				);
 
 			// Step 5: Token-budget aware context building
 			const contextResult = buildContextWithinBudget(
@@ -256,6 +263,7 @@ export function createSmartQuery(
 				hydratedSymbols,
 				fusedResults,
 				agreementOverride,
+				parsedOptions.granularity,
 			);
 
 			return {
@@ -271,6 +279,8 @@ export function createSmartQuery(
 					confidence: confidenceResult.tier,
 					confidenceDiagnostics: confidenceResult.diagnostics,
 					candidateLimit: retrievalLimit,
+					rerankMode: parsedOptions.rerankMode ?? undefined,
+					rerankTime: rerankTimeMs,
 					scope: {
 						branch: parsedOptions.branch,
 						pathPrefix: parsedOptions.pathPrefix ?? undefined,
@@ -326,13 +336,14 @@ function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
  * Map high-level RerankMode to the rerankerType used by EnhancedSearchOptions.
  *
  * - "none"      → "bm25" (reranking is disabled at the caller, type is irrelevant)
- * - "heuristic" → "bm25" (fast, local BM25 reranker)
+ * - "heuristic" → "simple" (exact match boost, path match, term density, length penalty)
  * - "llm"       → "voyage" (Voyage AI API reranker, falls back to BM25 if unavailable)
  * - "hybrid"    → "voyage" (same as llm — fallback handled inside applyVoyageReranking)
  * - null        → "bm25" (default)
  */
 function mapRerankModeToType(mode: RerankMode | null): "bm25" | "simple" | "voyage" {
 	if (mode === "llm" || mode === "hybrid") return "voyage";
+	if (mode === "heuristic") return "simple";
 	return "bm25";
 }
 
@@ -582,21 +593,46 @@ export function buildContextWithinBudget(
 function formatSymbolContext(symbol: SymbolNode): string {
 	const parts: string[] = [];
 
-	// Header with metadata
-	parts.push(`## ${symbol.type}: ${symbol.qualified_name}`);
-	parts.push(`File: ${symbol.file_path}:${symbol.start_line}-${symbol.end_line}`);
+	// File-level results: use file-oriented header
+	const isFileResult = symbol.type === "MODULE" && symbol.qualified_name.includes("/");
+	if (isFileResult) {
+		parts.push(`## FILE: ${symbol.qualified_name}`);
+		parts.push(`Lines: ${symbol.start_line}-${symbol.end_line}`);
+	} else {
+		// Symbol-level results
+		parts.push(`## ${symbol.type}: ${symbol.qualified_name}`);
+		parts.push(`File: ${symbol.file_path}:${symbol.start_line}-${symbol.end_line}`);
 
-	if (symbol.signature) {
-		parts.push(`Signature: ${symbol.signature}`);
+		if (symbol.signature) {
+			parts.push(`Signature: ${symbol.signature}`);
+		}
 	}
 
 	if (symbol.docstring) {
 		parts.push(`\nDocumentation:\n${symbol.docstring}`);
 	}
 
-	parts.push(`\nSource:\n\`\`\`${symbol.language}\n${symbol.content}\n\`\`\``);
+	// Detect language from file path for file results
+	const lang = isFileResult ? inferLangFromPath(symbol.qualified_name) : symbol.language;
+	parts.push(`\nSource:\n\`\`\`${lang}\n${symbol.content}\n\`\`\``);
 
 	return parts.join("\n");
+}
+
+function inferLangFromPath(filePath: string): string {
+	const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+	const langMap: Record<string, string> = {
+		".ts": "typescript",
+		".tsx": "typescript",
+		".js": "javascript",
+		".jsx": "javascript",
+		".py": "python",
+		".go": "go",
+		".rs": "rust",
+		".java": "java",
+		".swift": "swift",
+	};
+	return langMap[ext] ?? "typescript";
 }
 
 function estimateTokens(text: string): number {
@@ -745,6 +781,8 @@ export function computeEnhancedAgreement(vectorHits: number, keywordHits: number
  *   fusedResults and uses this value directly. Used by the Enhanced path
  *   where pseudo-FusedResults always have both sourceRanks set (inflating
  *   agreement to 1.0).
+ * @param granularity - When "file", reduces scopeConcentration weight since
+ *   file-level results naturally span multiple directories.
  */
 export function computeMultiSignalConfidence(
 	vectorHits: number,
@@ -752,6 +790,7 @@ export function computeMultiSignalConfidence(
 	symbols: SymbolNode[],
 	fusedResults: FusedResult[],
 	agreementOverride?: number,
+	granularity?: Granularity | "auto" | null,
 ): ConfidenceResult {
 	const totalHits = vectorHits + keywordHits;
 
@@ -834,28 +873,45 @@ export function computeMultiSignalConfidence(
 		scopeConcentration = maxDirCount / symbols.length;
 	}
 
+	// Fast-path: single-result exact match with both channels → high confidence
+	if (symbols.length === 1 && agreementRatio >= 0.5 && scopeConcentration >= 1.0) {
+		return {
+			tier: "high",
+			diagnostics: {
+				retrievalAgreement: agreementRatio,
+				scoreSpread,
+				scopeConcentration,
+				uniqueFiles: uniqueFiles.size,
+				totalCandidates: totalHits,
+				tierReason: `Exact match: single result from both channels (agreement=${agreementRatio.toFixed(2)})`,
+			},
+		};
+	}
+
 	// Composite score: weighted combination
-	const compositeScore =
-		agreementRatio * 0.45 +
-		scoreSpread * 0.25 +
-		scopeConcentration * 0.30;
+	// File-granularity results naturally span multiple directories, so
+	// scopeConcentration (directory clustering) is a misleading signal —
+	// reduce its weight to avoid penalising valid file-level searches.
+	const compositeScore = granularity === "file"
+		? agreementRatio * 0.60 + scoreSpread * 0.30 + scopeConcentration * 0.10
+		: agreementRatio * 0.45 + scoreSpread * 0.25 + scopeConcentration * 0.30;
 
 	// Determine tier from composite
 	let tier: "high" | "medium" | "low" | "degraded";
 	let tierReason: string;
 
-	if (compositeScore >= 0.7) {
+	if (compositeScore >= 0.6) {
 		tier = "high";
-		tierReason = `Strong signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
-	} else if (compositeScore >= 0.4) {
+		tierReason = `Strong signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}, composite=${compositeScore.toFixed(3)}`;
+	} else if (compositeScore >= 0.35) {
 		tier = "medium";
-		tierReason = `Moderate signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+		tierReason = `Moderate signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}, composite=${compositeScore.toFixed(3)}`;
 	} else if (compositeScore >= 0.1) {
 		tier = "low";
-		tierReason = `Weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+		tierReason = `Weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}, composite=${compositeScore.toFixed(3)}`;
 	} else {
 		tier = "degraded";
-		tierReason = `Very weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}`;
+		tierReason = `Very weak signals: agreement=${agreementRatio.toFixed(2)}, spread=${scoreSpread.toFixed(2)}, focus=${scopeConcentration.toFixed(2)}, composite=${compositeScore.toFixed(3)}`;
 	}
 
 	return {

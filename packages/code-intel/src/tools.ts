@@ -248,6 +248,9 @@ export const smart_query: ToolDefinition = tool({
 				`**Retrieval:** ${result.metadata.vectorHits} vector hits, ${result.metadata.keywordHits} keyword hits`,
 			);
 			lines.push(`**Graph expansions:** ${result.metadata.graphExpansions} | **Confidence:** ${result.metadata.confidence}`);
+			if (result.metadata.rerankMode) {
+				lines.push(`**Rerank:** mode=${result.metadata.rerankMode}, time=${result.metadata.rerankTime ?? 0}ms`);
+			}
 			lines.push("");
 			lines.push("---");
 			lines.push("");

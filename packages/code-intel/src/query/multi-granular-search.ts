@@ -314,6 +314,7 @@ export function createEnhancedMultiGranularSearch(
 		query: string,
 	): Promise<RankedItem[]> {
 		if (!isVoyageRerankerAvailable()) {
+			console.warn("[code-intel] Voyage AI reranker unavailable (VOYAGE_AI_API_KEY not set), falling back to BM25 reranking");
 			return applyReranking(ranked, query, "bm25");
 		}
 
@@ -344,8 +345,8 @@ export function createEnhancedMultiGranularSearch(
 				content: r.content,
 				...metadataMap.get(r.id),
 			}));
-		} catch {
-			// Voyage API error — fall back to BM25 reranker
+		} catch (err) {
+			console.warn("[code-intel] Voyage AI reranker failed, falling back to BM25 reranking:", err instanceof Error ? err.message : String(err));
 			return applyReranking(ranked, query, "bm25");
 		}
 	}
