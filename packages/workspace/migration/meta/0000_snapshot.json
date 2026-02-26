@@ -1,0 +1,622 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "7aa62709-bbef-4cd7-bc37-2ac4f4416a5c",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "project_scopes": {
+      "name": "project_scopes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "repo_root_path": {
+          "name": "repo_root_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_root_path": {
+          "name": "workspace_root_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "repo_remote_url": {
+          "name": "repo_remote_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "repo_default_branch": {
+          "name": "repo_default_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "time_created": {
+          "name": "time_created",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_updated": {
+          "name": "time_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_project_scopes_scope_key": {
+          "name": "uq_project_scopes_scope_key",
+          "columns": [
+            "scope_key"
+          ],
+          "isUnique": true
+        },
+        "idx_project_scopes_repo_root_path": {
+          "name": "idx_project_scopes_repo_root_path",
+          "columns": [
+            "repo_root_path"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_project_scopes_time_created": {
+          "name": "chk_project_scopes_time_created",
+          "value": "\"project_scopes\".\"time_created\" > 0"
+        },
+        "chk_project_scopes_time_updated": {
+          "name": "chk_project_scopes_time_updated",
+          "value": "\"project_scopes\".\"time_updated\" > 0"
+        }
+      }
+    },
+    "plans": {
+      "name": "plans",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_scope_id": {
+          "name": "project_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_name": {
+          "name": "plan_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phase": {
+          "name": "phase",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_markdown": {
+          "name": "content_markdown",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'native'"
+        },
+        "import_source_path": {
+          "name": "import_source_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "import_idempotency_key": {
+          "name": "import_idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "time_started": {
+          "name": "time_started",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "time_created": {
+          "name": "time_created",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_updated": {
+          "name": "time_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_plans_scope_plan_name": {
+          "name": "uq_plans_scope_plan_name",
+          "columns": [
+            "project_scope_id",
+            "plan_name"
+          ],
+          "isUnique": true
+        },
+        "uq_plans_one_active_per_scope": {
+          "name": "uq_plans_one_active_per_scope",
+          "columns": [
+            "project_scope_id"
+          ],
+          "isUnique": true,
+          "where": "\"plans\".\"is_active\" = 1"
+        },
+        "idx_plans_project_scope_id": {
+          "name": "idx_plans_project_scope_id",
+          "columns": [
+            "project_scope_id"
+          ],
+          "isUnique": false
+        },
+        "idx_plans_scope_status_updated": {
+          "name": "idx_plans_scope_status_updated",
+          "columns": [
+            "project_scope_id",
+            "status",
+            "time_updated"
+          ],
+          "isUnique": false
+        },
+        "idx_plans_scope_time_started": {
+          "name": "idx_plans_scope_time_started",
+          "columns": [
+            "project_scope_id",
+            "time_started"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_plans_project_scope_id": {
+          "name": "fk_plans_project_scope_id",
+          "tableFrom": "plans",
+          "tableTo": "project_scopes",
+          "columnsFrom": [
+            "project_scope_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_plans_status": {
+          "name": "chk_plans_status",
+          "value": "\"plans\".\"status\" IN ('not-started', 'in-progress', 'complete', 'blocked')"
+        },
+        "chk_plans_phase": {
+          "name": "chk_plans_phase",
+          "value": "\"plans\".\"phase\" >= 1"
+        },
+        "chk_plans_is_active": {
+          "name": "chk_plans_is_active",
+          "value": "\"plans\".\"is_active\" IN (0, 1)"
+        },
+        "chk_plans_source_kind": {
+          "name": "chk_plans_source_kind",
+          "value": "\"plans\".\"source_kind\" IN ('native', 'migrated')"
+        }
+      }
+    },
+    "plan_sessions": {
+      "name": "plan_sessions",
+      "columns": {
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_linked": {
+          "name": "time_linked",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_plan_sessions_session_id": {
+          "name": "idx_plan_sessions_session_id",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_plan_sessions_plan_id": {
+          "name": "fk_plan_sessions_plan_id",
+          "tableFrom": "plan_sessions",
+          "tableTo": "plans",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "pk_plan_sessions": {
+          "columns": [
+            "plan_id",
+            "session_id"
+          ],
+          "name": "pk_plan_sessions"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_plan_sessions_time_linked": {
+          "name": "chk_plan_sessions_time_linked",
+          "value": "\"plan_sessions\".\"time_linked\" > 0"
+        }
+      }
+    },
+    "notepad_entries": {
+      "name": "notepad_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_scope_id": {
+          "name": "project_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'native'"
+        },
+        "source_position": {
+          "name": "source_position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "time_created": {
+          "name": "time_created",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_notepad_entries_dedupe": {
+          "name": "uq_notepad_entries_dedupe",
+          "columns": [
+            "plan_id",
+            "category",
+            "content_hash",
+            "source_position"
+          ],
+          "isUnique": true
+        },
+        "idx_notepad_entries_plan_category_time": {
+          "name": "idx_notepad_entries_plan_category_time",
+          "columns": [
+            "plan_id",
+            "category",
+            "time_created"
+          ],
+          "isUnique": false
+        },
+        "idx_notepad_entries_scope_time": {
+          "name": "idx_notepad_entries_scope_time",
+          "columns": [
+            "project_scope_id",
+            "time_created"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_notepad_entries_project_scope_id": {
+          "name": "fk_notepad_entries_project_scope_id",
+          "tableFrom": "notepad_entries",
+          "tableTo": "project_scopes",
+          "columnsFrom": [
+            "project_scope_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "fk_notepad_entries_plan_id": {
+          "name": "fk_notepad_entries_plan_id",
+          "tableFrom": "notepad_entries",
+          "tableTo": "plans",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_notepad_entries_category": {
+          "name": "chk_notepad_entries_category",
+          "value": "\"notepad_entries\".\"category\" IN ('learnings', 'issues', 'decisions')"
+        },
+        "chk_notepad_entries_source_kind": {
+          "name": "chk_notepad_entries_source_kind",
+          "value": "\"notepad_entries\".\"source_kind\" IN ('native', 'migrated')"
+        },
+        "chk_notepad_entries_time_created": {
+          "name": "chk_notepad_entries_time_created",
+          "value": "\"notepad_entries\".\"time_created\" > 0"
+        }
+      }
+    },
+    "worktree_refs": {
+      "name": "worktree_refs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_scope_id": {
+          "name": "project_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "worktree_path": {
+          "name": "worktree_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "branch_name": {
+          "name": "branch_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "base_branch": {
+          "name": "base_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_created": {
+          "name": "time_created",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_updated": {
+          "name": "time_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_worktree_refs_scope_path": {
+          "name": "uq_worktree_refs_scope_path",
+          "columns": [
+            "project_scope_id",
+            "worktree_path"
+          ],
+          "isUnique": true
+        },
+        "idx_worktree_refs_scope_status": {
+          "name": "idx_worktree_refs_scope_status",
+          "columns": [
+            "project_scope_id",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "idx_worktree_refs_scope_branch": {
+          "name": "idx_worktree_refs_scope_branch",
+          "columns": [
+            "project_scope_id",
+            "branch_name"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_worktree_refs_project_scope_id": {
+          "name": "fk_worktree_refs_project_scope_id",
+          "tableFrom": "worktree_refs",
+          "tableTo": "project_scopes",
+          "columnsFrom": [
+            "project_scope_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_worktree_refs_status": {
+          "name": "chk_worktree_refs_status",
+          "value": "\"worktree_refs\".\"status\" IN ('active', 'merged', 'closed', 'stale')"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

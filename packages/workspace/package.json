@@ -12,19 +12,24 @@
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/index.js --target bun --format esm --external zod",
+		"build": "bun build src/index.ts --outfile dist/index.js --target bun --format esm --external zod --external drizzle-orm",
 		"typecheck": "tsc --noEmit",
-		"dev": "bun run build --watch"
+		"dev": "bun run build --watch",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate"
 	},
 	"files": [
-		"dist"
+		"dist",
+		"migration"
 	],
 	"dependencies": {
 		"@opencode-ai/plugin": "^1.0.0",
+		"drizzle-orm": "^0.44.0",
 		"zod": "^4.0.0"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.1.0",
+		"drizzle-kit": "^0.31.0",
 		"typescript": "^5.7.0"
 	},
 	"publishConfig": {

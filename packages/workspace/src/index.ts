@@ -596,3 +596,14 @@ To begin implementation:
 // ── Test Exports (backward compatibility) ──────────────────
 export { extractMarkdownParts, parsePlanMarkdown } from "./plan/schema.js";
 export { formatGitStats } from "./utils.js";
+
+// ── Database (scaffolding only, not wired to tools yet) ────
+export {
+	createWorkspaceDb,
+	runMigrations,
+	schema,
+	type WorkspaceDb,
+	type WorkspaceDbHandle,
+	type CreateWorkspaceDbOptions,
+	type MigrateOptions,
+} from "./db/index";

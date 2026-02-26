@@ -55,6 +55,16 @@ bun add @op1/workspace
 └── active-plan.json
 ```
 
+## Scope Contract (v1)
+
+- Learning memory is project-scoped only (plans + notepads live under the current project).
+- Cross-project aggregation is intentionally out of scope for v1.
+- This boundary is immutable until a versioned v2 migration is introduced.
+
+See `ADR-0001-v1-learning-scope.md` for the decision record.
+
+For the v1 relational table/constraint contract used by the SQLite migration, see `ADR-0002-v1-relational-schema-contract.md`.
+
 ## License
 
 MIT

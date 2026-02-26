@@ -5,7 +5,7 @@
  * Each session gets its own worktree for isolated development.
  */
 
-import { tool } from "@opencode-ai/plugin";
+import { tool, type ToolDefinition } from "@opencode-ai/plugin";
 import { mkdir, readdir, copyFile, symlink, stat } from "fs/promises";
 import { join, relative, basename } from "path";
 
@@ -87,7 +87,11 @@ async function createSymlinks(
 export function createWorktreeTools(
 	directory: string,
 	projectId: string,
-) {
+): {
+	worktree_create: ToolDefinition;
+	worktree_list: ToolDefinition;
+	worktree_delete: ToolDefinition;
+} {
 	let db: WorktreeDB | null = null;
 
 	async function getDB(): Promise<WorktreeDB> {

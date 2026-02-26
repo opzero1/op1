@@ -3,10 +3,14 @@
  *
  * Active plan state, notepad helpers, slug generation, metadata generation.
  * All operations are project-scoped (stored in .opencode/workspace/).
+ *
+ * v1 scope contract (ADR-0001): learning memory is project-scoped only.
+ * Do not add cross-project state access in v1 code paths; scope expansion
+ * is reserved for a versioned v2 migration.
  */
 
-import { mkdir, readdir, stat } from "fs/promises";
-import { join, basename, relative } from "path";
+import { mkdir, readdir } from "fs/promises";
+import { join, basename } from "path";
 import { isSystemError } from "../utils.js";
 
 // ==========================================
