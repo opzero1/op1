@@ -48,9 +48,9 @@ bun run format       # Format
 
 ## Hard Rules
 
-- **Bun only** - See [.agents/bun-patterns.md](.agents/bun-patterns.md)
-- **Plugin exports** - See [.agents/plugin-patterns.md](.agents/plugin-patterns.md)
-- **Testing** - See [.agents/testing.md](.agents/testing.md)
+- **Bun only** - use Bun commands/package manager across this monorepo.
+- **Plugin exports** - keep package exports clean and explicit from each package entry.
+- **Testing discipline** - ship with passing typecheck/build and run targeted tests when behavior changes.
 
 ## Debugging
 
@@ -59,7 +59,7 @@ bun run format       # Format
 rm -rf packages/*/dist && bun run build
 
 # Check specific package
-bun run typecheck --filter @op1/workspace
+bun --filter @op1/workspace run typecheck
 
 # Run with debug output
 DEBUG=* bun run packages/install/bin/cli.ts

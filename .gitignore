@@ -34,3 +34,6 @@ coverage/
 # Temp
 .tmp/
 .cache/
+
+# Local research scratch
+research/
