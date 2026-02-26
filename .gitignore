@@ -35,5 +35,11 @@ coverage/
 .tmp/
 .cache/
 
-# Local research scratch
-research/
+# Local workspace artifacts
+.tmp-home/
+
+# Local opencode runtime state
+.opencode/node_modules/
+.opencode/package.json
+.opencode/bun.lock
+.opencode/workspace/

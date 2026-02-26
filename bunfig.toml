@@ -1,10 +1,6 @@
 # op1 Bun Configuration
 # Isolated installs for pnpm-like strictness (prevents phantom dependencies)
 
-# Module aliasing - redirect sharp to our stub (sharp not needed for text embeddings)
-[resolve]
-alias = { "sharp" = "./packages/stubs/sharp/index.js" }
-
 [install]
 # Use isolated linking (similar to pnpm strict mode)
 # Each package only sees its declared dependencies

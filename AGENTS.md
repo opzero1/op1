@@ -1,66 +1,39 @@
-# op1
+# OP7
 
-OpenCode harness with batteries included - minimal plugins, maximum capability via skills and commands.
+OpenCode harness with batteries included. Keep plugins minimal and use commands/skills for capability.
 
-## Packages
+## Core Packages
 
-### Core
+- `@op1/install` - interactive installer for agents, commands, and skills
+- `@op1/workspace` - plan/notepad continuity, safety hooks, worktree tooling
+- `@op1/ast-grep` - structural code search/replace
+- `@op1/lsp` - language-server navigation and diagnostics
 
-| Package | Description |
-|---------|-------------|
-| `@op1/install` | Interactive CLI installer |
-| `@op1/notify` | Desktop notifications, focus detection |
-| `@op1/workspace` | Plan management, notepads, safety hooks, worktree isolation |
-
-### Code Intelligence
-
-| Package | Description |
-|---------|-------------|
-| `@op1/code-intel` | Hybrid semantic search, symbol graphs, call analysis (recommended) |
-| `@op1/ast-grep` | AST-aware code search and replace |
-| `@op1/lsp` | Language server integration |
-| ~~`@op1/semantic-search`~~ | _(deprecated → use `@op1/code-intel`)_ |
-| ~~`@op1/code-graph`~~ | _(deprecated → use `@op1/code-intel`)_ |
-
-### Workspace Features (`@op1/workspace`)
-
-| Feature | Description |
-|---------|-------------|
-| Dynamic Output Truncation | Token-aware truncation of chatty tool output |
-| Non-Interactive Guard | Blocks vim/nano/less/interactive git in headless sessions |
-| Preemptive Compaction | Triggers summarization at 78% token usage |
-| Plan Context Recovery | Re-injects plan during compaction so agent never forgets |
-| Momentum | Auto-continuation prompts when plan tasks remain unfinished |
-| Completion Promise | Iteration tracking with `<done>COMPLETE</done>` signal |
-| Write Policy | Warns orchestrator to delegate edits to subagents |
-| Task Reminder | Nudges agent after 10 tool calls without plan usage |
-| Worktree Isolation | Git worktree tools for parallel task branches |
-
-## Commands
+## Standard Commands
 
 ```bash
-bun install          # Install dependencies
-bun run build        # Build all packages
-bun run typecheck    # Typecheck all packages
-bun run lint         # Lint
-bun run format       # Format
+bun install
+bun run lint
+bun run typecheck
+bun run build
+bun test
 ```
+
+## Validation Guidance
+
+- Use focused package tests for changed behavior first.
+- Before completion, run the full gate: `bun run lint && bun run typecheck && bun run build && bun test`.
 
 ## Hard Rules
 
-- **Bun only** - use Bun commands/package manager across this monorepo.
-- **Plugin exports** - keep package exports clean and explicit from each package entry.
-- **Testing discipline** - ship with passing typecheck/build and run targeted tests when behavior changes.
+- **Bun only** - see `.agents/bun-patterns.md`
+- **Plugin exports** - see `.agents/plugin-patterns.md`
+- **Testing discipline** - see `.agents/testing.md`
 
 ## Debugging
 
 ```bash
-# Clean and rebuild
 rm -rf packages/*/dist && bun run build
-
-# Check specific package
-bun --filter @op1/workspace run typecheck
-
-# Run with debug output
+bun run typecheck --filter @op1/workspace
 DEBUG=* bun run packages/install/bin/cli.ts
 ```
