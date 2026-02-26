@@ -3,16 +3,16 @@
 	"version": "0.3.0",
 	"description": "AST-aware code search and replace tools for OpenCode - powered by ast-grep",
 	"type": "module",
-	"main": "dist/index.js",
+	"main": "dist/ast-grep.js",
 	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
+			"import": "./dist/ast-grep.js",
 			"types": "./dist/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/index.js --target bun --format esm",
+		"build": "bun build src/index.ts --outfile dist/ast-grep.js --target bun --format esm",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun run build --watch"
 	},

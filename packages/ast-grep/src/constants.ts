@@ -4,24 +4,46 @@
  * Language lists, path resolution, environment checks.
  */
 
-import { createRequire } from "module";
-import { dirname, join } from "path";
-import { existsSync, statSync } from "fs";
 import { getCachedBinaryPath } from "./downloader";
+import { runtimeArch, runtimePlatform } from "./runtime";
 
 type Platform = "darwin" | "linux" | "win32" | "unsupported";
 
 function isValidBinary(filePath: string): boolean {
-	try {
-		return statSync(filePath).size > 10000;
-	} catch {
-		return false;
+	return Bun.file(filePath).size > 10000;
+}
+
+function dirname(filePath: string): string {
+	const normalized = filePath.replace(/\\/g, "/");
+	const separatorIndex = normalized.lastIndexOf("/");
+
+	if (separatorIndex < 0) {
+		return ".";
 	}
+
+	if (separatorIndex === 0) {
+		return "/";
+	}
+
+	return normalized.slice(0, separatorIndex);
+}
+
+function joinPath(...parts: string[]): string {
+	const normalizedParts = parts
+		.filter((part) => part.length > 0)
+		.map((part, index) => {
+			if (index === 0) {
+				return part.replace(/[\\/]+$/g, "");
+			}
+			return part.replace(/^[\\/]+|[\\/]+$/g, "");
+		});
+
+	return normalizedParts.join("/");
 }
 
 function getPlatformPackageName(): string | null {
-	const platform = process.platform as Platform;
-	const arch = process.arch;
+	const platform = runtimePlatform() as Platform;
+	const arch = runtimeArch();
 
 	const platformMap: Record<string, string> = {
 		"darwin-arm64": "@ast-grep/cli-darwin-arm64",
@@ -37,7 +59,8 @@ function getPlatformPackageName(): string | null {
 }
 
 export function findSgCliPathSync(): string | null {
-	const binaryName = process.platform === "win32" ? "sg.exe" : "sg";
+	const platform = runtimePlatform();
+	const binaryName = platform === "win32" ? "sg.exe" : "sg";
 
 	const cachedPath = getCachedBinaryPath();
 	if (cachedPath && isValidBinary(cachedPath)) {
@@ -45,12 +68,14 @@ export function findSgCliPathSync(): string | null {
 	}
 
 	try {
-		const require = createRequire(import.meta.url);
-		const cliPkgPath = require.resolve("@ast-grep/cli/package.json");
+		const cliPkgPath = Bun.resolveSync(
+			"@ast-grep/cli/package.json",
+			import.meta.dir,
+		);
 		const cliDir = dirname(cliPkgPath);
-		const sgPath = join(cliDir, binaryName);
+		const sgPath = joinPath(cliDir, binaryName);
 
-		if (existsSync(sgPath) && isValidBinary(sgPath)) {
+		if (isValidBinary(sgPath)) {
 			return sgPath;
 		}
 	} catch {
@@ -60,14 +85,15 @@ export function findSgCliPathSync(): string | null {
 	const platformPkg = getPlatformPackageName();
 	if (platformPkg) {
 		try {
-			const require = createRequire(import.meta.url);
-			const pkgPath = require.resolve(`${platformPkg}/package.json`);
+			const pkgPath = Bun.resolveSync(
+				`${platformPkg}/package.json`,
+				import.meta.dir,
+			);
 			const pkgDir = dirname(pkgPath);
-			const astGrepName =
-				process.platform === "win32" ? "ast-grep.exe" : "ast-grep";
-			const binaryPath = join(pkgDir, astGrepName);
+			const astGrepName = platform === "win32" ? "ast-grep.exe" : "ast-grep";
+			const binaryPath = joinPath(pkgDir, astGrepName);
 
-			if (existsSync(binaryPath) && isValidBinary(binaryPath)) {
+			if (isValidBinary(binaryPath)) {
 				return binaryPath;
 			}
 		} catch {
@@ -75,10 +101,10 @@ export function findSgCliPathSync(): string | null {
 		}
 	}
 
-	if (process.platform === "darwin") {
+	if (platform === "darwin") {
 		const homebrewPaths = ["/opt/homebrew/bin/sg", "/usr/local/bin/sg"];
 		for (const path of homebrewPaths) {
-			if (existsSync(path) && isValidBinary(path)) {
+			if (isValidBinary(path)) {
 				return path;
 			}
 		}
@@ -207,26 +233,15 @@ export function checkEnvironment(): EnvironmentCheckResult {
 		},
 	};
 
-	if (existsSync(cliPath)) {
+	if (Bun.file(cliPath).size > 0) {
 		result.cli.available = true;
 	} else if (cliPath === "sg") {
-		try {
-			const { spawnSync } = require("child_process");
-			const whichResult = spawnSync(
-				process.platform === "win32" ? "where" : "which",
-				["sg"],
-				{
-					encoding: "utf-8",
-					timeout: 5000,
-				},
-			);
-			result.cli.available =
-				whichResult.status === 0 && !!whichResult.stdout?.trim();
-			if (!result.cli.available) {
-				result.cli.error = "sg binary not found in PATH";
-			}
-		} catch {
-			result.cli.error = "Failed to check sg availability";
+		const resolvedCli = Bun.which("sg");
+		result.cli.available = typeof resolvedCli === "string";
+		if (result.cli.available && resolvedCli) {
+			result.cli.path = resolvedCli;
+		} else {
+			result.cli.error = "sg binary not found in PATH";
 		}
 	} else {
 		result.cli.error = `Binary not found: ${cliPath}`;
@@ -234,7 +249,7 @@ export function checkEnvironment(): EnvironmentCheckResult {
 
 	// Check NAPI availability
 	try {
-		require("@ast-grep/napi");
+		Bun.resolveSync("@ast-grep/napi", import.meta.dir);
 		result.napi.available = true;
 	} catch (e) {
 		result.napi.available = false;

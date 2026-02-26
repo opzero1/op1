@@ -4,12 +4,8 @@
 	"version": "0.0.0",
 	"description": "op1 - OpenCode harness with batteries included",
 	"workspaces": [
-		"packages/*",
-		"packages/stubs/*"
+		"packages/*"
 	],
-	"overrides": {
-		"sharp": "file:packages/stubs/sharp"
-	},
 	"scripts": {
 		"build": "bun --filter '*' build",
 		"typecheck": "bun --filter '*' typecheck",
@@ -18,7 +14,6 @@
 		"test:watch": "bun test --watch",
 		"test:coverage": "bun test --coverage",
 		"test:install": "bun test packages/install",
-		"test:notify": "bun test packages/notify",
 		"test:workspace": "bun test packages/workspace",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
@@ -27,9 +22,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.11",
-		"@huggingface/transformers": "^3.8.1",
 		"@types/bun": "^1.1.0",
-		"sharp": "file:packages/stubs/sharp",
 		"typescript": "^5.7.0"
 	},
 	"engines": {

@@ -5,17 +5,16 @@
  */
 
 import { spawn } from "bun";
-import { existsSync } from "fs";
 import {
+	DEFAULT_MAX_MATCHES,
+	DEFAULT_MAX_OUTPUT_BYTES,
+	DEFAULT_TIMEOUT_MS,
+	findSgCliPathSync,
 	getSgCliPath,
 	setSgCliPath,
-	findSgCliPathSync,
-	DEFAULT_TIMEOUT_MS,
-	DEFAULT_MAX_OUTPUT_BYTES,
-	DEFAULT_MAX_MATCHES,
 } from "./constants";
 import { ensureAstGrepBinary } from "./downloader";
-import type { CliMatch, CliLanguage, SgResult } from "./types";
+import type { CliLanguage, CliMatch, SgResult } from "./types";
 
 export interface RunOptions {
 	pattern: string;
@@ -31,7 +30,7 @@ let resolvedCliPath: string | null = null;
 let initPromise: Promise<string | null> | null = null;
 
 export async function getAstGrepPath(): Promise<string | null> {
-	if (resolvedCliPath !== null && existsSync(resolvedCliPath)) {
+	if (resolvedCliPath !== null && (await Bun.file(resolvedCliPath).exists())) {
 		return resolvedCliPath;
 	}
 
@@ -41,7 +40,7 @@ export async function getAstGrepPath(): Promise<string | null> {
 
 	initPromise = (async () => {
 		const syncPath = findSgCliPathSync();
-		if (syncPath && existsSync(syncPath)) {
+		if (syncPath && (await Bun.file(syncPath).exists())) {
 			resolvedCliPath = syncPath;
 			setSgCliPath(syncPath);
 			return syncPath;
@@ -100,7 +99,7 @@ export async function runSg(options: RunOptions): Promise<SgResult> {
 
 	let cliPath = getSgCliPath();
 
-	if (!existsSync(cliPath) && cliPath !== "sg") {
+	if (cliPath !== "sg" && !(await Bun.file(cliPath).exists())) {
 		const downloadedPath = await getAstGrepPath();
 		if (downloadedPath) {
 			cliPath = downloadedPath;
@@ -216,8 +215,7 @@ export async function runSg(options: RunOptions): Promise<SgResult> {
 						lastValidIndex,
 					);
 					if (bracketIndex > 0) {
-						const truncatedJson =
-							outputToProcess.substring(0, bracketIndex + 1) + "]";
+						const truncatedJson = `${outputToProcess.substring(0, bracketIndex + 1)}]`;
 						matches = JSON.parse(truncatedJson) as CliMatch[];
 					}
 				}
@@ -255,10 +253,10 @@ export async function runSg(options: RunOptions): Promise<SgResult> {
 
 export function isCliAvailable(): boolean {
 	const path = findSgCliPathSync();
-	return path !== null && existsSync(path);
+	return path !== null && Bun.file(path).size > 0;
 }
 
 export async function ensureCliAvailable(): Promise<boolean> {
 	const path = await getAstGrepPath();
-	return path !== null && existsSync(path);
+	return path !== null && (await Bun.file(path).exists());
 }
