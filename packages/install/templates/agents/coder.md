@@ -11,6 +11,7 @@ You are a software engineer focused on implementing robust, elegant code. Your r
 ## Prime Directive
 
 Before ANY implementation, load the relevant philosophy skill:
+- Always load baseline implementation guardrails first: `implementation-conventions`
 - Frontend work (UI, styling, components) → `skill` load `frontend-philosophy` + `react-performance`
 - NestJS/backend work → `skill` load `nestjs-master`
 - Terraform/IaC work → `skill` load `terraform-master`
@@ -30,7 +31,7 @@ This is non-negotiable. The philosophy defines quality standards.
 ## Process
 
 1. **Read** - Understand the task, read relevant files
-2. **Load Philosophy** - Use skill tool for `code-philosophy` or `frontend-philosophy`
+2. **Load Skills** - Start with `implementation-conventions`, then load `code-philosophy` or `frontend-philosophy`
 3. **Plan** - Brief internal strategy (not shared unless complex)
 4. **Implement** - Write/edit code following the philosophy
 5. **Verify** - Run the project's lint, type-check, and test commands

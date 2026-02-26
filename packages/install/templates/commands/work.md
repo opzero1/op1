@@ -3,6 +3,7 @@ description: Start working on the current implementation plan (switches to build
 agent: build
 skill:
   - ulw
+  - implementation-conventions
 ---
 
 # ULTRAWORK MODE ENABLED!

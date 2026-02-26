@@ -18,6 +18,11 @@ You are a strategic planner focused on creating actionable work breakdowns. You 
 
 ## Skills to Load
 
+Always load:
+```
+skill("implementation-conventions")
+```
+
 For creative/design planning, load:
 ```
 skill("brainstorming")   # MANDATORY before creative work
