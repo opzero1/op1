@@ -4,29 +4,12 @@
  * Handles Windows (tar/PowerShell) and Unix (unzip) platforms.
  */
 
-import { spawn, spawnSync } from "bun";
-import { release } from "os";
-
-const WINDOWS_BUILD_WITH_TAR = 17134;
-
-function getWindowsBuildNumber(): number | null {
-	if (process.platform !== "win32") return null;
-
-	const parts = release().split(".");
-	if (parts.length >= 3) {
-		const build = parseInt(parts[2], 10);
-		if (!isNaN(build)) return build;
-	}
-	return null;
-}
+import { spawn } from "bun";
+import { runtimePlatform } from "./runtime";
 
 function isPwshAvailable(): boolean {
-	if (process.platform !== "win32") return false;
-	const result = spawnSync(["where", "pwsh"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return result.exitCode === 0;
+	if (runtimePlatform() !== "win32") return false;
+	return typeof Bun.which("pwsh") === "string";
 }
 
 function escapePowerShellPath(path: string): string {
@@ -36,9 +19,7 @@ function escapePowerShellPath(path: string): string {
 type WindowsZipExtractor = "tar" | "pwsh" | "powershell";
 
 function getWindowsZipExtractor(): WindowsZipExtractor {
-	const buildNumber = getWindowsBuildNumber();
-
-	if (buildNumber !== null && buildNumber >= WINDOWS_BUILD_WITH_TAR) {
+	if (typeof Bun.which("tar") === "string") {
 		return "tar";
 	}
 
@@ -53,9 +34,12 @@ export async function extractZip(
 	archivePath: string,
 	destDir: string,
 ): Promise<void> {
-	let proc;
+	let proc: {
+		exited: Promise<number>;
+		stderr?: ReadableStream<Uint8Array> | null;
+	};
 
-	if (process.platform === "win32") {
+	if (runtimePlatform() === "win32") {
 		const extractor = getWindowsZipExtractor();
 
 		switch (extractor) {
@@ -78,7 +62,6 @@ export async function extractZip(
 					},
 				);
 				break;
-			case "powershell":
 			default:
 				proc = spawn(
 					[
@@ -103,7 +86,7 @@ export async function extractZip(
 	const exitCode = await proc.exited;
 
 	if (exitCode !== 0) {
-		const stderr = await new Response(proc.stderr).text();
+		const stderr = proc.stderr ? await new Response(proc.stderr).text() : "";
 		throw new Error(`zip extraction failed (exit ${exitCode}): ${stderr}`);
 	}
 }

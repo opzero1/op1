@@ -4,11 +4,11 @@
  * OpenCode plugin tools for AST-aware code search and replace.
  */
 
-import { tool, type ToolDefinition } from "@opencode-ai/plugin";
-import { CLI_LANGUAGES } from "./constants";
+import { type ToolDefinition, tool } from "@opencode-ai/plugin";
 import { runSg } from "./cli";
-import { formatSearchResult, formatReplaceResult } from "./utils";
+import { CLI_LANGUAGES } from "./constants";
 import type { CliLanguage } from "./types";
+import { formatReplaceResult, formatSearchResult } from "./utils";
 
 function showOutputToUser(context: unknown, output: string): void {
 	if (!context) return;

@@ -24,8 +24,9 @@
  */
 
 import type { Plugin, ToolDefinition } from "@opencode-ai/plugin";
-import { ast_grep_search, ast_grep_replace } from "./tools";
 import { startBackgroundInit } from "./cli";
+import { setAstGrepLogger } from "./downloader";
+import { ast_grep_replace, ast_grep_search } from "./tools";
 
 const builtinTools: Record<string, ToolDefinition> = {
 	ast_grep_search,
@@ -37,7 +38,22 @@ const builtinTools: Record<string, ToolDefinition> = {
  *
  * Provides ast_grep_search and ast_grep_replace tools.
  */
-const AstGrepPlugin: Plugin = async (_ctx) => {
+const AstGrepPlugin: Plugin = async (ctx) => {
+	setAstGrepLogger(async ({ level, message, extra }) => {
+		try {
+			await ctx.client.app.log({
+				body: {
+					service: "op1.ast-grep",
+					level,
+					message,
+					extra,
+				},
+			});
+		} catch {
+			// Ignore logging failures to keep plugin initialization resilient.
+		}
+	});
+
 	// Start background initialization of ast-grep binary
 	startBackgroundInit();
 

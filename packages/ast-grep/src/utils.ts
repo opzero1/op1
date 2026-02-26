@@ -41,7 +41,10 @@ export function formatSearchResult(result: SgResult): string {
 	return lines.join("\n");
 }
 
-export function formatReplaceResult(result: SgResult, isDryRun: boolean): string {
+export function formatReplaceResult(
+	result: SgResult,
+	isDryRun: boolean,
+): string {
 	if (result.error) {
 		return `Error: ${result.error}`;
 	}
