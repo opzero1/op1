@@ -3,16 +3,16 @@
 	"version": "0.3.0",
 	"description": "LSP integration plugin for OpenCode - language server protocol tools for code navigation and refactoring",
 	"type": "module",
-	"main": "dist/index.js",
+	"main": "dist/lsp.js",
 	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
+			"import": "./dist/lsp.js",
 			"types": "./dist/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/index.js --target bun --format esm",
+		"build": "bun build src/index.ts --outfile dist/lsp.js --target bun --format esm",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun run build --watch"
 	},

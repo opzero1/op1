@@ -30,13 +30,8 @@ task(agent="researcher", prompt="Find GitHub examples...", background=true)
 
 | Tool | Purpose |
 |------|---------|
-| `smart_query` | Natural language code search (hybrid vector + BM25 + graph) |
-| `symbol_search` | Find symbols by name pattern |
-| `call_graph` | Function caller/callee relationships |
-| `symbol_impact` | Change risk assessment |
-| `repo_map` | Find most important files |
+| `glob` | File and directory discovery |
 | `grep` | Text pattern search |
-| `glob` | File pattern matching |
 | `ast_grep_search` | Structural code patterns |
 | `lsp_goto_definition` | Jump to symbol definition |
 | `lsp_find_references` | Symbol usage across codebase |
@@ -62,10 +57,10 @@ task(agent="explore", prompt="Find JWT/session handling", background=true)
 task(agent="researcher", prompt="Find NextAuth.js best practices", background=true)
 
 // Direct tools (in parallel)
-smart_query(query="authentication login middleware session", maxTokens=8000)
+glob(pattern="**/*auth*")
 grep(pattern="authenticate|authorization|jwt|session", include="*.ts")
-glob(pattern="**/auth/**/*.ts")
 ast_grep_search(pattern="async function $NAME($$$) { $$$ }", lang="typescript")
+lsp_symbols(query="authenticate", scope="workspace")
 ```
 
 ## Output Requirements

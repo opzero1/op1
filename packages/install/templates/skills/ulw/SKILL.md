@@ -23,7 +23,6 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 | Planning & Strategy | `plan` agent | Dedicated work breakdown |
 | High-IQ Reasoning | `oracle` | Architecture, debugging |
 | Frontend/UI | `coder` with `frontend-philosophy` | Delegate visual work |
-| Frontend guardrails | `coder`/`reviewer` with `frontend-review-guardrails` | Apply fail-closed + UX parity rules |
 | Code Implementation | `coder` | Atomic coding tasks |
 | Code Review | `reviewer` | Before completion |
 
@@ -198,12 +197,11 @@ Use batch tool during verification for efficiency:
 
 1. **Analyze** the request, identify required capabilities
 2. **Spawn** explore/researcher agents in PARALLEL (3-10+ if needed)
-3. **Load Guardrails** for FE work (`frontend-review-guardrails`; plus `frontend-philosophy` when UI-heavy)
-4. **Plan** with gathered context (use `plan` agent for complex work)
-5. **Execute** with continuous verification against original requirements
-6. **Review** delegate to `reviewer` before completion
-7. **Verify** build, test, show evidence
-8. **Complete** only when ALL requirements proven to work
+3. **Plan** with gathered context (use `plan` agent for complex work)
+4. **Execute** with continuous verification against original requirements
+5. **Review** delegate to `reviewer` before completion
+6. **Verify** build, test, show evidence
+7. **Complete** only when ALL requirements proven to work
 
 ---
 
@@ -223,8 +221,8 @@ task(agent="plan", prompt="...")
 task(agent="oracle", prompt="...")
 
 // Implementation
-task(agent="coder", prompt="...", skills=["code-philosophy", "frontend-review-guardrails"])
+task(agent="coder", prompt="...", skills=["code-philosophy"])
 
 // Code review
-task(agent="reviewer", prompt="Review changes in [files]", skills=["frontend-review-guardrails"])
+task(agent="reviewer", prompt="Review changes in [files]")
 ```
