@@ -1,13 +1,14 @@
 # @op1/workspace
 
-Plan management plugin for OpenCode - plans, notepads, and session continuity.
+Operational continuity plugin for OpenCode: plans, notepads, delegation state, worktree tooling, tmux orchestration, and runtime safety hooks.
 
-## Features
+## What It Provides
 
-- **Plan Management** - Create, save, and track implementation plans
-- **Notepads** - Persist learnings, issues, and decisions
-- **Cross-Session Continuity** - Resume work where you left off
-- **Safety Hooks** - Output truncation and verification reminders
+- Persistent plan workflow (`plan_*` + linked plan docs)
+- Notepad memory across sessions (`learnings`, `issues`, `decisions`)
+- Delegation/session continuity and diagnostics
+- Worktree and terminal orchestration (including tmux-aware behavior)
+- Safety hooks (verification reminders, context scouting, compaction, non-interactive guard)
 
 ## Installation
 
@@ -15,7 +16,7 @@ Plan management plugin for OpenCode - plans, notepads, and session continuity.
 bun add @op1/workspace
 ```
 
-## Configuration
+Add plugin to OpenCode config:
 
 ```json
 {
@@ -23,47 +24,128 @@ bun add @op1/workspace
 }
 ```
 
-## Tools
+## Runtime Requirements
 
-### Plans
+- Bun runtime
+- Git repository (required for worktree tools)
+- Optional tmux support:
+  - `tmux` installed and available on `PATH`
+  - OpenCode session running inside tmux (`TMUX` env set)
+- macOS terminal fallbacks use `osascript`/`open` for GUI terminals
 
-| Tool | Description |
-|------|-------------|
-| `plan_save` | Save implementation plan |
-| `plan_read` | Read the active plan |
-| `plan_list` | List all plans |
+## Configuration
 
-### Notepads
+Config files are merged in this order:
 
-| Tool | Description |
-|------|-------------|
-| `notepad_read` | Read learnings/issues/decisions |
-| `notepad_write` | Append to notepad |
-| `notepad_list` | List notepad files |
+1. Global: `~/.config/opencode/workspace.json`
+2. Project: `.opencode/workspace.json`
 
-## Data Storage
+Project values override global values.
 
+### Default Operational Profile
+
+All operational improvements are on by default. Approval remains opt-in.
+
+```json
+{
+  "safeHookCreation": false,
+  "features": {
+    "momentum": true,
+    "completionPromise": true,
+    "writePolicy": true,
+    "taskReminder": true,
+    "autonomyPolicy": true,
+    "notifications": true,
+    "verificationAutopilot": true,
+    "hashAnchoredEdit": true,
+    "contextScout": true,
+    "externalScout": true,
+    "skillPointer": true,
+    "taskGraph": true,
+    "continuationCommands": true,
+    "tmuxOrchestration": true,
+    "boundaryPolicyV2": true,
+    "claudeCompatibility": true,
+    "mcpOAuthHelper": true,
+    "approvalGate": false
+  },
+  "thresholds": {
+    "taskReminderThreshold": 20,
+    "contextLimit": 200000,
+    "compactionThreshold": 0.78,
+    "verificationThrottleMs": 45000
+  },
+  "notifications": {
+    "enabled": true,
+    "desktop": true,
+    "privacy": "strict"
+  },
+  "approval": {
+    "mode": "off",
+    "tools": ["plan_archive", "delegation_cancel", "worktree_delete"],
+    "exemptTools": [],
+    "ttlMs": 300000,
+    "nonInteractive": "fail-closed"
+  }
+}
 ```
+
+## tmux Orchestration
+
+`features.tmuxOrchestration` controls tmux-aware terminal behavior for worktree flows.
+
+When enabled and running inside tmux:
+
+- Uses tmux as terminal target
+- Reuses existing project-scoped windows when available
+- Deduplicates stale duplicate windows
+- Persists tmux metadata (`tmux_session_name`, `tmux_window_name`) for continuation/delegation traceability
+
+Scoped window naming format:
+
+- `op1-<project>-<window>`
+
+Fallback behavior (when tmux is unavailable or not active):
+
+- iTerm2 -> Ghostty -> Warp -> Terminal.app
+
+To disable tmux orchestration:
+
+```json
+{
+  "features": {
+    "tmuxOrchestration": false
+  }
+}
+```
+
+## Important Notes
+
+- `contextScout`/`externalScout` are hook-based context pipelines, not subagents.
+- `boundaryPolicyV2` hardens policy behavior but does not require approval mode to be on.
+- Approval remains disabled unless you explicitly set `features.approvalGate=true` and `approval.mode` to a stricter value.
+- Hook creation is fail-fast by default (`safeHookCreation=false`) so missing/broken runtime dependencies fail visibly.
+
+## Tooling Surface
+
+Key tool groups exposed by this plugin:
+
+- Plan: `plan_save`, `plan_read`, `plan_list`, `plan_set_active`, `plan_archive`, `plan_unarchive`
+- Plan docs: `plan_doc_link`, `plan_doc_list`, `plan_doc_load`
+- Notepads: `notepad_read`, `notepad_write`, `notepad_list`
+- Delegation: `delegate`, `delegation_read`, `delegation_list`, `delegation_cancel`
+- Sessions: `session_list`, `session_read`, `session_search`, `session_info`
+- Worktree: `worktree_create`, `worktree_list`, `worktree_enter`, `worktree_leave`, `worktree_delete`
+
+## Data Layout
+
+Runtime state is stored under:
+
+```text
 <project>/.opencode/workspace/
-├── plans/
-│   └── {timestamp}-{slug}.md
-├── notepads/
-│   └── {timestamp}-{slug}/
-│       ├── learnings.md
-│       ├── issues.md
-│       └── decisions.md
-└── active-plan.json
 ```
 
-## Scope Contract (v1)
-
-- Learning memory is project-scoped only (plans + notepads live under the current project).
-- Cross-project aggregation is intentionally out of scope for v1.
-- This boundary is immutable until a versioned v2 migration is introduced.
-
-See `ADR-0001-v1-learning-scope.md` for the decision record.
-
-For the v1 relational table/constraint contract used by the SQLite migration, see `ADR-0002-v1-relational-schema-contract.md`.
+Includes plans, notepads, delegation/session registries, and feature state files.
 
 ## License
 
