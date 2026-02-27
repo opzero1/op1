@@ -1,5 +1,5 @@
 ---
-description: Explain codebase structure, architecture, and patterns using code intelligence
+description: Explain codebase structure, architecture, and patterns using semantic and structural analysis
 agent: explore
 ---
 
@@ -11,26 +11,28 @@ Provide a comprehensive explanation of the specified codebase component, file, o
 
 ## Workflow
 
-1. **Smart Query First** - Use `smart_query` to find relevant code:
+1. **Scope Discovery** - Use `glob` and `grep` to identify relevant files quickly:
    ```
-   smart_query(query="$ARGUMENTS", maxTokens=8000)
-   ```
-
-2. **Dependency Analysis** - Map the component's relationships:
-   ```
-   call_graph(symbolName="[main function]", direction="both", depth=2)
-   symbol_impact(symbolName="[main symbol]", maxDepth=5)
+   glob(pattern="**/*keyword*")
+   grep(pattern="$ARGUMENTS|related_term", include="*.{ts,tsx,js,jsx}")
    ```
 
-3. **Symbol Navigation** - Explore the structure:
+2. **Symbol Mapping** - Use LSP to understand exports, definitions, and usage:
    ```
    lsp_symbols(filePath="[discovered file]", scope="document")
+   lsp_goto_definition(filePath="[discovered file]", line=[key line], character=[col])
    lsp_find_references(filePath="[discovered file]", line=[key line], character=[col])
    ```
 
-4. **Repo Map** - Find the most important files in the area:
+3. **Structural Confirmation** - Verify implementation patterns:
    ```
-   repo_map(directory="[relevant directory]", limit=10)
+   ast_grep_search(pattern="[relevant structural pattern]", lang="typescript")
+   ```
+
+4. **History Context** - Check evolution of critical files when needed:
+   ```
+   git log -- [path/to/file]
+   git blame [path/to/file]
    ```
 
 ## Output Format

@@ -31,11 +31,7 @@ While agents run, use direct tools:
 
 | Tool | Purpose |
 |------|---------|
-| `smart_query` | Natural language code search (hybrid vector + BM25 + graph) |
-| `symbol_search` | Find symbols by name pattern |
-| `call_graph` | Function caller/callee relationships |
-| `symbol_impact` | Change risk assessment |
-| `repo_map` | Find most important files |
+| `glob` | File and directory discovery |
 | `grep` | Find specific patterns |
 | `ast_grep_search` | Structural analysis |
 | `lsp_goto_definition` | Jump to symbol definition |
