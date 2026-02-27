@@ -4,40 +4,94 @@
  * Helper functions for LSP operations, formatting, and workspace edit application.
  */
 
-import { extname, resolve, dirname, join } from "path";
-import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync, writeFileSync, statSync, unlinkSync } from "fs";
-import { LSPClient, lspManager } from "./client";
+import {
+	dirname,
+	extname,
+	fileUriToPath,
+	joinPath,
+	resolvePath,
+	runtimePlatform,
+} from "./bun-utils";
+import { type LSPClient, lspManager } from "./client";
 import { findServerForExtension } from "./config";
-import { SYMBOL_KIND_MAP, SEVERITY_MAP } from "./constants";
+import { SEVERITY_MAP, SYMBOL_KIND_MAP } from "./constants";
 import type {
+	ApplyResult,
+	Diagnostic,
+	DocumentSymbol,
 	Location,
 	LocationLink,
-	DocumentSymbol,
-	SymbolInfo,
-	Diagnostic,
-	PrepareRenameResult,
 	PrepareRenameDefaultBehavior,
+	PrepareRenameResult,
 	Range,
-	WorkspaceEdit,
-	TextEdit,
 	ServerLookupResult,
-	ApplyResult,
+	SymbolInfo,
+	TextEdit,
+	WorkspaceEdit,
 } from "./types";
 
-export function findWorkspaceRoot(filePath: string): string {
-	let dir = resolve(filePath);
+async function pathExists(path: string): Promise<boolean> {
+	return Bun.file(path).exists();
+}
 
-	if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+async function readText(path: string): Promise<string> {
+	return Bun.file(path).text();
+}
+
+async function writeText(path: string, content: string): Promise<void> {
+	await Bun.write(path, content);
+}
+
+async function deleteFile(path: string): Promise<void> {
+	if (!(await pathExists(path))) return;
+
+	if (runtimePlatform() === "win32") {
+		const proc = Bun.spawn(["cmd", "/c", "del", "/f", "/q", path], {
+			stdout: "ignore",
+			stderr: "pipe",
+		});
+		await proc.exited;
+		if (proc.exitCode !== 0) {
+			const stderr = await new Response(proc.stderr).text();
+			throw new Error(stderr || `Failed to delete file: ${path}`);
+		}
+		return;
+	}
+
+	const proc = Bun.spawn(["rm", "-f", path], {
+		stdout: "ignore",
+		stderr: "pipe",
+	});
+	await proc.exited;
+	if (proc.exitCode !== 0) {
+		const stderr = await new Response(proc.stderr).text();
+		throw new Error(stderr || `Failed to delete file: ${path}`);
+	}
+}
+
+export async function findWorkspaceRoot(filePath: string): Promise<string> {
+	let dir = resolvePath(filePath);
+
+	if (extname(dir)) {
+		dir = dirname(dir);
+	} else if (!(await pathExists(dir))) {
 		dir = dirname(dir);
 	}
 
-	const markers = [".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle"];
+	const markers = [
+		".git",
+		"package.json",
+		"pyproject.toml",
+		"Cargo.toml",
+		"go.mod",
+		"pom.xml",
+		"build.gradle",
+	];
 
 	let prevDir = "";
 	while (dir !== prevDir) {
 		for (const marker of markers) {
-			if (existsSync(join(dir, marker))) {
+			if (await pathExists(joinPath(dir, marker))) {
 				return dir;
 			}
 		}
@@ -45,14 +99,16 @@ export function findWorkspaceRoot(filePath: string): string {
 		dir = dirname(dir);
 	}
 
-	return dirname(resolve(filePath));
+	return dirname(resolvePath(filePath));
 }
 
 export function uriToPath(uri: string): string {
-	return fileURLToPath(uri);
+	return fileUriToPath(uri);
 }
 
-export function formatServerLookupError(result: Exclude<ServerLookupResult, { status: "found" }>): string {
+export function formatServerLookupError(
+	result: Exclude<ServerLookupResult, { status: "found" }>,
+): string {
 	if (result.status === "not_installed") {
 		const { server, installHint } = result;
 		return [
@@ -84,28 +140,34 @@ export function formatServerLookupError(result: Exclude<ServerLookupResult, { st
 	].join("\n");
 }
 
-export async function withLspClient<T>(filePath: string, fn: (client: LSPClient) => Promise<T>): Promise<T> {
-	const absPath = resolve(filePath);
+export async function withLspClient<T>(
+	filePath: string,
+	fn: (client: LSPClient) => Promise<T>,
+): Promise<T> {
+	const absPath = resolvePath(filePath);
 	const ext = extname(absPath);
-	const result = findServerForExtension(ext);
+	const result = await findServerForExtension(ext);
 
 	if (result.status !== "found") {
 		throw new Error(formatServerLookupError(result));
 	}
 
 	const server = result.server;
-	const root = findWorkspaceRoot(absPath);
+	const root = await findWorkspaceRoot(absPath);
 	const client = await lspManager.getClient(root, server);
 
 	try {
 		return await fn(client);
 	} catch (e) {
 		if (e instanceof Error && e.message.includes("timeout")) {
-			const isInitializing = lspManager.isServerInitializing(root, server.config.id);
+			const isInitializing = lspManager.isServerInitializing(
+				root,
+				server.config.id,
+			);
 			if (isInitializing) {
 				throw new Error(
 					`LSP server is still initializing. Please retry in a few seconds. ` +
-						`Original error: ${e.message}`
+						`Original error: ${e.message}`,
 				);
 			}
 		}
@@ -138,7 +200,10 @@ export function formatSeverity(severity: number | undefined): string {
 	return SEVERITY_MAP[severity] || `unknown(${severity})`;
 }
 
-export function formatDocumentSymbol(symbol: DocumentSymbol, indent = 0): string {
+export function formatDocumentSymbol(
+	symbol: DocumentSymbol,
+	indent = 0,
+): string {
 	const prefix = "  ".repeat(indent);
 	const kind = formatSymbolKind(symbol.kind);
 	const line = symbol.range.start.line + 1;
@@ -146,7 +211,7 @@ export function formatDocumentSymbol(symbol: DocumentSymbol, indent = 0): string
 
 	if (symbol.children && symbol.children.length > 0) {
 		for (const child of symbol.children) {
-			result += "\n" + formatDocumentSymbol(child, indent + 1);
+			result += `\n${formatDocumentSymbol(child, indent + 1)}`;
 		}
 	}
 
@@ -171,7 +236,7 @@ export function formatDiagnostic(diag: Diagnostic): string {
 
 export function filterDiagnosticsBySeverity(
 	diagnostics: Diagnostic[],
-	severityFilter?: "error" | "warning" | "information" | "hint" | "all"
+	severityFilter?: "error" | "warning" | "information" | "hint" | "all",
 ): Diagnostic[] {
 	if (!severityFilter || severityFilter === "all") {
 		return diagnostics;
@@ -189,13 +254,15 @@ export function filterDiagnosticsBySeverity(
 }
 
 export function formatPrepareRenameResult(
-	result: PrepareRenameResult | PrepareRenameDefaultBehavior | Range | null
+	result: PrepareRenameResult | PrepareRenameDefaultBehavior | Range | null,
 ): string {
 	if (!result) return "Cannot rename at this position";
 
 	// Case 1: { defaultBehavior: boolean }
 	if ("defaultBehavior" in result) {
-		return result.defaultBehavior ? "Rename supported (using default behavior)" : "Cannot rename at this position";
+		return result.defaultBehavior
+			? "Rename supported (using default behavior)"
+			: "Cannot rename at this position";
 	}
 
 	// Case 2: { range: Range, placeholder?: string }
@@ -204,7 +271,9 @@ export function formatPrepareRenameResult(
 		const startChar = result.range.start.character;
 		const endLine = result.range.end.line + 1;
 		const endChar = result.range.end.character;
-		const placeholder = result.placeholder ? ` (current: "${result.placeholder}")` : "";
+		const placeholder = result.placeholder
+			? ` (current: "${result.placeholder}")`
+			: "";
 		return `Rename available at ${startLine}:${startChar}-${endLine}:${endChar}${placeholder}`;
 	}
 
@@ -227,7 +296,10 @@ export function formatTextEdit(edit: TextEdit): string {
 	const endChar = edit.range.end.character;
 
 	const rangeStr = `${startLine}:${startChar}-${endLine}:${endChar}`;
-	const preview = edit.newText.length > 50 ? edit.newText.substring(0, 50) + "..." : edit.newText;
+	const preview =
+		edit.newText.length > 50
+			? `${edit.newText.substring(0, 50)}...`
+			: edit.newText;
 
 	return `  ${rangeStr}: "${preview}"`;
 }
@@ -272,9 +344,12 @@ export function formatWorkspaceEdit(edit: WorkspaceEdit | null): string {
 	return lines.join("\n");
 }
 
-function applyTextEditsToFile(filePath: string, edits: TextEdit[]): { success: boolean; editCount: number; error?: string } {
+async function applyTextEditsToFile(
+	filePath: string,
+	edits: TextEdit[],
+): Promise<{ success: boolean; editCount: number; error?: string }> {
 	try {
-		const content = readFileSync(filePath, "utf-8");
+		const content = await readText(filePath);
 		const lines = content.split("\n");
 
 		const sortedEdits = [...edits].sort((a, b) => {
@@ -292,33 +367,61 @@ function applyTextEditsToFile(filePath: string, edits: TextEdit[]): { success: b
 
 			if (startLine === endLine) {
 				const line = lines[startLine] || "";
-				lines[startLine] = line.substring(0, startChar) + edit.newText + line.substring(endChar);
+				lines[startLine] =
+					line.substring(0, startChar) + edit.newText + line.substring(endChar);
 			} else {
 				const firstLine = lines[startLine] || "";
 				const lastLine = lines[endLine] || "";
-				const newContent = firstLine.substring(0, startChar) + edit.newText + lastLine.substring(endChar);
-				lines.splice(startLine, endLine - startLine + 1, ...newContent.split("\n"));
+				const newContent =
+					firstLine.substring(0, startChar) +
+					edit.newText +
+					lastLine.substring(endChar);
+				lines.splice(
+					startLine,
+					endLine - startLine + 1,
+					...newContent.split("\n"),
+				);
 			}
 		}
 
-		writeFileSync(filePath, lines.join("\n"), "utf-8");
+		await writeText(filePath, lines.join("\n"));
 		return { success: true, editCount: edits.length };
 	} catch (err) {
-		return { success: false, editCount: 0, error: err instanceof Error ? err.message : String(err) };
+		return {
+			success: false,
+			editCount: 0,
+			error: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
-export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
+export async function applyWorkspaceEdit(
+	edit: WorkspaceEdit | null,
+): Promise<ApplyResult> {
 	if (!edit) {
-		return { success: false, filesModified: [], filesCreated: [], filesDeleted: [], filesRenamed: [], errors: ["No edit provided"] };
+		return {
+			success: false,
+			filesModified: [],
+			filesCreated: [],
+			filesDeleted: [],
+			filesRenamed: [],
+			errors: ["No edit provided"],
+		};
 	}
 
-	const result: ApplyResult = { success: true, filesModified: [], filesCreated: [], filesDeleted: [], filesRenamed: [], errors: [] };
+	const result: ApplyResult = {
+		success: true,
+		filesModified: [],
+		filesCreated: [],
+		filesDeleted: [],
+		filesRenamed: [],
+		errors: [],
+	};
 
 	if (edit.changes) {
 		for (const [uri, edits] of Object.entries(edit.changes)) {
 			const filePath = uriToPath(uri);
-			const applyResult = applyTextEditsToFile(filePath, edits);
+			const applyResult = await applyTextEditsToFile(filePath, edits);
 
 			if (applyResult.success) {
 				result.filesModified.push(filePath);
@@ -335,7 +438,7 @@ export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
 				if (change.kind === "create") {
 					try {
 						const filePath = uriToPath(change.uri);
-						writeFileSync(filePath, "", "utf-8");
+						await writeText(filePath, "");
 						result.filesCreated.push(filePath);
 					} catch (err) {
 						result.success = false;
@@ -345,9 +448,9 @@ export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
 					try {
 						const oldPath = uriToPath(change.oldUri);
 						const newPath = uriToPath(change.newUri);
-						const content = readFileSync(oldPath, "utf-8");
-						writeFileSync(newPath, content, "utf-8");
-						unlinkSync(oldPath);
+						const content = await readText(oldPath);
+						await writeText(newPath, content);
+						await deleteFile(oldPath);
 						result.filesRenamed.push({ from: oldPath, to: newPath });
 					} catch (err) {
 						result.success = false;
@@ -356,7 +459,7 @@ export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
 				} else if (change.kind === "delete") {
 					try {
 						const filePath = uriToPath(change.uri);
-						unlinkSync(filePath);
+						await deleteFile(filePath);
 						result.filesDeleted.push(filePath);
 					} catch (err) {
 						result.success = false;
@@ -365,7 +468,7 @@ export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
 				}
 			} else {
 				const filePath = uriToPath(change.textDocument.uri);
-				const applyResult = applyTextEditsToFile(filePath, change.edits);
+				const applyResult = await applyTextEditsToFile(filePath, change.edits);
 
 				if (applyResult.success) {
 					result.filesModified.push(filePath);
@@ -382,7 +485,11 @@ export function applyWorkspaceEdit(edit: WorkspaceEdit | null): ApplyResult {
 
 export function formatApplyResult(result: ApplyResult): string {
 	const lines: string[] = [];
-	const totalChanges = result.filesModified.length + result.filesCreated.length + result.filesDeleted.length + result.filesRenamed.length;
+	const totalChanges =
+		result.filesModified.length +
+		result.filesCreated.length +
+		result.filesDeleted.length +
+		result.filesRenamed.length;
 
 	if (result.success) {
 		lines.push(`Applied changes to ${totalChanges} file(s):`);

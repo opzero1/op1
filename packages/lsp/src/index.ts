@@ -14,15 +14,14 @@
  */
 
 // Export plugin (default export for OpenCode plugin loader)
-export { LspPlugin } from "./plugin";
-export { default } from "./plugin";
+export { default, LspPlugin } from "./plugin";
 
 // Re-export types only (no classes)
 export type {
+	Diagnostic,
+	Location,
 	LSPServerConfig,
 	Position,
 	Range,
-	Location,
 	SymbolInfo,
-	Diagnostic,
 } from "./types";

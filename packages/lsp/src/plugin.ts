@@ -5,15 +5,16 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
+import { runtimePlatform } from "./bun-utils";
+import { lspManager } from "./client";
 import {
-	lsp_goto_definition,
-	lsp_find_references,
-	lsp_symbols,
 	lsp_diagnostics,
+	lsp_find_references,
+	lsp_goto_definition,
 	lsp_prepare_rename,
 	lsp_rename,
+	lsp_symbols,
 } from "./tools";
-import { lspManager } from "./client";
 
 /**
  * LSP Plugin for OpenCode
@@ -32,10 +33,10 @@ export const LspPlugin: Plugin = async (_ctx) => {
 		lspManager.stopAll();
 	};
 
-	process.on("SIGINT", cleanup);
-	process.on("SIGTERM", cleanup);
-	if (process.platform === "win32") {
-		process.on("SIGBREAK" as NodeJS.Signals, cleanup);
+	addEventListener("SIGINT", cleanup);
+	addEventListener("SIGTERM", cleanup);
+	if (runtimePlatform() === "win32") {
+		addEventListener("SIGBREAK", cleanup);
 	}
 
 	return {

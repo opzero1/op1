@@ -4,11 +4,21 @@
  * Server discovery, configuration loading, and installation checking.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
+import {
+	currentWorkingDirectory,
+	homeDirectory,
+	joinPath,
+	resolvePath,
+	runtimePlatform,
+} from "./bun-utils";
 import { BUILTIN_SERVERS, EXT_TO_LANG, LSP_INSTALL_HINTS } from "./constants";
-import type { LSPServerConfig, ResolvedServer, ServerLookupResult } from "./types";
+import {
+	canAutoInstallTerraformLs,
+	ensureTerraformLsBinary,
+} from "./terraform-ls";
+import { canAutoInstallTexlab, ensureTexlabBinary } from "./texlab";
+import { canAutoInstallTinymist, ensureTinymistBinary } from "./tinymist";
+import type { ResolvedServer, ServerLookupResult } from "./types";
 
 interface LspEntry {
 	disabled?: boolean;
@@ -29,42 +39,162 @@ interface ServerWithSource extends ResolvedServer {
 	source: ConfigSource;
 }
 
-function loadJsonFile<T>(path: string): T | null {
-	if (!existsSync(path)) return null;
+async function pathExists(path: string): Promise<boolean> {
+	return Bun.file(path).exists();
+}
+
+async function loadJsonFile<T>(path: string): Promise<T | null> {
+	if (!(await pathExists(path))) return null;
 	try {
-		return JSON.parse(readFileSync(path, "utf-8")) as T;
+		return (await Bun.file(path).json()) as T;
 	} catch {
 		return null;
 	}
 }
 
+async function resolveInstalledCommand(
+	command: string[],
+): Promise<string | null> {
+	if (command.length === 0) return null;
+
+	const cmd = command[0];
+
+	if (cmd.includes("/") || cmd.includes("\\")) {
+		const absolute = resolvePath(cmd);
+		if (await pathExists(absolute)) return absolute;
+	}
+
+	const fromPath = Bun.which(cmd);
+	if (fromPath) return fromPath;
+
+	const isWindows = runtimePlatform() === "win32";
+
+	let exts = [""];
+	if (isWindows) {
+		const pathExt = Bun.env.PATHEXT || "";
+		if (pathExt) {
+			const systemExts = pathExt.split(";").filter(Boolean);
+			exts = [
+				...new Set([...exts, ...systemExts, ".exe", ".cmd", ".bat", ".ps1"]),
+			];
+		} else {
+			exts = ["", ".exe", ".cmd", ".bat", ".ps1"];
+		}
+	}
+
+	const cwd = currentWorkingDirectory();
+	const home = homeDirectory();
+	const additionalBases = [
+		joinPath(cwd, "node_modules", ".bin"),
+		joinPath(home, ".config", "opencode", "bin"),
+		joinPath(home, ".config", "opencode", "node_modules", ".bin"),
+	];
+
+	for (const base of additionalBases) {
+		for (const suffix of exts) {
+			const candidate = joinPath(base, cmd + suffix);
+			if (await pathExists(candidate)) {
+				return candidate;
+			}
+		}
+	}
+
+	if (cmd === "bun" || cmd === "node") {
+		return cmd;
+	}
+
+	return null;
+}
+
+const AUTO_LSP_PACKAGES: Record<string, string> = {
+	"typescript-language-server": "typescript-language-server",
+	"vue-language-server": "@vue/language-server",
+	"vscode-eslint-language-server": "vscode-langservers-extracted",
+	oxlint: "oxlint",
+	biome: "@biomejs/biome",
+	svelteserver: "svelte-language-server",
+	"astro-ls": "@astrojs/language-server",
+	"yaml-language-server": "yaml-language-server",
+	"bash-language-server": "bash-language-server",
+	intelephense: "intelephense",
+	"docker-langserver": "dockerfile-language-server-nodejs",
+	prisma: "prisma",
+};
+
+async function resolveAutoCommand(
+	command: string[],
+	allowInstall = true,
+): Promise<string[] | null> {
+	if (command.length === 0) return null;
+
+	const [cmd, ...args] = command;
+	const pkg = AUTO_LSP_PACKAGES[cmd];
+	if (pkg) {
+		const bun = Bun.which("bun") || "bun";
+		return [bun, "x", "--package", pkg, cmd, ...args];
+	}
+
+	if (cmd !== "terraform-ls") {
+		if (!allowInstall) {
+			if (cmd === "texlab" && canAutoInstallTexlab()) return command;
+			if (cmd === "tinymist" && canAutoInstallTinymist()) return command;
+			return null;
+		}
+
+		if (cmd === "texlab") {
+			const binary = await ensureTexlabBinary();
+			if (!binary) return null;
+			return [binary, ...args];
+		}
+
+		if (cmd === "tinymist") {
+			const binary = await ensureTinymistBinary();
+			if (!binary) return null;
+			return [binary, ...args];
+		}
+
+		return null;
+	}
+
+	if (!allowInstall) {
+		if (!canAutoInstallTerraformLs()) return null;
+		return command;
+	}
+
+	const binary = await ensureTerraformLsBinary();
+	if (!binary) return null;
+
+	return [binary, ...args];
+}
+
 function getConfigPaths(): { project: string; user: string; opencode: string } {
-	const cwd = process.cwd();
+	const cwd = currentWorkingDirectory();
+	const home = homeDirectory();
 	return {
-		project: join(cwd, ".opencode", "op1-lsp.json"),
-		user: join(homedir(), ".config", "opencode", "op1-lsp.json"),
-		opencode: join(homedir(), ".config", "opencode", "opencode.json"),
+		project: joinPath(cwd, ".opencode", "op1-lsp.json"),
+		user: joinPath(home, ".config", "opencode", "op1-lsp.json"),
+		opencode: joinPath(home, ".config", "opencode", "opencode.json"),
 	};
 }
 
-function loadAllConfigs(): Map<ConfigSource, ConfigJson> {
+async function loadAllConfigs(): Promise<Map<ConfigSource, ConfigJson>> {
 	const paths = getConfigPaths();
 	const configs = new Map<ConfigSource, ConfigJson>();
 
-	const project = loadJsonFile<ConfigJson>(paths.project);
+	const project = await loadJsonFile<ConfigJson>(paths.project);
 	if (project) configs.set("project", project);
 
-	const user = loadJsonFile<ConfigJson>(paths.user);
+	const user = await loadJsonFile<ConfigJson>(paths.user);
 	if (user) configs.set("user", user);
 
-	const opencode = loadJsonFile<ConfigJson>(paths.opencode);
+	const opencode = await loadJsonFile<ConfigJson>(paths.opencode);
 	if (opencode) configs.set("opencode", opencode);
 
 	return configs;
 }
 
-function getMergedServers(): ServerWithSource[] {
-	const configs = loadAllConfigs();
+async function getMergedServers(): Promise<ServerWithSource[]> {
+	const configs = await loadAllConfigs();
 	const servers: ServerWithSource[] = [];
 	const disabled = new Set<string>();
 	const seen = new Set<string>();
@@ -117,22 +247,39 @@ function getMergedServers(): ServerWithSource[] {
 
 	return servers.sort((a, b) => {
 		if (a.source !== b.source) {
-			const order: Record<ConfigSource, number> = { project: 0, user: 1, opencode: 2 };
+			const order: Record<ConfigSource, number> = {
+				project: 0,
+				user: 1,
+				opencode: 2,
+			};
 			return order[a.source] - order[b.source];
 		}
 		return (b.config.priority ?? 0) - (a.config.priority ?? 0);
 	});
 }
 
-export function findServerForExtension(ext: string): ServerLookupResult {
-	const servers = getMergedServers();
+export async function findServerForExtension(
+	ext: string,
+): Promise<ServerLookupResult> {
+	const servers = await getMergedServers();
 
 	for (const server of servers) {
-		if (server.config.extensions.includes(ext) && isServerInstalled(server.config.command)) {
+		if (server.config.extensions.includes(ext)) {
+			const resolvedCommand = await resolveInstalledCommand(
+				server.config.command,
+			);
+			const command = resolvedCommand
+				? [resolvedCommand, ...server.config.command.slice(1)]
+				: await resolveAutoCommand(server.config.command);
+			if (!command) continue;
+
 			return {
 				status: "found",
 				server: {
-					config: server.config,
+					config: {
+						...server.config,
+						command,
+					},
 					languageId: getLanguageId(ext),
 				},
 			};
@@ -142,7 +289,8 @@ export function findServerForExtension(ext: string): ServerLookupResult {
 	for (const server of servers) {
 		if (server.config.extensions.includes(ext)) {
 			const installHint =
-				LSP_INSTALL_HINTS[server.config.id] || `Install '${server.config.command[0]}' and ensure it's in your PATH`;
+				LSP_INSTALL_HINTS[server.config.id] ||
+				`Install '${server.config.command[0]}' and ensure it's in your PATH`;
 			return {
 				status: "not_installed",
 				server: server.config,
@@ -161,78 +309,25 @@ export function getLanguageId(ext: string): string {
 	return EXT_TO_LANG[ext] || "plaintext";
 }
 
-export function isServerInstalled(command: string[]): boolean {
-	if (command.length === 0) return false;
-
-	const cmd = command[0];
-
-	// Support absolute paths (e.g., C:\Users\...\server.exe or /usr/local/bin/server)
-	if (cmd.includes("/") || cmd.includes("\\")) {
-		if (existsSync(cmd)) return true;
-	}
-
-	const isWindows = process.platform === "win32";
-
-	let exts = [""];
-	if (isWindows) {
-		const pathExt = process.env.PATHEXT || "";
-		if (pathExt) {
-			const systemExts = pathExt.split(";").filter(Boolean);
-			exts = [...new Set([...exts, ...systemExts, ".exe", ".cmd", ".bat", ".ps1"])];
-		} else {
-			exts = ["", ".exe", ".cmd", ".bat", ".ps1"];
-		}
-	}
-
-	let pathEnv = process.env.PATH || "";
-	if (isWindows && !pathEnv) {
-		pathEnv = process.env.Path || "";
-	}
-
-	const pathSeparator = isWindows ? ";" : ":";
-	const paths = pathEnv.split(pathSeparator);
-
-	for (const p of paths) {
-		for (const suffix of exts) {
-			if (existsSync(join(p, cmd + suffix))) {
-				return true;
-			}
-		}
-	}
-
-	const cwd = process.cwd();
-	const additionalBases = [
-		join(cwd, "node_modules", ".bin"),
-		join(homedir(), ".config", "opencode", "bin"),
-		join(homedir(), ".config", "opencode", "node_modules", ".bin"),
-	];
-
-	for (const base of additionalBases) {
-		for (const suffix of exts) {
-			if (existsSync(join(base, cmd + suffix))) {
-				return true;
-			}
-		}
-	}
-
-	// Runtime wrappers (bun/node) are always available in plugin context
-	if (cmd === "bun" || cmd === "node") {
-		return true;
-	}
-
-	return false;
+export async function isServerInstalled(command: string[]): Promise<boolean> {
+	return (
+		(await resolveInstalledCommand(command)) !== null ||
+		(await resolveAutoCommand(command, false)) !== null
+	);
 }
 
-export function getAllServers(): Array<{
-	id: string;
-	installed: boolean;
-	extensions: string[];
-	disabled: boolean;
-	source: string;
-	priority: number;
-}> {
-	const configs = loadAllConfigs();
-	const servers = getMergedServers();
+export async function getAllServers(): Promise<
+	Array<{
+		id: string;
+		installed: boolean;
+		extensions: string[];
+		disabled: boolean;
+		source: string;
+		priority: number;
+	}>
+> {
+	const configs = await loadAllConfigs();
+	const servers = await getMergedServers();
 	const disabled = new Set<string>();
 
 	for (const config of configs.values()) {
@@ -257,7 +352,7 @@ export function getAllServers(): Array<{
 		if (seen.has(server.config.id)) continue;
 		result.push({
 			id: server.config.id,
-			installed: isServerInstalled(server.config.command),
+			installed: await isServerInstalled(server.config.command),
 			extensions: server.config.extensions,
 			disabled: false,
 			source: server.source,
@@ -271,7 +366,7 @@ export function getAllServers(): Array<{
 		const builtin = BUILTIN_SERVERS[id];
 		result.push({
 			id,
-			installed: builtin ? isServerInstalled(builtin.command) : false,
+			installed: builtin ? await isServerInstalled(builtin.command) : false,
 			extensions: builtin?.extensions || [],
 			disabled: true,
 			source: "disabled",
@@ -280,8 +375,4 @@ export function getAllServers(): Array<{
 	}
 
 	return result;
-}
-
-export function getConfigPaths_(): { project: string; user: string; opencode: string } {
-	return getConfigPaths();
 }
