@@ -38,17 +38,19 @@ skill("skill-creator")      # When designing new skills
 | Performance optimization strategy | Oracle FIRST, then implement |
 | Security-sensitive design | Oracle FIRST, then implement |
 
-## Code Intelligence Tools
+## Code Analysis Tools
 
-Oracle has access to code-intel tools for deep analysis during consultation:
+Oracle has access to semantic and structural analysis tools for deep consultation:
 
 | Tool | Purpose | When to Use |
 |------|---------|-------------|
-| `smart_query` | Hybrid semantic + keyword search | Find relevant code by natural language |
-| `symbol_search` | Find symbols by name pattern | Locate functions, classes, types |
-| `call_graph` | Caller/callee relationships | Understand execution flow |
-| `symbol_impact` | Change impact analysis | Assess risk of modifications |
-| `repo_map` | File importance by PageRank | Identify critical files |
+| `glob` | File discovery by path/name | Narrow search scope quickly |
+| `grep` | Regex code search | Find candidate implementations and call sites |
+| `ast_grep_search` | Structural pattern search | Verify syntax-level implementation patterns |
+| `lsp_symbols` | Symbol inventory | Locate exported APIs and key declarations |
+| `lsp_goto_definition` | Definition navigation | Trace source of key behavior |
+| `lsp_find_references` | Usage discovery | Assess change impact and coupling |
+| `lsp_diagnostics` | Type diagnostics | Validate assumptions against real errors |
 
 Use these tools to ground your analysis in actual code rather than speculation.
 

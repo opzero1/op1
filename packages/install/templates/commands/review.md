@@ -46,11 +46,10 @@ Use best judgement when the input is ambiguous.
 ## Steps
 
 1. Load the `code-review` skill
-2. Load the `implementation-conventions` skill
-3. If reviewing frontend code, also load `frontend-philosophy`
-4. If reviewing backend code, also load `code-philosophy`
-5. Apply the 4 Review Layers (Correctness, Security, Performance, Style)
-6. Classify findings by severity (Critical → Major → Minor → Nit)
-7. Only report findings with ≥80% confidence
-8. Include a Merge Recommendation (Ready / Needs Changes)
-9. Provide Philosophy Compliance checklist results
+2. If reviewing frontend code, also load `frontend-philosophy`
+3. If reviewing backend code, also load `code-philosophy`
+4. Apply the 4 Review Layers (Correctness, Security, Performance, Style)
+5. Classify findings by severity (Critical → Major → Minor → Nit)
+6. Only report findings with ≥80% confidence
+7. Include a Merge Recommendation (Ready / Needs Changes)
+8. Provide Philosophy Compliance checklist results

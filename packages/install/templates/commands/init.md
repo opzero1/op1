@@ -1,13 +1,19 @@
 ---
 description: Initialize or refactor AGENTS.md with progressive disclosure
-agent: scribe
+agent: build
 ---
 
 Analyze this repository and create or refactor `AGENTS.md` using progressive disclosure.
 
 Goal: keep the root `AGENTS.md` minimal, high-signal, and easy to maintain.
 
+**Context:** $ARGUMENTS
+
 ## Workflow
+
+0. Resolve scope
+   - If `$ARGUMENTS` is empty, use repository-wide scope.
+   - If `$ARGUMENTS` contains a subpath or constraint, apply it and state what scope you used.
 
 1. Audit existing instruction sources
    - Read `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, `CODEX.md` if present.
@@ -30,11 +36,8 @@ Goal: keep the root `AGENTS.md` minimal, high-signal, and easy to maintain.
    - Add markdown links from root `AGENTS.md` to those docs.
    - Prefer stable capability guidance over brittle file-path maps.
 
-5. Flag stale/low-value instructions
-   - Add a short "Flagged for deletion" section (or separate markdown file) listing instructions that are:
-     - redundant
-     - vague or non-actionable
-     - obvious boilerplate
+5. Summarize edits
+   - Briefly report what changed, what was moved, and any unresolved conflicts.
 
 ## Output requirements
 

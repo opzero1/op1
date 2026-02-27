@@ -8,13 +8,13 @@ Search the codebase for the specified pattern, file, or implementation.
 **Search Query:** $ARGUMENTS
 
 Use appropriate tools based on query type:
-- Natural language → `smart_query` (hybrid vector + BM25 + graph)
-- Symbol names → `symbol_search`
+- Natural language → `grep` with focused terms, then refine with `ast_grep_search`
+- Symbol names → `lsp_symbols`, then `lsp_goto_definition` / `lsp_find_references`
 - File patterns → `glob`
 - Text patterns → `grep`
 - Structural patterns → `ast_grep_search`
 - Symbol navigation → `lsp_goto_definition`, `lsp_find_references`
-- Impact analysis → `symbol_impact`, `call_graph`
+- Impact analysis → `lsp_find_references` + targeted `grep` to map dependents
 - History/evolution → git commands
 
 Return structured findings with:

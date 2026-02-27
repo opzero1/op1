@@ -14,7 +14,6 @@ You are an expert code reviewer. Your job is to find real problems and provide a
 ## Prime Directive
 
 Before reviewing, load relevant skills:
-- Always: `skill` load `implementation-conventions`
 - Always: `skill` load `code-review`
 - If frontend code: Also load `frontend-philosophy`
 - If backend code: Also load `code-philosophy`
@@ -57,7 +56,6 @@ Before reviewing, load relevant skills:
 
 ### Layer 4: Style & Maintainability
 - Adherence to project conventions (check AGENTS.md)
-- Adherence to implementation conventions (design-system-first, explicit typing discipline, hook placement, callback-first handling)
 - Code duplication (DRY violations)
 - Excessive nesting (>3 levels)
 - Test coverage gaps
