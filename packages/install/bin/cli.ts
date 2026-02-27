@@ -6,7 +6,10 @@
 
 import { main } from "@/index";
 
-main().catch((error) => {
+const args = Bun.argv.slice(2);
+const dryRun = args.includes("--dry-run") || args.includes("-n");
+
+main({ dryRun }).catch((error) => {
 	console.error("Error:", error);
-	process.exit(1);
+	throw error;
 });
