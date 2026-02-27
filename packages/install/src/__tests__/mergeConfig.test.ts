@@ -3,11 +3,22 @@
  * Tests the complex config merging logic that preserves user settings
  */
 
-import { describe, test, expect } from "bun:test";
-import { mergeConfig, type OpenCodeConfig, type McpDefinition, type PluginChoice } from "../index";
+import { describe, expect, test } from "bun:test";
+import {
+	type McpDefinition,
+	mergeConfig,
+	mergeWorkspaceConfig,
+	type OpenCodeConfig,
+	type PluginChoice,
+	type WorkspacePluginConfig,
+} from "../index";
 
 // Helper to create a basic MCP definition for testing
-function createMockMcp(id: string, toolPattern: string, agentAccess: string[]): McpDefinition {
+function createMockMcp(
+	id: string,
+	toolPattern: string,
+	agentAccess: string[],
+): McpDefinition {
 	return {
 		id,
 		name: `${id} MCP`,
@@ -20,27 +31,29 @@ function createMockMcp(id: string, toolPattern: string, agentAccess: string[]): 
 
 // Default plugin choices for testing
 const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
-	notify: false,
 	workspace: false,
-	codeIntel: false,
 	astGrep: false,
 	lsp: false,
-	semanticSearch: false,
-	codeGraph: false,
 };
 
 const ENABLED_PLUGIN_CHOICES: PluginChoice = {
-	notify: true,
 	workspace: true,
-	codeIntel: false,
 	astGrep: false,
 	lsp: false,
-	semanticSearch: false,
-	codeGraph: false,
 };
 
 describe("mergeConfig", () => {
-	const allAgents = ["build", "coder", "explore", "frontend", "oracle", "plan", "researcher", "reviewer", "scribe"];
+	const allAgents = [
+		"build",
+		"coder",
+		"explore",
+		"frontend",
+		"oracle",
+		"plan",
+		"researcher",
+		"reviewer",
+		"scribe",
+	];
 
 	test("creates fresh config when existing is null", () => {
 		const result = mergeConfig(
@@ -50,7 +63,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result).toHaveProperty("$schema", "https://opencode.ai/config.json");
@@ -75,7 +88,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.provider).toEqual(originalConfig.provider);
@@ -95,7 +108,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.model).toBe("anthropic/claude-opus-4");
@@ -115,19 +128,15 @@ describe("mergeConfig", () => {
 			ENABLED_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
-		expect(result.plugin).toEqual([
-			"@existing/plugin",
-			"@op1/notify",
-			"@op1/workspace",
-		]);
+		expect(result.plugin).toEqual(["@existing/plugin", "@op1/workspace"]);
 	});
 
 	test("does not duplicate plugins if already present", () => {
 		const existing: OpenCodeConfig = {
-			plugin: ["@op1/notify"],
+			plugin: ["@op1/workspace"],
 		};
 
 		const result = mergeConfig(
@@ -137,13 +146,10 @@ describe("mergeConfig", () => {
 			ENABLED_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
-		expect(result.plugin).toEqual([
-			"@op1/notify",
-			"@op1/workspace",
-		]);
+		expect(result.plugin).toEqual(["@op1/workspace"]);
 	});
 
 	test("merges MCPs without overwriting existing ones", () => {
@@ -162,12 +168,15 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.mcp).toHaveProperty("existing-mcp");
 		expect(result.mcp).toHaveProperty("new-mcp");
-		expect(result.mcp?.["existing-mcp"]).toEqual({ type: "local", command: ["test"] });
+		expect(result.mcp?.["existing-mcp"]).toEqual({
+			type: "local",
+			command: ["test"],
+		});
 	});
 
 	test("configures tool visibility (disabled by default)", () => {
@@ -183,7 +192,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.tools?.["linear_*"]).toBe(false);
@@ -202,16 +211,16 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		// Tool should be disabled globally
 		expect(result.tools?.["linear_*"]).toBe(false);
-		
+
 		// But enabled for researcher and oracle agents
 		expect(result.agent?.researcher?.tools?.["linear_*"]).toBe(true);
 		expect(result.agent?.oracle?.tools?.["linear_*"]).toBe(true);
-		
+
 		// Not enabled for coder
 		expect(result.agent?.coder?.tools?.["linear_*"]).toBeUndefined();
 	});
@@ -236,7 +245,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.agent?.coder?.tools?.["existing_*"]).toBe(true);
@@ -251,7 +260,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			"anthropic/claude-sonnet-4-20250514",
-			allAgents
+			allAgents,
 		);
 
 		expect(result.model).toBe("anthropic/claude-sonnet-4-20250514");
@@ -269,7 +278,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			"new-model",
-			allAgents
+			allAgents,
 		);
 
 		expect(result.model).toBe("existing-model");
@@ -288,7 +297,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			agentModels,
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.agent?.oracle?.model).toBe("quotio/gpt-5.2-codex");
@@ -316,7 +325,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			agentModels,
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.agent?.oracle?.model).toBe("existing-oracle-model");
@@ -331,7 +340,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.compaction).toEqual({ auto: true, prune: true });
@@ -349,10 +358,56 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.compaction).toEqual({ auto: false, prune: false });
+	});
+
+	test("mergeWorkspaceConfig adds defaults", () => {
+		const result = mergeWorkspaceConfig(undefined);
+
+		expect(result.features?.momentum).toBe(true);
+		expect(result.features?.hashAnchoredEdit).toBe(true);
+		expect(result.features?.taskGraph).toBe(true);
+		expect(result.features?.mcpOAuthHelper).toBe(true);
+		expect(result.features?.approvalGate).toBe(false);
+		expect(result.thresholds?.taskReminderThreshold).toBe(20);
+		expect(result.notifications?.enabled).toBe(true);
+		expect(result.notifications?.desktop).toBe(true);
+		expect(result.notifications?.privacy).toBe("strict");
+		expect(result.verification?.autopilot).toBe(true);
+		expect(result.approval?.mode).toBe("off");
+		expect(result.approval?.tools).toEqual([
+			"plan_archive",
+			"delegation_cancel",
+			"worktree_delete",
+		]);
+	});
+
+	test("mergeWorkspaceConfig preserves existing overrides", () => {
+		const existing: WorkspacePluginConfig = {
+			features: {
+				notifications: true,
+				approvalGate: true,
+			},
+			approval: {
+				mode: "all_mutating",
+				ttlMs: 120000,
+			},
+			thresholds: {
+				taskReminderThreshold: 4,
+			},
+		};
+
+		const result = mergeWorkspaceConfig(existing);
+
+		expect(result.features?.notifications).toBe(true);
+		expect(result.features?.approvalGate).toBe(true);
+		expect(result.thresholds?.taskReminderThreshold).toBe(4);
+		expect(result.approval?.mode).toBe("all_mutating");
+		expect(result.approval?.ttlMs).toBe(120000);
+		expect(result.features?.momentum).toBe(true);
 	});
 
 	test("preserves permissions from original config", () => {
@@ -370,7 +425,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		expect(result.permission).toEqual({
@@ -387,7 +442,7 @@ describe("mergeConfig", () => {
 			DEFAULT_PLUGIN_CHOICES,
 			{},
 			null,
-			allAgents
+			allAgents,
 		);
 
 		for (const agentName of allAgents) {
@@ -416,21 +471,21 @@ describe("mergeConfig", () => {
 			ENABLED_PLUGIN_CHOICES,
 			{ oracle: "quotio/gpt-5.2-codex" },
 			null,
-			allAgents
+			allAgents,
 		);
 
 		// Provider should be preserved
 		expect(result.provider).toEqual(originalConfig.provider);
-		
+
 		// But plugins should be from new config (plus op1 plugins)
-		expect(result.plugin).toEqual(["@old/plugin", "@op1/notify", "@op1/workspace"]);
-		
+		expect(result.plugin).toEqual(["@old/plugin", "@op1/workspace"]);
+
 		// Model should be preserved
 		expect(result.model).toBe("anthropic/claude-opus-4");
-		
+
 		// New MCPs should be added
 		expect(result.mcp).toHaveProperty("linear");
-		
+
 		// Agent models should be set
 		expect(result.agent?.oracle?.model).toBe("quotio/gpt-5.2-codex");
 	});
@@ -471,30 +526,31 @@ describe("mergeConfig", () => {
 			ENABLED_PLUGIN_CHOICES,
 			{}, // no agent models configured
 			"anthropic/claude-sonnet-4-20250514", // global model (won't override existing)
-			allAgents
+			allAgents,
 		);
 
 		// Everything from existing should be preserved
 		expect(result.provider).toEqual(existing.provider);
 		expect(result.model).toBe("openrouter/anthropic/claude-3.5-sonnet"); // existing model preserved
-		
+
 		// Plugins merged
 		expect(result.plugin).toContain("@existing/plugin");
-		expect(result.plugin).toContain("@op1/notify");
 		expect(result.plugin).toContain("@op1/workspace");
-		
+
 		// MCPs merged
 		expect(result.mcp).toHaveProperty("existing-mcp");
 		expect(result.mcp).toHaveProperty("linear");
 		expect(result.mcp).toHaveProperty("zai-vision");
-		
+
 		// Tools merged
 		expect(result.tools?.["existing_*"]).toBe(false);
 		expect(result.tools?.["linear_*"]).toBe(false);
 		expect(result.tools?.["zai-vision_*"]).toBe(false);
-		
+
 		// Agent config merged
-		expect(result.agent?.coder?.model).toBe("openrouter/anthropic/claude-opus-4"); // preserved
+		expect(result.agent?.coder?.model).toBe(
+			"openrouter/anthropic/claude-opus-4",
+		); // preserved
 		expect(result.agent?.coder?.tools?.["existing_*"]).toBe(true); // preserved
 		expect(result.agent?.coder?.tools?.["zai-vision_*"]).toBe(true); // new tool enabled
 		expect(result.agent?.researcher?.tools?.["linear_*"]).toBe(true);

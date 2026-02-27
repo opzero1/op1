@@ -7,13 +7,113 @@
  * Uses Bun-native APIs exclusively (no node: imports).
  */
 
-import { mkdir, readdir } from "fs/promises";
-import { join, basename } from "path";
-import { homedir } from "os";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import {
+	type InstallSkillPointerResult,
+	installSkillPointerArtifacts,
+	rebuildSkillPointerArtifacts,
+	validateSkillPointerIndex,
+} from "./skill-pointer.js";
 
-const TEMPLATES_DIR = join(import.meta.dir, "..", "templates");
+const IS_WINDOWS = (Bun.env.OS ?? "").toLowerCase().includes("windows");
+
+function toPosixPath(input: string): string {
+	return input.replace(/\\+/g, "/");
+}
+
+function isAbsolutePath(input: string): boolean {
+	if (input.startsWith("/")) {
+		return true;
+	}
+
+	return /^[A-Za-z]:\//.test(input);
+}
+
+function toNativePath(input: string): string {
+	if (!IS_WINDOWS) {
+		return input;
+	}
+
+	return input.replace(/\//g, "\\");
+}
+
+function joinPath(...parts: string[]): string {
+	const normalized = parts
+		.map((part) => part)
+		.filter((part) => part.length > 0)
+		.map((part) => toPosixPath(part));
+
+	if (normalized.length === 0) {
+		return "";
+	}
+
+	let result = normalized[0];
+	for (let index = 1; index < normalized.length; index++) {
+		const part = normalized[index];
+		if (isAbsolutePath(part)) {
+			result = part;
+			continue;
+		}
+
+		const left = result.replace(/\/+$/, "");
+		const right = part.replace(/^\/+/, "");
+		result = `${left}/${right}`;
+	}
+
+	return toNativePath(result);
+}
+
+function getHomeDirectory(): string {
+	const homeDir = Bun.env.HOME;
+	if (typeof homeDir === "string" && homeDir.length > 0) {
+		return homeDir;
+	}
+
+	const userProfile = Bun.env.USERPROFILE;
+	if (typeof userProfile === "string" && userProfile.length > 0) {
+		return userProfile;
+	}
+
+	const homeDrive = Bun.env.HOMEDRIVE;
+	const homePath = Bun.env.HOMEPATH;
+	if (homeDrive && homePath) {
+		return `${homeDrive}${homePath}`;
+	}
+
+	throw new Error("Could not resolve home directory from environment");
+}
+
+async function ensureDirectory(dirPath: string): Promise<void> {
+	const marker = joinPath(
+		dirPath,
+		`.op1-dir-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+	);
+	await Bun.write(marker, "");
+	await Bun.file(marker).delete();
+}
+
+async function listFilesRecursively(dirPath: string): Promise<string[]> {
+	const files: string[] = [];
+	for await (const file of new Bun.Glob("**/*").scan({
+		cwd: dirPath,
+		onlyFiles: true,
+		absolute: false,
+	})) {
+		files.push(file);
+	}
+
+	return files;
+}
+
+const TEMPLATES_DIR = joinPath(import.meta.dir, "..", "templates");
+const MODELS_API_URL = "https://models.dev/api.json";
+const MODELS_API_TIMEOUT_MS = 10000;
+const MODEL_SELECT_LIMIT = 120;
+const MODEL_OPTION_CUSTOM = "__op7_custom_model__";
+const MODEL_FAMILY_ALL = "__op7_all_families__";
+const WORKSPACE_CONFIG_FILENAME = "workspace.json";
+const SKILL_POINTER_MIN_REDUCTION_PERCENT = 30;
 
 // =========================================
 // MCP DEFINITIONS BY CATEGORY
@@ -48,7 +148,8 @@ const MCP_CATEGORIES: McpCategory[] = [
 	{
 		id: "zai",
 		name: "Z.AI Suite",
-		description: "Vision, web search, reader, GitHub docs (requires Z_AI_API_KEY)",
+		description:
+			"Vision, web search, reader, GitHub docs (requires Z_AI_API_KEY)",
 		requiresEnvVar: "Z_AI_API_KEY",
 		mcps: [
 			{
@@ -136,7 +237,8 @@ const MCP_CATEGORIES: McpCategory[] = [
 	{
 		id: "observability",
 		name: "Observability",
-		description: "Application monitoring and performance (requires NEW_RELIC_API_KEY)",
+		description:
+			"Application monitoring and performance (requires NEW_RELIC_API_KEY)",
 		requiresEnvVar: "NEW_RELIC_API_KEY",
 		mcps: [
 			{
@@ -159,7 +261,8 @@ const MCP_CATEGORIES: McpCategory[] = [
 	{
 		id: "design",
 		name: "Design",
-		description: "Design system extraction and component specs (OAuth on first use)",
+		description:
+			"Design system extraction and component specs (OAuth on first use)",
 		mcps: [
 			{
 				id: "figma",
@@ -216,14 +319,14 @@ interface InstallOptions {
 	plugins: boolean;
 }
 
+interface MainOptions {
+	dryRun?: boolean;
+}
+
 interface PluginChoice {
-	notify: boolean;
 	workspace: boolean;
-	codeIntel: boolean;
 	astGrep: boolean;
 	lsp: boolean;
-	semanticSearch: boolean;
-	codeGraph: boolean;
 }
 
 // Agent model configuration - per-agent
@@ -233,10 +336,12 @@ interface AgentModelConfig {
 
 // All agents that can have models configured
 const ALL_AGENTS = [
+	"backend",
 	"build",
-	"coder", 
+	"coder",
 	"explore",
 	"frontend",
+	"infra",
 	"oracle",
 	"plan",
 	"researcher",
@@ -250,6 +355,66 @@ const DEFAULT_AGENT_MODELS: AgentModelConfig = {};
 interface AgentConfig {
 	tools?: Record<string, boolean>;
 	model?: string;
+	[key: string]: unknown;
+}
+
+interface WorkspaceFeatureFlags {
+	momentum?: boolean;
+	completionPromise?: boolean;
+	writePolicy?: boolean;
+	taskReminder?: boolean;
+	autonomyPolicy?: boolean;
+	notifications?: boolean;
+	verificationAutopilot?: boolean;
+	hashAnchoredEdit?: boolean;
+	contextScout?: boolean;
+	externalScout?: boolean;
+	skillPointer?: boolean;
+	taskGraph?: boolean;
+	continuationCommands?: boolean;
+	tmuxOrchestration?: boolean;
+	approvalGate?: boolean;
+	boundaryPolicyV2?: boolean;
+	claudeCompatibility?: boolean;
+	mcpOAuthHelper?: boolean;
+}
+
+interface WorkspaceThresholds {
+	taskReminderThreshold?: number;
+	contextLimit?: number;
+	compactionThreshold?: number;
+	verificationThrottleMs?: number;
+}
+
+interface WorkspaceNotifications {
+	enabled?: boolean;
+	desktop?: boolean;
+	quietHours?: string;
+	timezone?: string;
+	privacy?: "strict" | "balanced";
+}
+
+interface WorkspaceVerification {
+	autopilot?: boolean;
+	throttleMs?: number;
+}
+
+interface WorkspaceApproval {
+	mode?: "off" | "selected" | "all_mutating";
+	tools?: string[];
+	exemptTools?: string[];
+	ttlMs?: number;
+	nonInteractive?: "fail-closed";
+}
+
+interface WorkspacePluginConfig {
+	disabledHooks?: string[];
+	safeHookCreation?: boolean;
+	features?: WorkspaceFeatureFlags;
+	thresholds?: WorkspaceThresholds;
+	notifications?: WorkspaceNotifications;
+	verification?: WorkspaceVerification;
+	approval?: WorkspaceApproval;
 	[key: string]: unknown;
 }
 
@@ -268,28 +433,138 @@ interface OpenCodeConfig {
 	[key: string]: unknown;
 }
 
+const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
+	disabledHooks: [],
+	safeHookCreation: false,
+	features: {
+		momentum: true,
+		completionPromise: true,
+		writePolicy: true,
+		taskReminder: true,
+		autonomyPolicy: true,
+		notifications: true,
+		verificationAutopilot: true,
+		hashAnchoredEdit: true,
+		contextScout: true,
+		externalScout: true,
+		skillPointer: true,
+		taskGraph: true,
+		continuationCommands: true,
+		tmuxOrchestration: true,
+		approvalGate: false,
+		boundaryPolicyV2: true,
+		claudeCompatibility: true,
+		mcpOAuthHelper: true,
+	},
+	thresholds: {
+		taskReminderThreshold: 20,
+		contextLimit: 200000,
+		compactionThreshold: 0.78,
+		verificationThrottleMs: 45000,
+	},
+	notifications: {
+		enabled: true,
+		desktop: true,
+		quietHours: "",
+		timezone: "",
+		privacy: "strict",
+	},
+	verification: {
+		autopilot: true,
+		throttleMs: 45000,
+	},
+	approval: {
+		mode: "off",
+		tools: ["plan_archive", "delegation_cancel", "worktree_delete"],
+		exemptTools: [],
+		ttlMs: 300000,
+		nonInteractive: "fail-closed",
+	},
+};
+
+function mergeWorkspaceConfig(
+	config: WorkspacePluginConfig | undefined,
+): WorkspacePluginConfig {
+	const mergedApproval = {
+		...(DEFAULT_WORKSPACE_CONFIG.approval || {}),
+		...(config?.approval || {}),
+	};
+	mergedApproval.nonInteractive = "fail-closed";
+
+	return {
+		...DEFAULT_WORKSPACE_CONFIG,
+		...config,
+		disabledHooks: [
+			...(DEFAULT_WORKSPACE_CONFIG.disabledHooks || []),
+			...(config?.disabledHooks || []),
+		],
+		features: {
+			...(DEFAULT_WORKSPACE_CONFIG.features || {}),
+			...(config?.features || {}),
+		},
+		thresholds: {
+			...(DEFAULT_WORKSPACE_CONFIG.thresholds || {}),
+			...(config?.thresholds || {}),
+		},
+		notifications: {
+			...(DEFAULT_WORKSPACE_CONFIG.notifications || {}),
+			...(config?.notifications || {}),
+		},
+		verification: {
+			...(DEFAULT_WORKSPACE_CONFIG.verification || {}),
+			...(config?.verification || {}),
+		},
+		approval: mergedApproval,
+	};
+}
+
+interface ModelCatalogModel {
+	id: string;
+	name: string;
+	family: string;
+}
+
+interface ModelCatalogProvider {
+	id: string;
+	name: string;
+	models: ModelCatalogModel[];
+}
+
 // =========================================
 // UTILITY FUNCTIONS (Bun-native)
 // =========================================
 
 async function copyDir(src: string, dest: string): Promise<number> {
-	let count = 0;
-	await mkdir(dest, { recursive: true });
+	await ensureDirectory(dest);
 
-	const entries = await readdir(src, { withFileTypes: true });
-	for (const entry of entries) {
-		const srcPath = join(src, entry.name);
-		const destPath = join(dest, entry.name);
-
-		if (entry.isDirectory()) {
-			count += await copyDir(srcPath, destPath);
-		} else {
-			// Bun-native file copy
-			await Bun.write(destPath, Bun.file(srcPath));
-			count++;
-		}
+	const files = await listFilesRecursively(src);
+	for (const relativeFile of files) {
+		const srcPath = joinPath(src, relativeFile);
+		const destPath = joinPath(dest, relativeFile);
+		await Bun.write(destPath, Bun.file(srcPath));
 	}
-	return count;
+
+	return files.length;
+}
+
+async function countDirFiles(src: string): Promise<number> {
+	const files = await listFilesRecursively(src);
+	return files.length;
+}
+
+async function resolveTemplateSource(
+	pluralName: string,
+	singularName: string,
+): Promise<string | null> {
+	const srcPlural = joinPath(TEMPLATES_DIR, pluralName);
+	const srcSingular = joinPath(TEMPLATES_DIR, singularName);
+	if (await dirExists(srcPlural)) {
+		return srcPlural;
+	}
+	if (await dirExists(srcSingular)) {
+		return srcSingular;
+	}
+	return null;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -298,7 +573,13 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function dirExists(dirPath: string): Promise<boolean> {
 	try {
-		const entries = await readdir(dirPath);
+		for await (const _entry of new Bun.Glob("*").scan({
+			cwd: dirPath,
+			onlyFiles: false,
+			absolute: false,
+		})) {
+			break;
+		}
 		return true;
 	} catch {
 		return false;
@@ -319,7 +600,9 @@ async function readJsonFile<T>(filePath: string): Promise<ReadJsonResult<T>> {
 		}
 		const content = await file.text();
 		// Strip JSONC comments (single-line only for simplicity)
-		const stripped = content.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1");
+		const stripped = content
+			.replace(/^\s*\/\/.*$/gm, "")
+			.replace(/,(\s*[}\]])/g, "$1");
 		return { data: JSON.parse(stripped), error: null };
 	} catch (err) {
 		const error = err as Error;
@@ -328,11 +611,326 @@ async function readJsonFile<T>(filePath: string): Promise<ReadJsonResult<T>> {
 }
 
 async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
-	await Bun.write(filePath, JSON.stringify(data, null, 2) + "\n");
+	await Bun.write(filePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function getTimestamp(): string {
 	return Date.now().toString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function normalizeModelFamily(value: unknown): string {
+	if (typeof value !== "string") {
+		return "other";
+	}
+
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : "other";
+}
+
+function countCatalogModels(catalog: ModelCatalogProvider[]): number {
+	return catalog.reduce((sum, provider) => sum + provider.models.length, 0);
+}
+
+async function fetchModelCatalog(): Promise<ModelCatalogProvider[] | null> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), MODELS_API_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(MODELS_API_URL, {
+			signal: controller.signal,
+		});
+
+		if (!response.ok) {
+			return null;
+		}
+
+		const raw = (await response.json()) as unknown;
+		if (!isRecord(raw)) {
+			return null;
+		}
+
+		const providers: ModelCatalogProvider[] = [];
+
+		for (const [providerID, providerValue] of Object.entries(raw)) {
+			if (!isRecord(providerValue) || !isRecord(providerValue.models)) {
+				continue;
+			}
+
+			const modelMap = new Map<string, ModelCatalogModel>();
+			for (const [modelKey, modelValue] of Object.entries(
+				providerValue.models,
+			)) {
+				if (!isRecord(modelValue)) {
+					continue;
+				}
+
+				const modelIDRaw =
+					typeof modelValue.id === "string" && modelValue.id.trim().length > 0
+						? modelValue.id.trim()
+						: modelKey.trim();
+
+				if (!modelIDRaw) {
+					continue;
+				}
+
+				const modelName =
+					typeof modelValue.name === "string" &&
+					modelValue.name.trim().length > 0
+						? modelValue.name.trim()
+						: modelIDRaw;
+
+				modelMap.set(modelIDRaw, {
+					id: modelIDRaw,
+					name: modelName,
+					family: normalizeModelFamily(modelValue.family),
+				});
+			}
+
+			const models = [...modelMap.values()].sort((a, b) =>
+				a.id.localeCompare(b.id),
+			);
+			if (models.length === 0) {
+				continue;
+			}
+
+			const providerName =
+				typeof providerValue.name === "string" &&
+				providerValue.name.trim().length > 0
+					? providerValue.name.trim()
+					: providerID;
+
+			providers.push({
+				id: providerID,
+				name: providerName,
+				models,
+			});
+		}
+
+		if (providers.length === 0) {
+			return null;
+		}
+
+		return providers.sort((a, b) => a.name.localeCompare(b.name));
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+async function promptManualModelInput(
+	message: string,
+	defaultModel: string,
+): Promise<string | symbol> {
+	return await p.text({
+		message,
+		placeholder: defaultModel,
+		defaultValue: defaultModel,
+		validate: (value) =>
+			value.trim().length === 0 ? "Model cannot be empty" : undefined,
+	});
+}
+
+async function promptModelSelection(
+	message: string,
+	defaultModel: string,
+	modelCatalog: ModelCatalogProvider[] | null,
+	lastSelectedModel?: string,
+): Promise<string | symbol> {
+	if (!modelCatalog || modelCatalog.length === 0) {
+		return await promptManualModelInput(message, defaultModel);
+	}
+
+	type SourceChoice = "default" | "catalog" | "custom" | "reuse";
+	const sourceOptions: Array<{
+		value: SourceChoice;
+		label: string;
+		hint?: string;
+	}> = [
+		{
+			value: "default",
+			label: `Use suggested: ${defaultModel}`,
+			hint: "recommended",
+		},
+		{
+			value: "catalog",
+			label: "Choose from models.dev",
+			hint: `${modelCatalog.length} providers`,
+		},
+		{
+			value: "custom",
+			label: "Enter model manually",
+			hint: "type model id",
+		},
+	];
+
+	if (lastSelectedModel) {
+		sourceOptions.splice(1, 0, {
+			value: "reuse",
+			label: `Reuse previous: ${lastSelectedModel}`,
+			hint: "faster setup",
+		});
+	}
+
+	const sourceChoice = await p.select({
+		message,
+		options: sourceOptions,
+		initialValue: "default",
+	});
+
+	if (p.isCancel(sourceChoice)) {
+		return sourceChoice;
+	}
+
+	if (sourceChoice === "default") {
+		return defaultModel;
+	}
+
+	if (sourceChoice === "reuse" && lastSelectedModel) {
+		return lastSelectedModel;
+	}
+
+	if (sourceChoice === "custom") {
+		return await promptManualModelInput("Enter model manually:", defaultModel);
+	}
+
+	const providerChoice = await p.select({
+		message: "Select model provider",
+		options: modelCatalog.map((provider) => ({
+			value: provider.id,
+			label: provider.name,
+			hint: `${provider.models.length} models`,
+		})),
+		maxItems: 12,
+	});
+
+	if (p.isCancel(providerChoice)) {
+		return providerChoice;
+	}
+
+	const provider = modelCatalog.find((item) => item.id === providerChoice);
+	if (!provider) {
+		return await promptManualModelInput("Enter model manually:", defaultModel);
+	}
+
+	const familyMap = new Map<string, ModelCatalogModel[]>();
+	for (const model of provider.models) {
+		const family = model.family || "other";
+		const bucket = familyMap.get(family) || [];
+		bucket.push(model);
+		familyMap.set(family, bucket);
+	}
+
+	const familyEntries = [...familyMap.entries()].sort((a, b) => {
+		if (b[1].length !== a[1].length) {
+			return b[1].length - a[1].length;
+		}
+		return a[0].localeCompare(b[0]);
+	});
+
+	const familyChoice = await p.select({
+		message: `Select model family (${provider.name})`,
+		options: [
+			{
+				value: MODEL_FAMILY_ALL,
+				label: "All families",
+				hint: `${provider.models.length} models`,
+			},
+			...familyEntries.map(([family, models]) => ({
+				value: family,
+				label: family,
+				hint: `${models.length} models`,
+			})),
+		],
+		initialValue: MODEL_FAMILY_ALL,
+		maxItems: 12,
+	});
+
+	if (p.isCancel(familyChoice)) {
+		return familyChoice;
+	}
+
+	let modelPool =
+		familyChoice === MODEL_FAMILY_ALL
+			? provider.models
+			: familyMap.get(familyChoice) || provider.models;
+
+	if (modelPool.length > MODEL_SELECT_LIMIT) {
+		const filterInput = await p.text({
+			message: `${provider.name} has ${modelPool.length} models. Filter list (optional):`,
+			placeholder: "gpt-5, claude, gemini, qwen...",
+			defaultValue: "",
+		});
+
+		if (p.isCancel(filterInput)) {
+			return filterInput;
+		}
+
+		const filterTerm = filterInput.trim().toLowerCase();
+		if (filterTerm.length > 0) {
+			modelPool = modelPool.filter(
+				(model) =>
+					model.id.toLowerCase().includes(filterTerm) ||
+					model.name.toLowerCase().includes(filterTerm),
+			);
+		}
+
+		if (modelPool.length === 0) {
+			p.log.warn(
+				"No catalog models matched that filter. Falling back to manual input.",
+			);
+			return await promptManualModelInput(
+				"Enter model manually:",
+				defaultModel,
+			);
+		}
+	}
+
+	let truncated = false;
+	if (modelPool.length > MODEL_SELECT_LIMIT) {
+		modelPool = modelPool.slice(0, MODEL_SELECT_LIMIT);
+		truncated = true;
+	}
+
+	if (truncated) {
+		p.log.warn(
+			`Showing first ${MODEL_SELECT_LIMIT} models. Use filter keywords for narrower selection.`,
+		);
+	}
+
+	const selectedModel = await p.select({
+		message: `Select model (${provider.name})`,
+		options: [
+			...modelPool.map((model) => ({
+				value: model.id,
+				label: model.id,
+				hint: model.name !== model.id ? model.name : undefined,
+			})),
+			{
+				value: MODEL_OPTION_CUSTOM,
+				label: "Enter model manually",
+				hint: "type full model id",
+			},
+		],
+		initialValue: modelPool.some((model) => model.id === defaultModel)
+			? defaultModel
+			: undefined,
+		maxItems: 12,
+	});
+
+	if (p.isCancel(selectedModel)) {
+		return selectedModel;
+	}
+
+	if (selectedModel === MODEL_OPTION_CUSTOM) {
+		return await promptManualModelInput("Enter model manually:", defaultModel);
+	}
+
+	return selectedModel;
 }
 
 // =========================================
@@ -343,8 +941,11 @@ async function backupConfigFile(configFile: string): Promise<string | null> {
 	try {
 		const file = Bun.file(configFile);
 		if (!(await file.exists())) return null;
-		
-		const backupPath = configFile.replace(".json", `.${getTimestamp()}.json.bak`);
+
+		const backupPath = configFile.replace(
+			".json",
+			`.${getTimestamp()}.json.bak`,
+		);
 		await Bun.write(backupPath, file);
 		return backupPath;
 	} catch {
@@ -363,7 +964,7 @@ function mergeConfig(
 	pluginChoices: PluginChoice,
 	agentModels: AgentModelConfig,
 	globalModel: string | null, // Global model when user skips per-agent config
-	allAgents: string[] // All agent names to ensure they're in config
+	allAgents: string[], // All agent names to ensure they're in config
 ): OpenCodeConfig {
 	const base: OpenCodeConfig = existing || {
 		$schema: "https://opencode.ai/config.json",
@@ -390,7 +991,9 @@ function mergeConfig(
 		// Preserve existing agent config (deep-merge per-agent properties)
 		if (originalConfig.agent && !base.agent) {
 			base.agent = {};
-			for (const [agentName, agentConf] of Object.entries(originalConfig.agent)) {
+			for (const [agentName, agentConf] of Object.entries(
+				originalConfig.agent,
+			)) {
 				base.agent[agentName] = {
 					...agentConf,
 					tools: agentConf.tools ? { ...agentConf.tools } : undefined,
@@ -398,7 +1001,9 @@ function mergeConfig(
 			}
 		} else if (originalConfig.agent && base.agent) {
 			// Deep-merge: preserve original agent settings not already in base
-			for (const [agentName, agentConf] of Object.entries(originalConfig.agent)) {
+			for (const [agentName, agentConf] of Object.entries(
+				originalConfig.agent,
+			)) {
 				if (!base.agent[agentName]) {
 					base.agent[agentName] = {
 						...agentConf,
@@ -443,26 +1048,14 @@ function mergeConfig(
 	// 1. Merge plugins (add op1 plugins if not already present)
 	const existingPlugins = base.plugin || [];
 	const newPlugins: string[] = [];
-	if (pluginChoices.notify && !existingPlugins.includes("@op1/notify")) {
-		newPlugins.push("@op1/notify");
-	}
 	if (pluginChoices.workspace && !existingPlugins.includes("@op1/workspace")) {
 		newPlugins.push("@op1/workspace");
-	}
-	if (pluginChoices.codeIntel && !existingPlugins.includes("@op1/code-intel")) {
-		newPlugins.push("@op1/code-intel");
 	}
 	if (pluginChoices.astGrep && !existingPlugins.includes("@op1/ast-grep")) {
 		newPlugins.push("@op1/ast-grep");
 	}
 	if (pluginChoices.lsp && !existingPlugins.includes("@op1/lsp")) {
 		newPlugins.push("@op1/lsp");
-	}
-	if (pluginChoices.semanticSearch && !existingPlugins.includes("@op1/semantic-search")) {
-		newPlugins.push("@op1/semantic-search");
-	}
-	if (pluginChoices.codeGraph && !existingPlugins.includes("@op1/code-graph")) {
-		newPlugins.push("@op1/code-graph");
 	}
 	if (newPlugins.length > 0 || existingPlugins.length > 0) {
 		base.plugin = [...existingPlugins, ...newPlugins];
@@ -495,7 +1088,7 @@ function mergeConfig(
 
 	// 6. Merge agent config (tools + models)
 	base.agent = base.agent || {};
-	
+
 	// Build agent -> tools mapping from selected MCPs
 	const agentTools: Record<string, string[]> = {};
 	for (const mcp of selectedMcps) {
@@ -515,10 +1108,14 @@ function mergeConfig(
 		if (!base.agent[agentName].tools) {
 			base.agent[agentName].tools = {};
 		}
+		const toolConfig = base.agent[agentName].tools;
+		if (!toolConfig) {
+			continue;
+		}
 		for (const tool of tools) {
 			// Only set to true if not already configured
-			if (base.agent[agentName].tools![tool] === undefined) {
-				base.agent[agentName].tools![tool] = true;
+			if (toolConfig[tool] === undefined) {
+				toolConfig[tool] = true;
 			}
 		}
 	}
@@ -561,40 +1158,57 @@ function mergeConfig(
 // MAIN INSTALLER
 // =========================================
 
-export async function main() {
+export async function main(mainOptions: MainOptions = {}) {
+	const dryRun =
+		mainOptions.dryRun ??
+		(Bun.argv.includes("--dry-run") || Bun.argv.includes("-n"));
+
 	console.clear();
 
 	p.intro(
-		`${pc.bgCyan(pc.black(" op1 "))} ${pc.dim("OpenCode harness installer")}`,
+		`${pc.bgCyan(pc.black(" op1 "))} ${pc.dim(`OpenCode harness installer${dryRun ? " (dry run)" : ""}`)}`,
 	);
 
 	// Determine target directory
-	const homeDir = homedir();
-	const globalConfigDir = join(homeDir, ".config", "opencode");
-	const globalConfigFile = join(globalConfigDir, "opencode.json");
+	const homeDir = getHomeDirectory();
+	const globalConfigDir = joinPath(homeDir, ".config", "opencode");
+	const globalConfigFile = joinPath(globalConfigDir, "opencode.json");
+	const workspaceConfigFile = joinPath(
+		globalConfigDir,
+		WORKSPACE_CONFIG_FILENAME,
+	);
 
 	// Check for existing installation
 	const configDirExists = await dirExists(globalConfigDir);
 	const configFileResult = await readJsonFile<OpenCodeConfig>(globalConfigFile);
-	
+	const workspaceConfigResult =
+		await readJsonFile<WorkspacePluginConfig>(workspaceConfigFile);
+
 	let existingJson: OpenCodeConfig | null = null;
+	let existingWorkspaceConfig: WorkspacePluginConfig | null =
+		workspaceConfigResult.error === null ? workspaceConfigResult.data : null;
 	let configBackupPath: string | null = null;
+	let workspaceConfigBackupPath: string | null = null;
 
 	// Determine the actual state
 	const hasConfigFile = configFileResult.error !== "not_found";
-	const hasValidConfig = configFileResult.data !== null && configFileResult.error === null;
+	const hasValidConfig =
+		configFileResult.data !== null && configFileResult.error === null;
 	const hasMalformedConfig = configFileResult.error === "parse_error";
 
 	if (configDirExists) {
 		// Handle malformed JSON first
 		if (hasMalformedConfig) {
-			p.log.error(`${pc.red("Malformed config")} at ${pc.dim(globalConfigFile)}`);
+			p.log.error(
+				`${pc.red("Malformed config")} at ${pc.dim(globalConfigFile)}`,
+			);
 			if (configFileResult.rawError) {
 				p.log.error(`  ${pc.dim(configFileResult.rawError.message)}`);
 			}
-			
+
 			const action = await p.select({
-				message: "Your opencode.json has syntax errors. How would you like to proceed?",
+				message:
+					"Your opencode.json has syntax errors. How would you like to proceed?",
 				options: [
 					{
 						value: "backup-replace",
@@ -611,26 +1225,38 @@ export async function main() {
 
 			if (p.isCancel(action) || action === "cancel") {
 				p.cancel("Please fix the JSON errors and try again.");
-				process.exit(0);
+				return;
 			}
 
 			// Create backup of malformed config
-			configBackupPath = await backupConfigFile(globalConfigFile);
-			if (configBackupPath) {
-				p.log.success(`Config backup: ${pc.dim(configBackupPath)}`);
+			if (dryRun) {
+				configBackupPath = `${globalConfigFile.replace(".json", `.${getTimestamp()}.json.bak`)} (dry-run)`;
+				p.log.info(`Would create config backup: ${pc.dim(configBackupPath)}`);
+			} else {
+				configBackupPath = await backupConfigFile(globalConfigFile);
+				if (configBackupPath) {
+					p.log.success(`Config backup: ${pc.dim(configBackupPath)}`);
+				}
 			}
 			existingJson = null; // Start fresh
 		}
 		// Handle valid config
 		else if (hasValidConfig) {
-			p.log.info(`${pc.yellow("Found existing config")} at ${pc.dim(globalConfigDir)}`);
-			
+			p.log.info(
+				`${pc.yellow("Found existing config")} at ${pc.dim(globalConfigDir)}`,
+			);
+
 			// ALWAYS create backup before any changes
-			configBackupPath = await backupConfigFile(globalConfigFile);
-			if (configBackupPath) {
-				p.log.success(`Config backup: ${pc.dim(configBackupPath)}`);
+			if (dryRun) {
+				configBackupPath = `${globalConfigFile.replace(".json", `.${getTimestamp()}.json.bak`)} (dry-run)`;
+				p.log.info(`Would create config backup: ${pc.dim(configBackupPath)}`);
+			} else {
+				configBackupPath = await backupConfigFile(globalConfigFile);
+				if (configBackupPath) {
+					p.log.success(`Config backup: ${pc.dim(configBackupPath)}`);
+				}
 			}
-			
+
 			const action = await p.select({
 				message: "How would you like to proceed?",
 				options: [
@@ -654,7 +1280,7 @@ export async function main() {
 
 			if (p.isCancel(action) || action === "cancel") {
 				p.cancel("Installation cancelled.");
-				process.exit(0);
+				return;
 			}
 
 			if (action === "merge") {
@@ -665,8 +1291,10 @@ export async function main() {
 		}
 		// Handle directory exists but no config file
 		else if (!hasConfigFile) {
-			p.log.info(`${pc.yellow("Found config directory")} at ${pc.dim(globalConfigDir)} (no opencode.json)`);
-			
+			p.log.info(
+				`${pc.yellow("Found config directory")} at ${pc.dim(globalConfigDir)} (no opencode.json)`,
+			);
+
 			const shouldContinue = await p.confirm({
 				message: "Add op1 configuration to this directory?",
 				initialValue: true,
@@ -674,10 +1302,35 @@ export async function main() {
 
 			if (p.isCancel(shouldContinue) || !shouldContinue) {
 				p.cancel("Installation cancelled.");
-				process.exit(0);
+				return;
 			}
 			existingJson = null; // Fresh config
 		}
+	}
+
+	if (workspaceConfigResult.error === "parse_error") {
+		p.log.warn(
+			`${pc.yellow("Malformed workspace config")} at ${pc.dim(workspaceConfigFile)}`,
+		);
+		if (workspaceConfigResult.rawError) {
+			p.log.warn(`  ${pc.dim(workspaceConfigResult.rawError.message)}`);
+		}
+
+		if (dryRun) {
+			workspaceConfigBackupPath = `${workspaceConfigFile.replace(".json", `.${getTimestamp()}.json.bak`)} (dry-run)`;
+			p.log.info(
+				`Would create workspace config backup: ${pc.dim(workspaceConfigBackupPath)}`,
+			);
+		} else {
+			workspaceConfigBackupPath = await backupConfigFile(workspaceConfigFile);
+			if (workspaceConfigBackupPath) {
+				p.log.success(
+					`Workspace config backup: ${pc.dim(workspaceConfigBackupPath)}`,
+				);
+			}
+		}
+
+		existingWorkspaceConfig = null;
 	}
 
 	// Component selection
@@ -688,22 +1341,22 @@ export async function main() {
 			{
 				value: "agents",
 				label: "Agents",
-				hint: "9 specialized agents (build, coder, explore, etc.)",
+				hint: "11 specialized agents (build, coder, explore, etc.)",
 			},
 			{
 				value: "commands",
 				label: "Commands",
-				hint: "7 slash commands (/init, /plan, /review, /ulw, etc.)",
+				hint: "11 slash commands (/init, /plan, /continue, /review, /review-loop, /ulw, etc.)",
 			},
 			{
 				value: "skills",
 				label: "Skills",
-				hint: "17 loadable skills (code-philosophy, playwright, etc.)",
+				hint: "35 loadable skills (code-philosophy, playwright, etc.)",
 			},
 			{
 				value: "plugins",
 				label: "Plugins",
-				hint: "Notify + Workspace plugins",
+				hint: "Workspace + optional code tooling plugins",
 			},
 		],
 		initialValues: ["agents", "commands", "skills", "plugins"],
@@ -712,7 +1365,7 @@ export async function main() {
 
 	if (p.isCancel(components)) {
 		p.cancel("Installation cancelled.");
-		process.exit(0);
+		return;
 	}
 
 	const options: InstallOptions = {
@@ -723,28 +1376,15 @@ export async function main() {
 	};
 
 	// Plugin selection - workspace is always included, others optional
-	let pluginChoices: PluginChoice = { notify: false, workspace: true, codeIntel: false, astGrep: false, lsp: false, semanticSearch: false, codeGraph: false };
+	const pluginChoices: PluginChoice = {
+		workspace: true,
+		astGrep: false,
+		lsp: false,
+	};
 	if (options.plugins) {
-		const wantNotify = await p.confirm({
-			message: "Enable desktop notifications? (sounds, focus detection, quiet hours)",
-			initialValue: true,
-		});
-
-		if (!p.isCancel(wantNotify)) {
-			pluginChoices.notify = wantNotify;
-		}
-
-		const wantCodeIntel = await p.confirm({
-			message: "Enable code-intel? (hybrid semantic search, symbol graphs, call analysis — recommended)",
-			initialValue: true,
-		});
-
-		if (!p.isCancel(wantCodeIntel)) {
-			pluginChoices.codeIntel = wantCodeIntel;
-		}
-
 		const wantAstGrep = await p.confirm({
-			message: "Enable AST-grep? (structural code search/replace, 25 languages)",
+			message:
+				"Enable AST-grep? (structural code search/replace, 25 languages)",
 			initialValue: true,
 		});
 
@@ -753,50 +1393,32 @@ export async function main() {
 		}
 
 		const wantLsp = await p.confirm({
-			message: "Enable LSP tools? (go-to-definition, find-references, 50+ language servers)",
+			message:
+				"Enable LSP tools? (go-to-definition, find-references, 50+ language servers)",
 			initialValue: true,
 		});
 
 		if (!p.isCancel(wantLsp)) {
 			pluginChoices.lsp = wantLsp;
 		}
-
-		// Only offer deprecated plugins if code-intel was not selected
-		if (!pluginChoices.codeIntel) {
-			const wantSemanticSearch = await p.confirm({
-				message: "Enable semantic search? (deprecated — use code-intel instead)",
-				initialValue: false,
-			});
-
-			if (!p.isCancel(wantSemanticSearch)) {
-				pluginChoices.semanticSearch = wantSemanticSearch;
-			}
-
-			const wantCodeGraph = await p.confirm({
-				message: "Enable code graph? (deprecated — use code-intel instead)",
-				initialValue: false,
-			});
-
-			if (!p.isCancel(wantCodeGraph)) {
-				pluginChoices.codeGraph = wantCodeGraph;
-			}
-		}
 	}
 
 	// MCP Category selection
 	p.log.info(`\n${pc.bold("MCP Server Configuration")}`);
-	
+
 	// Always include utilities (context7, grep_app) - they're essential
 	const utilitiesCategory = MCP_CATEGORIES.find((c) => c.id === "utilities");
-	const selectedMcps: McpDefinition[] = utilitiesCategory ? [...utilitiesCategory.mcps] : [];
-	
+	const selectedMcps: McpDefinition[] = utilitiesCategory
+		? [...utilitiesCategory.mcps]
+		: [];
+
 	// Ask about optional categories (excluding utilities which is always included)
 	const optionalCategories = MCP_CATEGORIES.filter((c) => c.id !== "utilities");
-	
+
 	if (optionalCategories.length > 0) {
 		p.log.info(pc.dim("Context7 and Grep.app are included by default."));
 		p.log.info(pc.dim("Use ↑↓ to navigate, space to toggle, enter to confirm"));
-		
+
 		const selectedCategories = await p.multiselect({
 			message: "Enable additional MCP categories?",
 			options: optionalCategories.map((cat) => ({
@@ -810,7 +1432,7 @@ export async function main() {
 
 		if (p.isCancel(selectedCategories)) {
 			p.cancel("Installation cancelled.");
-			process.exit(0);
+			return;
 		}
 
 		// Add all MCPs from selected categories
@@ -820,10 +1442,10 @@ export async function main() {
 
 			// Check for required env var
 			if (category.requiresEnvVar) {
-				const hasEnvVar = process.env[category.requiresEnvVar];
+				const hasEnvVar = Bun.env[category.requiresEnvVar];
 				if (!hasEnvVar) {
 					p.log.warn(
-						`${pc.yellow(category.name)} requires ${pc.cyan(category.requiresEnvVar)} environment variable`
+						`${pc.yellow(category.name)} requires ${pc.cyan(category.requiresEnvVar)} environment variable`,
 					);
 				}
 			}
@@ -832,23 +1454,41 @@ export async function main() {
 			for (const mcp of category.mcps) {
 				selectedMcps.push(mcp);
 			}
-			p.log.success(`Added ${category.name}: ${category.mcps.map((m) => m.name).join(", ")}`);
+			p.log.success(
+				`Added ${category.name}: ${category.mcps.map((m) => m.name).join(", ")}`,
+			);
 		}
 	}
 
 	// Agent Model Configuration (only if agents are being installed)
-	let agentModels: AgentModelConfig = { ...DEFAULT_AGENT_MODELS };
-	
+	const agentModels: AgentModelConfig = { ...DEFAULT_AGENT_MODELS };
+
 	// All agent names - we'll ensure all are in the config
-	const allAgents = ["build", "coder", "explore", "frontend", "oracle", "plan", "researcher", "reviewer", "scribe"];
-	
+	const allAgents = [...ALL_AGENTS];
+
 	// Track global model for when user skips per-agent config
 	let globalModelToSet: string | null = null;
-	
+
 	if (options.agents) {
 		p.log.info(`\n${pc.bold("Agent Model Configuration")}`);
-		p.log.info(pc.dim("Press Enter to use suggested model, or type your own."));
-		
+
+		const modelCatalogSpinner = p.spinner();
+		modelCatalogSpinner.start("Fetching model catalog from models.dev...");
+		const modelCatalog = await fetchModelCatalog();
+		if (modelCatalog) {
+			modelCatalogSpinner.stop(
+				`Loaded ${countCatalogModels(modelCatalog)} models from ${modelCatalog.length} providers`,
+			);
+			p.log.info(
+				pc.dim(
+					"Use dropdowns to select models, or choose manual entry anytime.",
+				),
+			);
+		} else {
+			modelCatalogSpinner.stop("Could not load models.dev catalog");
+			p.log.warn("Falling back to manual model entry.");
+		}
+
 		const configureModels = await p.confirm({
 			message: "Configure per-agent models?",
 			initialValue: false,
@@ -856,36 +1496,92 @@ export async function main() {
 
 		if (!p.isCancel(configureModels) && configureModels) {
 			// Agent descriptions and suggested models
-			const agentPrompts: { name: string; desc: string; defaultModel: string }[] = [
-				{ name: "build", desc: "Build agent (default, writes code)", defaultModel: "proxy/claude-opus-4-5-thinking" },
-				{ name: "coder", desc: "Coder (atomic coding tasks)", defaultModel: "proxy/claude-opus-4-5-thinking" },
-				{ name: "frontend", desc: "Frontend (UI/UX specialist)", defaultModel: "proxy/gemini-3-pro-high" },
-				{ name: "plan", desc: "Plan (strategic planning)", defaultModel: "proxy/claude-opus-4-5-thinking" },
-				{ name: "oracle", desc: "Oracle (architecture, debugging)", defaultModel: "quotio/gpt-5.2-codex" },
-				{ name: "reviewer", desc: "Reviewer (code review)", defaultModel: "quotio/gpt-5.2-codex" },
-				{ name: "explore", desc: "Explore (codebase search)", defaultModel: "proxy/gemini-3-flash" },
-				{ name: "researcher", desc: "Researcher (external docs)", defaultModel: "proxy/gemini-3-flash" },
-				{ name: "scribe", desc: "Scribe (documentation)", defaultModel: "proxy/gemini-3-flash" },
+			const agentPrompts: {
+				name: string;
+				desc: string;
+				defaultModel: string;
+			}[] = [
+				{
+					name: "backend",
+					desc: "Backend (APIs/services specialist)",
+					defaultModel: "proxy/claude-opus-4-5-thinking",
+				},
+				{
+					name: "build",
+					desc: "Build agent (default, writes code)",
+					defaultModel: "proxy/claude-opus-4-5-thinking",
+				},
+				{
+					name: "coder",
+					desc: "Coder (atomic coding tasks)",
+					defaultModel: "proxy/claude-opus-4-5-thinking",
+				},
+				{
+					name: "frontend",
+					desc: "Frontend (UI/UX specialist)",
+					defaultModel: "proxy/gemini-3-pro-high",
+				},
+				{
+					name: "infra",
+					desc: "Infra (Terraform/IaC specialist)",
+					defaultModel: "proxy/claude-opus-4-5-thinking",
+				},
+				{
+					name: "plan",
+					desc: "Plan (strategic planning)",
+					defaultModel: "proxy/claude-opus-4-5-thinking",
+				},
+				{
+					name: "oracle",
+					desc: "Oracle (architecture, debugging)",
+					defaultModel: "quotio/gpt-5.2-codex",
+				},
+				{
+					name: "reviewer",
+					desc: "Reviewer (code review)",
+					defaultModel: "quotio/gpt-5.2-codex",
+				},
+				{
+					name: "explore",
+					desc: "Explore (codebase search)",
+					defaultModel: "proxy/gemini-3-flash",
+				},
+				{
+					name: "researcher",
+					desc: "Researcher (external docs)",
+					defaultModel: "proxy/gemini-3-flash",
+				},
+				{
+					name: "scribe",
+					desc: "Scribe (documentation)",
+					defaultModel: "proxy/gemini-3-flash",
+				},
 			];
 
+			let lastSelectedModel: string | undefined;
+
 			for (const agent of agentPrompts) {
-				const model = await p.text({
-					message: `${agent.desc}:`,
-					placeholder: agent.defaultModel,
-					defaultValue: agent.defaultModel, // Enter uses this value
-				});
+				const model = await promptModelSelection(
+					`${agent.desc}:`,
+					agent.defaultModel,
+					modelCatalog,
+					lastSelectedModel,
+				);
+
 				if (!p.isCancel(model) && model.trim()) {
-					agentModels[agent.name] = model.trim();
+					const normalized = model.trim();
+					agentModels[agent.name] = normalized;
+					lastSelectedModel = normalized;
 				}
 			}
 		} else {
 			// User skipped per-agent config - ask for global model
-			const globalModel = await p.text({
-				message: "Global model for all agents:",
-				placeholder: "anthropic/claude-sonnet-4-20250514",
-				defaultValue: "anthropic/claude-sonnet-4-20250514",
-			});
-			
+			const globalModel = await promptModelSelection(
+				"Global model for all agents:",
+				"anthropic/claude-sonnet-4-20250514",
+				modelCatalog,
+			);
+
 			if (!p.isCancel(globalModel) && globalModel.trim()) {
 				globalModelToSet = globalModel.trim();
 			}
@@ -893,110 +1589,360 @@ export async function main() {
 	}
 
 	// Track if user configured models (for finish page instructions)
-	const hasConfiguredModels = Object.values(agentModels).some((m) => m && m.length > 0) || globalModelToSet !== null;
+	const _hasConfiguredModels =
+		Object.values(agentModels).some((m) => m && m.length > 0) ||
+		globalModelToSet !== null;
 
 	// Installation
 	const s = p.spinner();
-	s.start("Installing op1 components...");
+	s.start(
+		dryRun ? "Simulating op1 installation..." : "Installing op1 components...",
+	);
 
 	let totalFiles = 0;
+	let mergedConfig: OpenCodeConfig | null = null;
+	let mergedWorkspaceConfig: WorkspacePluginConfig | null = null;
+	let skillPointerResult: InstallSkillPointerResult | null = null;
+	let skillPointerFallbackReason: string | null = null;
+	let skillPointerRecoveryNote: string | null = null;
 
 	try {
-		// Create config directory
-		await mkdir(globalConfigDir, { recursive: true });
-
-		// Copy agents (prefer plural directory layout, fallback to singular for compatibility)
-		if (options.agents) {
-			const srcPlural = join(TEMPLATES_DIR, "agents");
-			const srcSingular = join(TEMPLATES_DIR, "agent");
-			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
-			const dest = join(globalConfigDir, "agents");
-			if (await dirExists(src)) {
-				totalFiles += await copyDir(src, dest);
-			}
-		}
-
-		// Copy commands (prefer plural directory layout, fallback to singular for compatibility)
-		if (options.commands) {
-			const srcPlural = join(TEMPLATES_DIR, "commands");
-			const srcSingular = join(TEMPLATES_DIR, "command");
-			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
-			const dest = join(globalConfigDir, "commands");
-			if (await dirExists(src)) {
-				totalFiles += await copyDir(src, dest);
-			}
-		}
-
-		// Copy skills (prefer plural directory layout, fallback to singular for compatibility)
-		if (options.skills) {
-			const srcPlural = join(TEMPLATES_DIR, "skills");
-			const srcSingular = join(TEMPLATES_DIR, "skill");
-			const src = (await dirExists(srcPlural)) ? srcPlural : srcSingular;
-			const dest = join(globalConfigDir, "skills");
-			if (await dirExists(src)) {
-				totalFiles += await copyDir(src, dest);
-			}
-		}
-
-		// Merge and write config (always pass original config to preserve provider)
 		const originalConfig = configFileResult.data;
-		const mergedConfig = mergeConfig(existingJson, originalConfig, selectedMcps, pluginChoices, agentModels, globalModelToSet, allAgents);
-		await writeJsonFile(globalConfigFile, mergedConfig);
-		totalFiles++;
+		mergedWorkspaceConfig = mergeWorkspaceConfig(
+			existingWorkspaceConfig ?? undefined,
+		);
+		mergedConfig = mergeConfig(
+			existingJson,
+			originalConfig,
+			selectedMcps,
+			pluginChoices,
+			agentModels,
+			globalModelToSet,
+			allAgents,
+		);
 
-		s.stop(`Installed ${totalFiles} files`);
+		const installTargets: Array<{
+			enabled: boolean;
+			pluralName: string;
+			singularName: string;
+			destination: string;
+		}> = [
+			{
+				enabled: true,
+				pluralName: "themes",
+				singularName: "theme",
+				destination: joinPath(globalConfigDir, "themes"),
+			},
+			{
+				enabled: options.agents,
+				pluralName: "agents",
+				singularName: "agent",
+				destination: joinPath(globalConfigDir, "agents"),
+			},
+			{
+				enabled: options.commands,
+				pluralName: "commands",
+				singularName: "command",
+				destination: joinPath(globalConfigDir, "commands"),
+			},
+			{
+				enabled: options.skills,
+				pluralName: "skills",
+				singularName: "skill",
+				destination: joinPath(globalConfigDir, "skills"),
+			},
+		];
+
+		if (dryRun) {
+			for (const target of installTargets) {
+				if (!target.enabled) {
+					continue;
+				}
+
+				const src = await resolveTemplateSource(
+					target.pluralName,
+					target.singularName,
+				);
+				if (!src) {
+					continue;
+				}
+
+				const useSkillPointer =
+					target.pluralName === "skills" &&
+					mergedWorkspaceConfig.features?.skillPointer === true;
+				if (useSkillPointer) {
+					try {
+						skillPointerResult = await installSkillPointerArtifacts({
+							templateSkillsDir: src,
+							activeSkillsDir: target.destination,
+							vaultDir: joinPath(globalConfigDir, "skill-vault"),
+							dryRun: true,
+						});
+						totalFiles += skillPointerResult.fileWrites;
+					} catch (error) {
+						totalFiles += await countDirFiles(src);
+						skillPointerFallbackReason =
+							error instanceof Error ? error.message : String(error);
+						mergedWorkspaceConfig.features = {
+							...(mergedWorkspaceConfig.features || {}),
+							skillPointer: false,
+						};
+					}
+					continue;
+				}
+
+				totalFiles += await countDirFiles(src);
+			}
+
+			totalFiles += 2; // opencode.json + workspace.json writes
+			s.stop(`Dry run complete. Would install ${totalFiles} files.`);
+		} else {
+			// Create config directory
+			await ensureDirectory(globalConfigDir);
+
+			for (const target of installTargets) {
+				if (!target.enabled) {
+					continue;
+				}
+
+				const src = await resolveTemplateSource(
+					target.pluralName,
+					target.singularName,
+				);
+				if (!src) {
+					continue;
+				}
+
+				const useSkillPointer =
+					target.pluralName === "skills" &&
+					mergedWorkspaceConfig.features?.skillPointer === true;
+				if (useSkillPointer) {
+					try {
+						skillPointerResult = await installSkillPointerArtifacts({
+							templateSkillsDir: src,
+							activeSkillsDir: target.destination,
+							vaultDir: joinPath(globalConfigDir, "skill-vault"),
+						});
+
+						const integrity = await validateSkillPointerIndex({
+							indexPath: skillPointerResult.indexPath,
+							activeSkillsDir: target.destination,
+							vaultDir: joinPath(globalConfigDir, "skill-vault"),
+						});
+						if (!integrity.ok) {
+							throw new Error(
+								integrity.issues
+									.map((issue) => `${issue.code}: ${issue.message}`)
+									.join("; "),
+							);
+						}
+
+						const reductionPercent =
+							skillPointerResult.index.startup_token_estimate.reduction_percent;
+						if (reductionPercent < SKILL_POINTER_MIN_REDUCTION_PERCENT) {
+							throw new Error(
+								`Startup-token reduction gate failed (${reductionPercent}% < ${SKILL_POINTER_MIN_REDUCTION_PERCENT}%).`,
+							);
+						}
+
+						totalFiles += skillPointerResult.fileWrites;
+					} catch (error) {
+						const primaryError =
+							error instanceof Error ? error.message : String(error);
+
+						try {
+							skillPointerResult = await rebuildSkillPointerArtifacts({
+								activeSkillsDir: target.destination,
+								vaultDir: joinPath(globalConfigDir, "skill-vault"),
+							});
+
+							totalFiles += skillPointerResult.fileWrites;
+							skillPointerRecoveryNote = `SkillPointer recovered through rebuild after initial failure: ${primaryError}`;
+						} catch (recoveryError) {
+							totalFiles += await copyDir(src, target.destination);
+							skillPointerFallbackReason = `Initial failure: ${primaryError}; rebuild failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
+							mergedWorkspaceConfig.features = {
+								...(mergedWorkspaceConfig.features || {}),
+								skillPointer: false,
+							};
+							skillPointerResult = null;
+						}
+					}
+					continue;
+				}
+
+				totalFiles += await copyDir(src, target.destination);
+			}
+
+			// Write merged config
+			await writeJsonFile(globalConfigFile, mergedConfig);
+			await writeJsonFile(workspaceConfigFile, mergedWorkspaceConfig);
+			totalFiles += 2;
+
+			s.stop(`Installed ${totalFiles} files`);
+		}
 	} catch (error) {
-		s.stop("Installation failed");
+		s.stop(dryRun ? "Dry run failed" : "Installation failed");
 		throw error;
 	}
 
 	// Summary
 	const summaryLines: string[] = [];
-	
+	const installVerb = dryRun ? "would be installed" : "installed";
+	const configVerb = dryRun ? "would be configured" : "configured";
+
 	if (configBackupPath) {
-		summaryLines.push(`${pc.blue("↩")} Config backup: ${pc.dim(configBackupPath)}`);
+		summaryLines.push(
+			`${pc.blue("↩")} Config backup ${dryRun ? "would be" : ""} created: ${pc.dim(configBackupPath)}`.replace(
+				"  ",
+				" ",
+			),
+		);
+	}
+	if (workspaceConfigBackupPath) {
+		summaryLines.push(
+			`${pc.blue("↩")} Workspace config backup ${dryRun ? "would be" : ""} created: ${pc.dim(workspaceConfigBackupPath)}`.replace(
+				"  ",
+				" ",
+			),
+		);
 	}
 	if (options.agents) {
-		summaryLines.push(`${pc.green("✓")} Agents installed to ${pc.dim("~/.config/opencode/agents/")}`);
+		summaryLines.push(
+			`${pc.green("✓")} Agents ${installVerb} to ${pc.dim("~/.config/opencode/agents/")}`,
+		);
 	}
 	if (options.commands) {
-		summaryLines.push(`${pc.green("✓")} Commands installed to ${pc.dim("~/.config/opencode/commands/")}`);
+		summaryLines.push(
+			`${pc.green("✓")} Commands ${installVerb} to ${pc.dim("~/.config/opencode/commands/")}`,
+		);
 	}
 	if (options.skills) {
-		summaryLines.push(`${pc.green("✓")} Skills installed to ${pc.dim("~/.config/opencode/skills/")}`);
+		summaryLines.push(
+			`${pc.green("✓")} Skills ${installVerb} to ${pc.dim("~/.config/opencode/skills/")}`,
+		);
+
+		if (skillPointerResult) {
+			const tokenEstimate = skillPointerResult.index.startup_token_estimate;
+			const loadEstimate = skillPointerResult.index.startup_load_estimate_ms;
+			summaryLines.push(
+				`${pc.green("✓")} SkillPointer ${dryRun ? "would create" : "created"} ${pc.cyan(String(skillPointerResult.index.pointer_count))} pointers for ${pc.cyan(String(skillPointerResult.index.total_skills))} skills (vault: ${pc.dim("~/.config/opencode/skill-vault/")}) | startup-token estimate: ${pc.cyan(`${tokenEstimate.legacy} -> ${tokenEstimate.pointer}`)} (${pc.cyan(`${tokenEstimate.reduction_percent}%`)} reduction, gate ${SKILL_POINTER_MIN_REDUCTION_PERCENT}%) | startup-load estimate (ms): ${pc.cyan(`${loadEstimate.legacy} -> ${loadEstimate.pointer}`)} (${pc.cyan(`${loadEstimate.improvement_percent}%`)} improvement)`,
+			);
+
+			if (skillPointerRecoveryNote) {
+				summaryLines.push(`${pc.yellow("⚠")} ${skillPointerRecoveryNote}`);
+			}
+		}
+
+		if (skillPointerFallbackReason) {
+			summaryLines.push(
+				`${pc.yellow("⚠")} SkillPointer ${dryRun ? "preview failed" : "failed"}; falling back to legacy skills layout. Reason: ${skillPointerFallbackReason}`,
+			);
+		}
 	}
+	summaryLines.push(
+		`${pc.green("✓")} Themes ${installVerb} to ${pc.dim("~/.config/opencode/themes/")}`,
+	);
 	if (options.plugins) {
-		summaryLines.push(`${pc.green("✓")} Plugins configured in opencode.json`);
+		summaryLines.push(
+			`${pc.green("✓")} Plugins ${configVerb} in opencode.json`,
+		);
 	}
+	summaryLines.push(
+		`${pc.green("✓")} Workspace defaults ${configVerb} in ${pc.dim("~/.config/opencode/workspace.json")}`,
+	);
 	if (selectedMcps.length > 0) {
 		summaryLines.push(
-			`${pc.green("✓")} MCPs configured: ${selectedMcps.map((m) => pc.cyan(m.name)).join(", ")}`
+			`${pc.green("✓")} MCPs ${configVerb}: ${selectedMcps.map((m) => pc.cyan(m.name)).join(", ")}`,
+		);
+	}
+	if (dryRun) {
+		summaryLines.push(`${pc.yellow("⚑")} Dry run mode: no files were written`);
+	}
+
+	p.note(
+		summaryLines.join("\n"),
+		dryRun ? "Dry run complete" : "Installation complete",
+	);
+
+	if (dryRun && mergedConfig && mergedWorkspaceConfig) {
+		const pluginList = (mergedConfig.plugin || []).join(", ") || "(none)";
+		const mcpList = Object.keys(mergedConfig.mcp || {}).join(", ") || "(none)";
+		const workspaceFlags = Object.entries(mergedWorkspaceConfig.features || {})
+			.filter((entry) => entry[1] === true)
+			.map((entry) => entry[0])
+			.join(", ");
+		const configuredAgents =
+			Object.entries(agentModels)
+				.filter(([, model]) => Boolean(model))
+				.map(([agent]) => agent)
+				.join(", ") || "(none)";
+
+		p.note(
+			[
+				`Config target: ${pc.dim(globalConfigFile)}`,
+				`Workspace config target: ${pc.dim(workspaceConfigFile)}`,
+				`Plugins: ${pc.cyan(pluginList)}`,
+				`Workspace enabled flags: ${pc.cyan(workspaceFlags || "(none)")}`,
+				`MCP IDs: ${pc.cyan(mcpList)}`,
+				`Global model: ${pc.cyan(globalModelToSet || mergedConfig.model || "(none)")}`,
+				`Per-agent models: ${pc.cyan(configuredAgents)}`,
+			].join("\n"),
+			"Dry run config preview",
 		);
 	}
 
-	p.note(summaryLines.join("\n"), "Installation complete");
-
 	// Show any required env vars (based on selected MCPs)
-	const selectedCategoryIds = [...new Set(
-		selectedMcps.map((mcp) => 
-			MCP_CATEGORIES.find((c) => c.mcps.some((m) => m.id === mcp.id))?.id
-		).filter(Boolean)
-	)] as string[];
-	
-	const missingEnvVars = MCP_CATEGORIES
-		.filter((c) => selectedCategoryIds.includes(c.id) && c.requiresEnvVar)
-		.filter((c) => !process.env[c.requiresEnvVar!])
-		.map((c) => c.requiresEnvVar!);
+	const selectedCategoryIds = [
+		...new Set(
+			selectedMcps
+				.map(
+					(mcp) =>
+						MCP_CATEGORIES.find((c) => c.mcps.some((m) => m.id === mcp.id))?.id,
+				)
+				.filter(Boolean),
+		),
+	] as string[];
+
+	const requiredEnvVars = MCP_CATEGORIES.filter((category) =>
+		selectedCategoryIds.includes(category.id),
+	)
+		.map((category) => category.requiresEnvVar)
+		.filter(
+			(requiresEnvVar): requiresEnvVar is string =>
+				typeof requiresEnvVar === "string" && requiresEnvVar.length > 0,
+		);
+
+	const missingEnvVars = requiredEnvVars.filter(
+		(requiresEnvVar) => !Bun.env[requiresEnvVar],
+	);
 
 	if (missingEnvVars.length > 0) {
 		p.log.warn(
 			`\n${pc.yellow("⚠")} Set these environment variables for full functionality:\n` +
-			missingEnvVars.map((v) => `  ${pc.cyan(v)}`).join("\n")
+				missingEnvVars.map((v) => `  ${pc.cyan(v)}`).join("\n"),
 		);
 	}
 
-	p.outro(`Run ${pc.cyan("opencode")} to start coding with op1!`);
+	p.outro(
+		dryRun
+			? `Dry run finished. Re-run without ${pc.cyan("--dry-run")} to apply changes.`
+			: `Run ${pc.cyan("opencode")} to start coding with op1!`,
+	);
 }
 
-export { copyDir, fileExists, mergeConfig, MCP_CATEGORIES };
-export type { InstallOptions, PluginChoice, McpDefinition, McpCategory, OpenCodeConfig };
+export {
+	copyDir,
+	fileExists,
+	mergeConfig,
+	mergeWorkspaceConfig,
+	MCP_CATEGORIES,
+};
+export type {
+	InstallOptions,
+	PluginChoice,
+	McpDefinition,
+	McpCategory,
+	OpenCodeConfig,
+	WorkspacePluginConfig,
+};
