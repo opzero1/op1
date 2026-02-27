@@ -3,33 +3,30 @@
 	"version": "0.3.2",
 	"description": "Project-scoped plan management plugin for OpenCode - plans, notepads, verification hooks",
 	"type": "module",
-	"main": "dist/index.js",
+	"main": "dist/workspace.js",
 	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
+			"import": "./dist/workspace.js",
 			"types": "./dist/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/index.js --target bun --format esm --external zod --external drizzle-orm",
+		"build": "bun build src/index.ts --outfile dist/workspace.js --target bun --format esm --external zod --external node-notifier",
 		"typecheck": "tsc --noEmit",
-		"dev": "bun run build --watch",
-		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate"
+		"dev": "bun run build --watch"
 	},
 	"files": [
-		"dist",
-		"migration"
+		"dist"
 	],
 	"dependencies": {
 		"@opencode-ai/plugin": "^1.0.0",
-		"drizzle-orm": "^0.44.0",
+		"node-notifier": "^10.0.1",
 		"zod": "^4.0.0"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.1.0",
-		"drizzle-kit": "^0.31.0",
+		"@types/node-notifier": "^8.0.5",
 		"typescript": "^5.7.0"
 	},
 	"publishConfig": {

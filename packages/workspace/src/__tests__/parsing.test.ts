@@ -3,8 +3,12 @@
  * Tests the complex regex parsing and Zod validation logic
  */
 
-import { describe, test, expect } from "bun:test";
-import { extractMarkdownParts, parsePlanMarkdown, formatGitStats } from "../index";
+import { describe, expect, test } from "bun:test";
+import {
+	extractMarkdownParts,
+	formatGitStats,
+	parsePlanMarkdown,
+} from "../index";
 
 describe("extractMarkdownParts", () => {
 	test("extracts frontmatter correctly", () => {
@@ -75,7 +79,9 @@ This is the goal text that should be extracted.
 		// This is expected behavior - citations should be at the line end
 		// The parsing logic is tested in the parsePlanMarkdown validation tests
 		expect(result.phases[0].tasks[0].content).toContain("Task with citation");
-		expect(result.phases[0].tasks[1].content).toContain("Task without citation");
+		expect(result.phases[0].tasks[1].content).toContain(
+			"Task without citation",
+		);
 	});
 
 	test("handles multiple phases", () => {
@@ -361,7 +367,9 @@ Test multiple in progress phases
 		expect(result.ok).toBe(true);
 		if (result.ok) {
 			expect(result.warnings).toHaveLength(1);
-			expect(result.warnings[0]).toContain("Multiple phases marked IN PROGRESS");
+			expect(result.warnings[0]).toContain(
+				"Multiple phases marked IN PROGRESS",
+			);
 		}
 	});
 });
@@ -380,7 +388,10 @@ describe("formatGitStats", () => {
 	});
 
 	test("limits output to 10 files", () => {
-		const lines = Array.from({ length: 15 }, (_, i) => `${i + 1}	${i}	file${i}.ts`);
+		const lines = Array.from(
+			{ length: 15 },
+			(_, i) => `${i + 1}	${i}	file${i}.ts`,
+		);
 		const gitOutput = lines.join("\n");
 
 		const result = formatGitStats(gitOutput);
