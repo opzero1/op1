@@ -2,22 +2,26 @@
  * Task Reminder Babysitter Hook
  *
  * Tracks how many tool executions pass without the agent using any
- * plan/notepad tools. After a configurable threshold (default: 10),
+ * plan/notepad tools. After a configurable threshold (default: 20),
  * appends a reminder to record progress.
  *
  * Resets whenever the agent uses plan_save, plan_read, plan_list,
  * notepad_write, notepad_read, notepad_list, or todowrite.
  */
 
-const DEFAULT_THRESHOLD = 10;
+const DEFAULT_THRESHOLD = 20;
 
 /** Tools that reset the turn counter */
 const PLAN_TOOLS = new Set([
 	"plan_save",
 	"plan_read",
 	"plan_list",
+	"plan_set_active",
 	"plan_enter",
 	"plan_exit",
+	"plan_doc_link",
+	"plan_doc_list",
+	"plan_doc_load",
 	"notepad_read",
 	"notepad_write",
 	"notepad_list",
@@ -31,26 +35,14 @@ const sessionTurns = new Map<string, number>();
  * Build the reminder message.
  */
 function buildReminderMessage(turnCount: number): string {
-	return `\n<system-reminder>
-📋 PROGRESS CHECK (${turnCount} tool calls since last plan/notepad usage)
-
-You haven't updated the plan or recorded learnings in a while.
-Consider:
-  → notepad_write — record any learnings, issues, or decisions
-  → plan_save — update task completion status
-  → todowrite — track fine-grained progress
-
-This keeps your work persistent across sessions and helps subagents.
-</system-reminder>`;
+	return `\n<system-reminder>📋 Progress check: ${turnCount} tool calls since plan/notepad use. Run plan_save, notepad_write, or todowrite to persist progress.</system-reminder>`;
 }
 
 /**
  * Create the task reminder hook.
  * Attaches to `tool.execute.after`.
  */
-export function createTaskReminderHook(
-	threshold: number = DEFAULT_THRESHOLD,
-) {
+export function createTaskReminderHook(threshold: number = DEFAULT_THRESHOLD) {
 	return async (
 		input: { tool: string; sessionID: string },
 		output: { output?: string },

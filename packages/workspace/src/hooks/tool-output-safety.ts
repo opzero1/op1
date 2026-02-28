@@ -154,7 +154,14 @@ async function getContextWindowUsage(
 
 		let usedTokens = 0;
 		for (const entry of data) {
-			const info = (entry as { info?: { role?: string; tokens?: { input?: number; output?: number } } }).info;
+			const info = (
+				entry as {
+					info?: {
+						role?: string;
+						tokens?: { input?: number; output?: number };
+					};
+				}
+			).info;
 			if (info?.role === "assistant" && info.tokens) {
 				usedTokens += info.tokens.input ?? 0;
 				usedTokens += info.tokens.output ?? 0;
@@ -308,9 +315,7 @@ export function handleToolOutputSafety(
 
 	// 1. Tool Output Truncation (static)
 	if (
-		TRUNCATABLE_TOOLS.includes(
-			input.tool as (typeof TRUNCATABLE_TOOLS)[number],
-		)
+		TRUNCATABLE_TOOLS.includes(input.tool as (typeof TRUNCATABLE_TOOLS)[number])
 	) {
 		const { result, truncated } = truncateStatic(output.output);
 		if (truncated) {
@@ -353,9 +358,7 @@ export async function handleToolOutputSafetyDynamic(
 
 	// 1. Dynamic Tool Output Truncation
 	if (
-		TRUNCATABLE_TOOLS.includes(
-			input.tool as (typeof TRUNCATABLE_TOOLS)[number],
-		)
+		TRUNCATABLE_TOOLS.includes(input.tool as (typeof TRUNCATABLE_TOOLS)[number])
 	) {
 		const usage = await getContextWindowUsage(
 			client,

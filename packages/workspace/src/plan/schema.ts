@@ -2,10 +2,6 @@
  * Plan Schema & Validation
  *
  * Zod schemas for plan structure, markdown parsing, and validation logic.
- *
- * v1 scope contract (ADR-0001): schema behavior is project-scoped only.
- * Any scope broadening (for example, cross-project learning memory) must
- * ship behind a versioned v2 migration, not as an in-place v1 change.
  */
 
 import { z } from "zod";
@@ -14,7 +10,12 @@ import { z } from "zod";
 // ZOD SCHEMAS
 // ==========================================
 
-export const PhaseStatus = z.enum(["PENDING", "IN PROGRESS", "COMPLETE", "BLOCKED"]);
+export const PhaseStatus = z.enum([
+	"PENDING",
+	"IN PROGRESS",
+	"COMPLETE",
+	"BLOCKED",
+]);
 
 export const TaskSchema = z.object({
 	id: z

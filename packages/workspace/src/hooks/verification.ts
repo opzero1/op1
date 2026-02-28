@@ -12,6 +12,75 @@ import { getGitDiffStats } from "../utils.js";
  */
 const IMPLEMENTER_AGENTS = ["coder", "frontend", "build"] as const;
 
+const DEFAULT_AUTOPILOT_THROTTLE_MS = 45_000;
+const reminderState = new Map<
+	string,
+	{ lastReminderAt: number; lastCallID?: string }
+>();
+
+interface VerificationOptions {
+	enabled?: boolean;
+	throttleMs?: number;
+}
+
+function isAutopilotEnabled(options?: VerificationOptions): boolean {
+	if (typeof options?.enabled === "boolean") {
+		return options.enabled;
+	}
+
+	const raw = Bun.env.OP7_VERIFICATION_AUTOPILOT;
+	if (!raw) return true;
+
+	const normalized = raw.trim().toLowerCase();
+	return normalized !== "0" && normalized !== "false" && normalized !== "off";
+}
+
+function getAutopilotThrottleMs(options?: VerificationOptions): number {
+	if (typeof options?.throttleMs === "number") {
+		return Math.max(0, Math.floor(options.throttleMs));
+	}
+
+	const raw = Bun.env.OP7_VERIFICATION_AUTOPILOT_THROTTLE_MS;
+	if (!raw) return DEFAULT_AUTOPILOT_THROTTLE_MS;
+
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		return DEFAULT_AUTOPILOT_THROTTLE_MS;
+	}
+
+	return parsed;
+}
+
+function shouldInjectReminder(
+	sessionID: string | undefined,
+	callID: string | undefined,
+	now: number,
+	options?: VerificationOptions,
+): boolean {
+	if (!sessionID) return true;
+
+	const previous = reminderState.get(sessionID);
+	if (!previous) return true;
+
+	if (callID && previous.lastCallID === callID) {
+		return false;
+	}
+
+	return now - previous.lastReminderAt >= getAutopilotThrottleMs(options);
+}
+
+function markReminder(
+	sessionID: string | undefined,
+	callID: string | undefined,
+	now: number,
+): void {
+	if (!sessionID) return;
+	reminderState.set(sessionID, {
+		lastReminderAt: now,
+		lastCallID: callID,
+	});
+}
+
 /**
  * Build the verification reminder that gets injected after implementer tasks
  */
@@ -21,42 +90,27 @@ function buildVerificationReminder(
 ): string {
 	return `
 <system-reminder>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ MANDATORY VERIFICATION PROTOCOL
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${agentType} task completed. Verify before marking complete.
 
-The ${agentType} agent has completed. Subagents can make mistakes.
-You MUST verify before marking this task complete.
+**READ**
+- Run \`plan_read\` and \`notepad_read\`.
+- Review changed files:
 
-**DO NOT TRUST MEMORY. Read the plan file NOW:**
-→ Use \`plan_read\` to get the current state
-→ Use \`notepad_read\` to check accumulated wisdom
-
-**Files Changed:**
 ${fileChanges}
 
-**VERIFICATION STEPS (Do these NOW):**
+**AUTOMATED CHECKS**
+1. Run \`lsp_diagnostics\` on changed files.
+2. Run relevant tests.
+3. Run build and typecheck.
 
-1. **Type Safety:** Run \`lsp_diagnostics\` on changed files
-   → Must return clean (no errors)
+**MANUAL QA**
+- Confirm expected behavior and edge cases.
+- Check for regressions.
 
-2. **Tests:** Run project tests if they exist
-   → \`bash\` with test command (bun test, npm test, etc.)
-
-3. **Build:** Run build/typecheck if applicable
-   → Must complete without errors
-
-4. **Code Review:** \`Read\` the changed files
-   → Verify changes match requirements
-
-**IF VERIFICATION FAILS:**
-- Do NOT mark task complete
-- Either fix yourself or delegate again with specific fix instructions
-
-**IF VERIFICATION PASSES:**
-- Update the plan: mark task \`[x]\` via \`plan_save\`
-- Record learnings via \`notepad_write\`
-- Proceed to next task
+**GATE DECISION**
+- PASS: update plan with \`plan_save\`, write learnings, continue.
+- FAIL: do not mark complete; fix and rerun checks.
 </system-reminder>`;
 }
 
@@ -65,10 +119,12 @@ ${fileChanges}
  * Only applies to `task` tool outputs.
  */
 export async function handleVerification(
-	input: { tool: string; args?: unknown },
+	input: { tool: string; sessionID?: string; callID?: string; args?: unknown },
 	output: { output?: string },
 	directory: string,
+	options?: VerificationOptions,
 ): Promise<void> {
+	if (!isAutopilotEnabled(options)) return;
 	if (input.tool.toLowerCase() !== "task") return;
 	if (typeof output.output !== "string") return;
 
@@ -81,8 +137,14 @@ export async function handleVerification(
 			agentType as (typeof IMPLEMENTER_AGENTS)[number],
 		)
 	) {
+		const now = Date.now();
+		if (!shouldInjectReminder(input.sessionID, input.callID, now, options)) {
+			return;
+		}
+
 		const fileChanges = await getGitDiffStats(directory);
 		const reminder = buildVerificationReminder(agentType, fileChanges);
 		output.output = output.output + reminder;
+		markReminder(input.sessionID, input.callID, now);
 	}
 }
