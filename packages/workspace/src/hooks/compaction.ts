@@ -10,8 +10,12 @@
  * This prevents the agent from "forgetting" the plan during compaction.
  */
 
-import { join } from "path";
-import type { ActivePlanState, NotepadFile } from "../plan/state.js";
+import { basename } from "../bun-compat.js";
+import type {
+	ActivePlanState,
+	NotepadFile,
+	PlanDocLink,
+} from "../plan/state.js";
 
 // ==========================================
 // CONSTANTS
@@ -32,6 +36,12 @@ const COMPACTION_NOTEPAD_FILES: NotepadFile[] = [
  */
 const MAX_NOTEPAD_CHARS = 2000;
 
+/** Maximum chars to include from each linked doc preview */
+const MAX_DOC_PREVIEW_CHARS = 900;
+
+/** Maximum linked docs to include per compaction */
+const MAX_LINKED_DOCS = 3;
+
 /**
  * Regex to find the ← CURRENT marker in a plan
  */
@@ -49,6 +59,7 @@ export interface CompactionDeps {
 	readActivePlanState: () => Promise<ActivePlanState | null>;
 	getNotepadDir: () => Promise<string | null>;
 	readNotepadFile: (file: NotepadFile) => Promise<string | null>;
+	getPlanDocLinks: (planName: string) => Promise<PlanDocLink[]>;
 }
 
 // ==========================================
@@ -77,6 +88,29 @@ function getTail(content: string, maxChars: number): string {
 	return `...\n${truncated}`;
 }
 
+function getHead(content: string, maxChars: number): string {
+	if (content.length <= maxChars) return content;
+	return `${content.slice(0, maxChars)}\n...`;
+}
+
+function findCurrentTaskID(currentTask: string | null): string | null {
+	if (!currentTask) return null;
+	const match = currentTask.match(/(\d+\.\d+)/);
+	return match ? match[1] : null;
+}
+
+function findCurrentPhase(planContent: string): string | null {
+	const match = planContent.match(/^phase:\s*([^\n]+)/m);
+	return match ? match[1] : null;
+}
+
+function normalizePhase(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/^phase\s*/i, "");
+}
+
 /**
  * Build the compaction context string with plan and notepad data.
  */
@@ -97,6 +131,8 @@ async function buildCompactionContext(
 	}
 
 	const currentTask = findCurrentTask(planContent);
+	const currentTaskID = findCurrentTaskID(currentTask);
+	const currentPhase = findCurrentPhase(planContent);
 	const parts: string[] = [];
 
 	parts.push("<workspace-context>");
@@ -112,7 +148,9 @@ async function buildCompactionContext(
 	if (currentTask) {
 		parts.push(`Current task: ${currentTask}`);
 	} else {
-		parts.push("No task marked as ← CURRENT. Check the plan for next unchecked task.");
+		parts.push(
+			"No task marked as ← CURRENT. Check the plan for next unchecked task.",
+		);
 	}
 	parts.push("");
 
@@ -134,11 +172,65 @@ async function buildCompactionContext(
 		}
 	}
 
+	// Linked plan docs (progressive loading support)
+	const links = await deps.getPlanDocLinks(activePlan.plan_name);
+	if (links.length > 0) {
+		const normalizedCurrentPhase = currentPhase
+			? normalizePhase(currentPhase)
+			: null;
+
+		const phaseScoped = normalizedCurrentPhase
+			? links.filter(
+					(link) =>
+						!link.phase ||
+						normalizePhase(link.phase) === normalizedCurrentPhase,
+				)
+			: links;
+
+		const taskScoped = currentTaskID
+			? phaseScoped.filter((link) => !link.task || link.task === currentTaskID)
+			: phaseScoped;
+
+		const selected = (taskScoped.length > 0 ? taskScoped : phaseScoped).slice(
+			0,
+			MAX_LINKED_DOCS,
+		);
+
+		if (selected.length > 0) {
+			parts.push("## Linked Plan Docs (Progressive Context)");
+
+			for (const link of selected) {
+				const fileName = basename(link.path);
+				const title = link.title || fileName;
+				const scope: string[] = [];
+				if (link.phase) scope.push(`phase ${link.phase}`);
+				if (link.task) scope.push(`task ${link.task}`);
+
+				const scopeText = scope.length > 0 ? ` (${scope.join(", ")})` : "";
+				parts.push(`### [${link.type}] ${title}${scopeText}`);
+				parts.push(`Doc ID: ${link.id}`);
+
+				try {
+					const docFile = Bun.file(link.path);
+					const docContent = await docFile.text();
+					parts.push(getHead(docContent.trim(), MAX_DOC_PREVIEW_CHARS));
+				} catch {
+					parts.push("(Doc unavailable from stored path)");
+				}
+
+				parts.push("");
+			}
+		}
+	}
+
 	parts.push("## Instructions");
 	parts.push("- Read the plan above to understand current progress");
 	parts.push("- Continue from the Resume Point");
-	parts.push("- Use plan_read for the latest version (plan may have been updated)");
+	parts.push(
+		"- Use plan_read for the latest version (plan may have been updated)",
+	);
 	parts.push("- Use notepad_read for full accumulated wisdom");
+	parts.push("- Use plan_doc_load with Doc ID for deeper linked-doc details");
 	parts.push("</workspace-context>");
 
 	return parts.join("\n");

@@ -8,11 +8,13 @@
  * its boulder every day and doesn't stop until the plan is 100% complete.
  */
 
-import { join } from "path";
-
 export interface MomentumDeps {
 	readActivePlanState: () => Promise<{ active_plan: string } | null>;
+	shouldContinue?: (sessionID: string) => Promise<boolean>;
 }
+
+/** Tools that should trigger continuation checks */
+const CONTINUATION_TOOLS = new Set(["task"]);
 
 /**
  * Count completed and total tasks in plan content by looking at `- [x]` / `- [ ]` markers.
@@ -21,9 +23,8 @@ function countPlanTasks(content: string): { done: number; total: number } {
 	const taskPattern = /^[\t ]*- \[([ x])\]/gm;
 	let done = 0;
 	let total = 0;
-	let match: RegExpExecArray | null;
 
-	while ((match = taskPattern.exec(content)) !== null) {
+	for (const match of content.matchAll(taskPattern)) {
 		total++;
 		if (match[1] === "x") done++;
 	}
@@ -64,7 +65,8 @@ Remaining: ${remaining} task${remaining !== 1 ? "s" : ""}`;
 
 	prompt += `
 
-**Do NOT stop.** Read the plan (plan_read), then continue with the next task.
+**Do NOT stop.** Read the plan (plan_read), then continue with the next task now.
+Do not ask the user for permission to continue. Continue automatically.
 If you need to record progress, use notepad_write before continuing.
 </system-reminder>`;
 
@@ -77,11 +79,23 @@ If you need to record progress, use notepad_write before continuing.
  */
 export function createMomentumHook(deps: MomentumDeps) {
 	return async (
-		input: { tool: string; args?: unknown },
+		input: { tool: string; sessionID?: string; args?: unknown },
 		output: { output?: string },
 	): Promise<void> => {
-		// Only trigger after task (subagent) completions
-		if (input.tool.toLowerCase() !== "task") return;
+		const toolName = input.tool.toLowerCase();
+		if (!CONTINUATION_TOOLS.has(toolName)) return;
+
+		if (deps.shouldContinue && input.sessionID) {
+			const allowed = await deps.shouldContinue(input.sessionID);
+			if (!allowed) return;
+		}
+
+		if (
+			typeof output.output === "string" &&
+			output.output.includes("<done>COMPLETE</done>")
+		) {
+			return;
+		}
 
 		const state = await deps.readActivePlanState();
 		if (!state) return;

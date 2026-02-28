@@ -4,12 +4,15 @@
  * Checks token usage after every tool execution and triggers
  * session summarization at 78% to avoid hitting hard limits.
  *
- * Uses Set-based loop prevention:
+ * Uses in-memory guards:
  * - compactionInProgress: prevents concurrent compaction for same session
- * - compactedSessions: ensures compaction only triggers once per session
+ * - lastCompactionAt: cooldown window to avoid tight summarize loops
  */
 
+import { createLogger } from "../logging.js";
 import type { TokenAwareClient } from "./tool-output-safety.js";
+
+const logger = createLogger("workspace");
 
 // ==========================================
 // CONSTANTS
@@ -54,6 +57,11 @@ export interface CompactionClient extends TokenAwareClient {
 	};
 }
 
+interface PreemptiveCompactionOptions {
+	contextLimit?: number;
+	thresholdRatio?: number;
+}
+
 // ==========================================
 // STATE
 // ==========================================
@@ -61,8 +69,11 @@ export interface CompactionClient extends TokenAwareClient {
 /** Sessions currently being compacted (prevents concurrent triggers) */
 const compactionInProgress = new Set<string>();
 
-/** Sessions that have already been compacted (prevents re-trigger loops) */
-const compactedSessions = new Set<string>();
+/** Last successful compaction timestamp per session */
+const lastCompactionAt = new Map<string, number>();
+
+/** Cooldown between compactions for the same session */
+const COMPACTION_COOLDOWN_MS = 60_000;
 
 // ==========================================
 // IMPLEMENTATION
@@ -76,11 +87,22 @@ export async function checkPreemptiveCompaction(
 	client: CompactionClient,
 	sessionID: string,
 	directory: string,
-	contextLimit = DEFAULT_CONTEXT_LIMIT,
+	options?: PreemptiveCompactionOptions,
 ): Promise<boolean> {
-	// Skip if already compacted or in progress
-	if (compactedSessions.has(sessionID)) return false;
+	const contextLimit = options?.contextLimit ?? DEFAULT_CONTEXT_LIMIT;
+	const thresholdRatio =
+		typeof options?.thresholdRatio === "number"
+			? Math.min(0.98, Math.max(0.1, options.thresholdRatio))
+			: PREEMPTIVE_COMPACTION_THRESHOLD;
+
+	// Skip if compaction already running
 	if (compactionInProgress.has(sessionID)) return false;
+
+	// Skip if a recent compaction already happened
+	const last = lastCompactionAt.get(sessionID);
+	if (last && Date.now() - last < COMPACTION_COOLDOWN_MS) return false;
+
+	compactionInProgress.add(sessionID);
 
 	try {
 		const result = await client.session.messages({
@@ -91,45 +113,54 @@ export async function checkPreemptiveCompaction(
 		const data = result.data;
 		if (!data || !Array.isArray(data) || data.length === 0) return false;
 
-		// Calculate total token usage from assistant messages
-		let totalTokens = 0;
-		for (const entry of data) {
-			const info = (entry as { info?: { role?: string; tokens?: { input?: number; output?: number } } }).info;
-			if (info?.role === "assistant" && info.tokens) {
-				totalTokens += info.tokens.input ?? 0;
-				totalTokens += info.tokens.output ?? 0;
-			}
-		}
+		// Estimate current context occupancy from the latest assistant turn.
+		// input tokens are a close proxy for current context-window usage.
+		const assistantMessages = data.filter((entry) => {
+			const info = (entry as { info?: { role?: string } }).info;
+			return info?.role === "assistant";
+		});
+
+		if (assistantMessages.length === 0) return false;
+
+		const latestAssistant = assistantMessages[assistantMessages.length - 1] as {
+			info?: { tokens?: { input?: number; output?: number } };
+		};
+
+		const totalTokens =
+			(latestAssistant.info?.tokens?.input ?? 0) +
+			(latestAssistant.info?.tokens?.output ?? 0);
 
 		// Skip if too early in the session
 		if (totalTokens < MIN_TOKENS_TO_CHECK) return false;
 
 		const usageRatio = totalTokens / contextLimit;
-		if (usageRatio < PREEMPTIVE_COMPACTION_THRESHOLD) return false;
+		if (usageRatio < thresholdRatio) return false;
 
-		// Trigger compaction
-		compactionInProgress.add(sessionID);
+		await client.session.summarize({
+			path: { id: sessionID },
+			query: { directory },
+		});
 
-		try {
-			await client.session.summarize({
-				path: { id: sessionID },
-				query: { directory },
-			});
-
-			// Mark as compacted to prevent re-triggers
-			compactedSessions.add(sessionID);
-			return true;
-		} finally {
-			compactionInProgress.delete(sessionID);
-		}
+		lastCompactionAt.set(sessionID, Date.now());
+		return true;
 	} catch (error) {
 		// Compaction failure is non-fatal — session continues normally
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(
+		logger.error(
 			`[workspace] Preemptive compaction failed for session ${sessionID}: ${message}`,
 		);
 		return false;
+	} finally {
+		compactionInProgress.delete(sessionID);
 	}
+}
+
+/**
+ * Mark session context as changed (plan/todo/notepad updates).
+ * This clears cooldown so compaction can run again immediately if needed.
+ */
+export function markCompactionStateDirty(sessionID: string): void {
+	lastCompactionAt.delete(sessionID);
 }
 
 /**
@@ -137,8 +168,11 @@ export async function checkPreemptiveCompaction(
  */
 export function resetCompactionState(): void {
 	compactionInProgress.clear();
-	compactedSessions.clear();
+	lastCompactionAt.clear();
 }
 
 // Re-export for configuration
-export { PREEMPTIVE_COMPACTION_THRESHOLD, DEFAULT_CONTEXT_LIMIT as COMPACTION_CONTEXT_LIMIT };
+export {
+	PREEMPTIVE_COMPACTION_THRESHOLD,
+	DEFAULT_CONTEXT_LIMIT as COMPACTION_CONTEXT_LIMIT,
+};
