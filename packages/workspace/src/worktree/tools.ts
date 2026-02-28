@@ -5,14 +5,21 @@
  * Each session gets its own worktree for isolated development.
  */
 
-import { tool, type ToolDefinition } from "@opencode-ai/plugin";
-import { mkdir, readdir, copyFile, symlink, stat } from "fs/promises";
-import { join, relative, basename } from "path";
+import { type ToolDefinition, tool } from "@opencode-ai/plugin";
+import {
+	basename,
+	copyFile,
+	join,
+	mkdir,
+	relative,
+	stat,
+	symlink,
+} from "../bun-compat.js";
 
-import { runCommand, isSystemError } from "../utils.js";
+import { runCommand } from "../utils.js";
 import { sanitizeBranchName, withTimeout } from "./primitives.js";
 import { createWorktreeDB, type WorktreeDB } from "./state.js";
-import { spawnTerminal } from "./terminal.js";
+import { spawnTerminal, type TerminalKind } from "./terminal.js";
 
 // ──────────────────────────────────────────────
 // Config Defaults
@@ -25,6 +32,36 @@ interface WorktreeConfig {
 	symlinks: string[];
 	/** Base directory for worktrees (default: ../{project}-worktrees) */
 	baseDir?: string;
+}
+
+interface WorktreeToolContext {
+	sessionID?: string;
+	ask?: (input: {
+		permission: string;
+		patterns: string[];
+		always: string[];
+		metadata: Record<string, unknown>;
+	}) => Promise<void>;
+}
+
+export interface WorktreeApprovalInput {
+	toolName: string;
+	toolCtx?: WorktreeToolContext;
+	reason: string;
+	metadata?: Record<string, string | number | boolean>;
+}
+
+interface WorktreeToolOptions {
+	enforceApproval?: (input: WorktreeApprovalInput) => Promise<string | null>;
+	tmuxOrchestration?: boolean;
+	onTerminalSpawn?: (input: {
+		sessionID: string;
+		branch: string;
+		worktreePath: string;
+		terminal: TerminalKind;
+		tmuxSessionName?: string;
+		tmuxWindowName?: string;
+	}) => Promise<void>;
 }
 
 const DEFAULT_CONFIG: WorktreeConfig = {
@@ -80,6 +117,50 @@ async function createSymlinks(
 	return linked;
 }
 
+function parseWorktreeList(output: string): Array<{
+	path: string;
+	head: string;
+	branch: string;
+}> {
+	const worktrees: Array<{ path: string; head: string; branch: string }> = [];
+	let current: Partial<{ path: string; head: string; branch: string }> = {};
+
+	for (const line of output.split("\n")) {
+		if (line.startsWith("worktree ")) {
+			if (current.path) {
+				worktrees.push(
+					current as { path: string; head: string; branch: string },
+				);
+			}
+			current = { path: line.slice(9) };
+			continue;
+		}
+
+		if (line.startsWith("HEAD ")) {
+			current.head = line.slice(5, 12);
+			continue;
+		}
+
+		if (line.startsWith("branch ")) {
+			current.branch = line.slice(7).replace("refs/heads/", "");
+		}
+	}
+
+	if (current.path) {
+		worktrees.push(current as { path: string; head: string; branch: string });
+	}
+
+	return worktrees;
+}
+
+async function isDirtyWorktree(worktreePath: string): Promise<boolean> {
+	const status = await runCommand(
+		["git", "status", "--porcelain"],
+		worktreePath,
+	);
+	return status.trim().length > 0;
+}
+
 // ──────────────────────────────────────────────
 // Tool Definitions
 // ──────────────────────────────────────────────
@@ -87,11 +168,8 @@ async function createSymlinks(
 export function createWorktreeTools(
 	directory: string,
 	projectId: string,
-): {
-	worktree_create: ToolDefinition;
-	worktree_list: ToolDefinition;
-	worktree_delete: ToolDefinition;
-} {
+	options: WorktreeToolOptions = {},
+): Record<string, ToolDefinition> {
 	let db: WorktreeDB | null = null;
 
 	async function getDB(): Promise<WorktreeDB> {
@@ -113,7 +191,9 @@ export function createWorktreeTools(
 			args: {
 				branch: tool.schema
 					.string()
-					.describe("Branch name for the worktree (will be created if it doesn't exist)"),
+					.describe(
+						"Branch name for the worktree (will be created if it doesn't exist)",
+					),
 				base: tool.schema
 					.string()
 					.optional()
@@ -121,11 +201,27 @@ export function createWorktreeTools(
 				open_terminal: tool.schema
 					.boolean()
 					.optional()
-					.describe("Whether to open a terminal in the worktree (default: true)"),
+					.describe(
+						"Whether to open a terminal in the worktree (default: true)",
+					),
 			},
 			async execute(args, toolCtx) {
 				if (!toolCtx?.sessionID) {
 					return "❌ worktree_create requires sessionID.";
+				}
+
+				const approvalBlocked = await options.enforceApproval?.({
+					toolName: "worktree_create",
+					toolCtx,
+					reason: `Create worktree for branch '${args.branch}'.`,
+					metadata: {
+						branch: args.branch,
+						base: args.base ?? "",
+						open_terminal: args.open_terminal !== false,
+					},
+				});
+				if (approvalBlocked) {
+					return approvalBlocked;
 				}
 
 				const sanitized = sanitizeBranchName(args.branch);
@@ -164,8 +260,16 @@ export function createWorktreeTools(
 					);
 
 					// Copy env files and symlink node_modules
-					const copied = await copyFiles(directory, worktreePath, DEFAULT_CONFIG.copy);
-					const linked = await createSymlinks(directory, worktreePath, DEFAULT_CONFIG.symlinks);
+					const copied = await copyFiles(
+						directory,
+						worktreePath,
+						DEFAULT_CONFIG.copy,
+					);
+					const linked = await createSymlinks(
+						directory,
+						worktreePath,
+						DEFAULT_CONFIG.symlinks,
+					);
 
 					// Track in database
 					const stateDB = await getDB();
@@ -176,7 +280,24 @@ export function createWorktreeTools(
 					let terminalInfo = "";
 					if (openTerminal) {
 						try {
-							const result = await spawnTerminal(worktreePath, sanitized, projectId);
+							const result = await spawnTerminal(
+								worktreePath,
+								sanitized,
+								projectId,
+								{ allowTmux: options.tmuxOrchestration ?? true },
+							);
+
+							if (toolCtx?.sessionID && options.onTerminalSpawn) {
+								await options.onTerminalSpawn({
+									sessionID: toolCtx.sessionID,
+									branch: sanitized,
+									worktreePath,
+									terminal: result.terminal,
+									tmuxSessionName: result.tmux_session_name,
+									tmuxWindowName: result.tmux_window_name,
+								});
+							}
+
 							terminalInfo = `\n🖥️ Opened ${result.terminal} terminal in worktree.`;
 						} catch {
 							terminalInfo = "\n⚠️ Could not open terminal automatically.";
@@ -188,8 +309,10 @@ export function createWorktreeTools(
 						`✅ Worktree created at ${relPath}`,
 						`📌 Branch: ${sanitized}`,
 					];
-					if (copied.length > 0) details.push(`📋 Copied: ${copied.join(", ")}`);
-					if (linked.length > 0) details.push(`🔗 Symlinked: ${linked.join(", ")}`);
+					if (copied.length > 0)
+						details.push(`📋 Copied: ${copied.join(", ")}`);
+					if (linked.length > 0)
+						details.push(`🔗 Symlinked: ${linked.join(", ")}`);
 					if (terminalInfo) details.push(terminalInfo);
 
 					return details.join("\n");
@@ -215,21 +338,7 @@ export function createWorktreeTools(
 						return "No worktrees found.";
 					}
 
-					// Parse porcelain output
-					const worktrees: Array<{ path: string; head: string; branch: string }> = [];
-					let current: Partial<{ path: string; head: string; branch: string }> = {};
-
-					for (const line of output.split("\n")) {
-						if (line.startsWith("worktree ")) {
-							if (current.path) worktrees.push(current as { path: string; head: string; branch: string });
-							current = { path: line.slice(9) };
-						} else if (line.startsWith("HEAD ")) {
-							current.head = line.slice(5, 12); // Short SHA
-						} else if (line.startsWith("branch ")) {
-							current.branch = line.slice(7).replace("refs/heads/", "");
-						}
-					}
-					if (current.path) worktrees.push(current as { path: string; head: string; branch: string });
+					const worktrees = parseWorktreeList(output);
 
 					if (worktrees.length === 0) {
 						return "No worktrees found.";
@@ -254,6 +363,107 @@ export function createWorktreeTools(
 			},
 		}),
 
+		worktree_enter: tool({
+			description:
+				"Mark this session as the currently entered worktree context.",
+			args: {},
+			async execute(_args, toolCtx) {
+				if (!toolCtx?.sessionID) {
+					return "❌ worktree_enter requires sessionID.";
+				}
+
+				const approvalBlocked = await options.enforceApproval?.({
+					toolName: "worktree_enter",
+					toolCtx,
+					reason: "Enter active worktree context.",
+				});
+				if (approvalBlocked) {
+					return approvalBlocked;
+				}
+
+				try {
+					const stateDB = await getDB();
+					const session = stateDB.getSession(toolCtx.sessionID);
+					if (!session) {
+						return "❌ No tracked worktree session found for this session. Create one with worktree_create first.";
+					}
+
+					stateDB.enterSession(toolCtx.sessionID);
+					const relPath = relative(directory, session.worktree_path);
+					return `✅ Entered worktree context: ${relPath}\n📌 Branch: ${session.branch}`;
+				} catch (error) {
+					const msg = error instanceof Error ? error.message : String(error);
+					return `❌ Failed to enter worktree context: ${msg}`;
+				}
+			},
+		}),
+
+		worktree_leave: tool({
+			description:
+				"Leave the currently entered worktree context. Blocks on dirty worktree unless force=true.",
+			args: {
+				force: tool.schema
+					.boolean()
+					.optional()
+					.describe("Force leave even when there are uncommitted changes."),
+			},
+			async execute(args, toolCtx) {
+				if (!toolCtx?.sessionID) {
+					return "❌ worktree_leave requires sessionID.";
+				}
+
+				const approvalBlocked = await options.enforceApproval?.({
+					toolName: "worktree_leave",
+					toolCtx,
+					reason: "Leave active worktree context.",
+					metadata: {
+						force: args.force === true,
+					},
+				});
+				if (approvalBlocked) {
+					return approvalBlocked;
+				}
+
+				const force = args.force === true;
+
+				try {
+					const stateDB = await getDB();
+					const lifecycle = stateDB.getLifecycleState();
+
+					if (
+						!lifecycle?.current_session_id ||
+						!lifecycle.current_worktree_path
+					) {
+						return "⚠️ No active worktree context to leave.";
+					}
+
+					if (lifecycle.current_session_id !== toolCtx.sessionID && !force) {
+						return "❌ This session is not the active entered worktree context. Use force=true to clear it.";
+					}
+
+					if (!force) {
+						const isDirty = await isDirtyWorktree(
+							lifecycle.current_worktree_path,
+						);
+						if (isDirty) {
+							return "❌ Cannot leave worktree: uncommitted changes detected. Commit/stash first or use force=true.";
+						}
+					}
+
+					const left = stateDB.leaveSession(toolCtx.sessionID, force);
+					if (!left) {
+						return "⚠️ No active worktree context to leave.";
+					}
+
+					const relPath = relative(directory, lifecycle.current_worktree_path);
+					return `✅ Left worktree context: ${relPath}`;
+				} catch (error) {
+					const msg = error instanceof Error ? error.message : String(error);
+					return `❌ Failed to leave worktree context: ${msg}`;
+				}
+			},
+		}),
+
 		worktree_delete: tool({
 			description:
 				"Delete a git worktree. Optionally creates a snapshot commit before deletion.",
@@ -265,10 +475,33 @@ export function createWorktreeTools(
 					.boolean()
 					.optional()
 					.describe("Create a snapshot commit before deleting (default: true)"),
+				force: tool.schema
+					.boolean()
+					.optional()
+					.describe(
+						"Force deletion if this is the currently entered worktree context.",
+					),
 			},
-			async execute(args) {
+			async execute(args, toolCtx) {
 				const branch = args.branch.trim();
 				const shouldSnapshot = args.snapshot !== false;
+				const force = args.force === true;
+				let snapshotCommitted = false;
+				let hadDirtyChanges = false;
+
+				const approvalBlocked = await options.enforceApproval?.({
+					toolName: "worktree_delete",
+					toolCtx,
+					reason: `Delete worktree for branch '${branch}'.`,
+					metadata: {
+						branch,
+						snapshot: shouldSnapshot,
+						force,
+					},
+				});
+				if (approvalBlocked) {
+					return approvalBlocked;
+				}
 
 				try {
 					// Find the worktree path
@@ -277,19 +510,9 @@ export function createWorktreeTools(
 						directory,
 					);
 
-					let worktreePath: string | null = null;
-					let currentPath: string | null = null;
-
-					for (const line of output.split("\n")) {
-						if (line.startsWith("worktree ")) {
-							currentPath = line.slice(9);
-						} else if (line.startsWith("branch ")) {
-							const branchName = line.slice(7).replace("refs/heads/", "");
-							if (branchName === branch) {
-								worktreePath = currentPath;
-							}
-						}
-					}
+					const worktrees = parseWorktreeList(output);
+					const matched = worktrees.find((item) => item.branch === branch);
+					const worktreePath = matched?.path ?? null;
 
 					if (!worktreePath) {
 						return `❌ No worktree found for branch "${branch}".`;
@@ -301,34 +524,78 @@ export function createWorktreeTools(
 						return "❌ Cannot delete the main worktree.";
 					}
 
-					// Snapshot uncommitted changes before deletion
+					const stateDB = await getDB();
+					const lifecycle = stateDB.getLifecycleState();
+					if (lifecycle?.current_worktree_path === worktreePath && !force) {
+						return "❌ Cannot delete currently entered worktree context. Leave it first or use force=true.";
+					}
+
+					// Snapshot uncommitted changes before deletion.
 					if (shouldSnapshot) {
-						try {
-							const status = await runCommand(
+						const statusWithIgnored = await runCommand(
+							["git", "status", "--porcelain", "--ignored"],
+							worktreePath,
+						);
+						const statusLines = statusWithIgnored
+							.split("\n")
+							.map((line) => line.trim())
+							.filter((line) => line.length > 0);
+						const ignoredEntries = statusLines.filter((line) =>
+							line.startsWith("!! "),
+						);
+						const snapshotCandidates = statusLines.filter(
+							(line) => !line.startsWith("!! "),
+						);
+						hadDirtyChanges = snapshotCandidates.length > 0;
+
+						if (ignoredEntries.length > 0 && !force) {
+							return "❌ Worktree has ignored files that cannot be snapshotted. Deletion aborted. Use force=true to delete anyway.";
+						}
+
+						if (hadDirtyChanges) {
+							try {
+								await runCommand(["git", "add", "-A"], worktreePath);
+								await runCommand(
+									[
+										"git",
+										"commit",
+										"-m",
+										`snapshot: auto-save before worktree deletion [${branch}]`,
+									],
+									worktreePath,
+								);
+
+								snapshotCommitted = true;
+							} catch (error) {
+								const message =
+									error instanceof Error ? error.message : String(error);
+								return `❌ Failed to snapshot changes before deletion: ${message}`;
+							}
+
+							const postCommitStatus = await runCommand(
 								["git", "status", "--porcelain"],
 								worktreePath,
 							);
-							if (status.trim()) {
-								await runCommand(["git", "add", "-A"], worktreePath);
-								await runCommand(
-									["git", "commit", "-m", `snapshot: auto-save before worktree deletion [${branch}]`],
-									worktreePath,
-								);
+							if (postCommitStatus.trim().length > 0) {
+								return "❌ Snapshot verification failed: worktree still has pending changes. Deletion aborted.";
 							}
-						} catch {
-							// Snapshot is best-effort
 						}
 					}
 
 					// Remove worktree
+					const removeArgs = ["git", "worktree", "remove"];
+					if (force) {
+						removeArgs.push("--force");
+					}
+					removeArgs.push(worktreePath);
+
 					await withTimeout(
-						runCommand(["git", "worktree", "remove", "--force", worktreePath], directory),
+						runCommand(removeArgs, directory),
 						15_000,
 						"git worktree remove",
 					);
 
 					// Clean up DB
-					const stateDB = await getDB();
 					const sessions = stateDB.listActive();
 					for (const session of sessions) {
 						if (session.branch === branch) {
@@ -336,7 +603,15 @@ export function createWorktreeTools(
 						}
 					}
 
-					const snapshotNote = shouldSnapshot ? " (changes snapshot-committed)" : "";
+					if (lifecycle?.current_worktree_path === worktreePath) {
+						stateDB.leaveSession(lifecycle.current_session_id || "", true);
+					}
+
+					const snapshotNote = snapshotCommitted
+						? " (changes snapshot-committed)"
+						: shouldSnapshot && !hadDirtyChanges
+							? " (no changes to snapshot)"
+							: "";
 					return `✅ Worktree deleted: ${relPath}${snapshotNote}\n📌 Branch "${branch}" still exists. Delete it with \`git branch -D ${branch}\` if no longer needed.`;
 				} catch (error) {
 					const msg = error instanceof Error ? error.message : String(error);

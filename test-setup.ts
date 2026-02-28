@@ -5,6 +5,9 @@
 
 // Set test environment variables
 process.env.NODE_ENV = "test";
+if (!process.env.OP7_WORKSPACE_LOG_LEVEL) {
+	process.env.OP7_WORKSPACE_LOG_LEVEL = "SILENT";
+}
 
 /**
  * Bun-native helper for creating temporary test directories
@@ -14,9 +17,9 @@ export async function createTempDir(prefix = "op1-test-"): Promise<{
 	path: string;
 	cleanup: () => Promise<void>;
 }> {
-	const { mkdtemp, rm } = await import("fs/promises");
-	const { tmpdir } = await import("os");
-	const { join } = await import("path");
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
 
 	const tempPath = await mkdtemp(join(tmpdir(), prefix));
 

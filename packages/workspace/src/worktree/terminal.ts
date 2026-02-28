@@ -2,41 +2,171 @@
  * Terminal Spawning (macOS + tmux)
  *
  * Opens a new terminal session in the specified worktree directory.
- * Fallback chain: tmux → iTerm → Ghostty → Terminal.app
+ * Fallback chain: tmux (when allowed) → iTerm → Ghostty → Terminal.app
  */
 
 import { runCommand } from "../utils.js";
-import { escapeShell, escapeAppleScript, FileMutex, withTimeout } from "./primitives.js";
+import { escapeAppleScript, FileMutex, withTimeout } from "./primitives.js";
 
 // ──────────────────────────────────────────────
 // Terminal Detection
 // ──────────────────────────────────────────────
 
-type TerminalKind = "tmux" | "iterm" | "ghostty" | "warp" | "terminal";
+export type TerminalKind = "tmux" | "iterm" | "ghostty" | "warp" | "terminal";
+
+export interface TerminalSelectionInput {
+	allowTmux: boolean;
+	inTmuxSession: boolean;
+	processList: string;
+}
+
+export interface TmuxWindowRecord {
+	id: string;
+	name: string;
+	active: boolean;
+}
+
+interface TmuxSpawnMetadata {
+	tmux_session_name?: string;
+	tmux_window_name?: string;
+}
+
+export function selectTerminalKind(
+	input: TerminalSelectionInput,
+): TerminalKind {
+	if (input.allowTmux && input.inTmuxSession) return "tmux";
+
+	const processes = input.processList.toLowerCase();
+	if (processes.includes("iterm")) return "iterm";
+	if (processes.includes("ghostty")) return "ghostty";
+	if (processes.includes("warp")) return "warp";
+
+	return "terminal";
+}
 
 /**
  * Detect available terminal, preferring tmux if in a tmux session.
  */
-async function detectTerminal(): Promise<TerminalKind> {
-	// Check if we're in a tmux session
-	if (process.env.TMUX) return "tmux";
+async function detectTerminal(allowTmux: boolean): Promise<TerminalKind> {
+	let processList = "";
 
-	// Check which terminals are installed
 	try {
 		const result = await runCommand(
-			["osascript", "-e", 'tell application "System Events" to get name of every process'],
+			[
+				"osascript",
+				"-e",
+				'tell application "System Events" to get name of every process',
+			],
 			"/",
 		);
-		const processes = result.toLowerCase();
-
-		if (processes.includes("iterm")) return "iterm";
-		if (processes.includes("ghostty")) return "ghostty";
-		if (processes.includes("warp")) return "warp";
+		processList = result;
 	} catch {
-		// Fall through to default
+		processList = "";
 	}
 
-	return "terminal";
+	return selectTerminalKind({
+		allowTmux,
+		inTmuxSession: Boolean(Bun.env.TMUX),
+		processList,
+	});
+}
+
+function sanitizeTmuxName(input: string, maxLength: number): string {
+	const sanitized = input
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-+|-+$/g, "");
+
+	const fallback = sanitized.length > 0 ? sanitized : "work";
+	return fallback.slice(0, maxLength);
+}
+
+export function formatProjectTmuxWindowName(
+	projectId: string,
+	windowName: string,
+): string {
+	const projectToken = sanitizeTmuxName(projectId, 20);
+	const windowToken = sanitizeTmuxName(windowName, 40);
+	const scoped = `op1-${projectToken}-${windowToken}`;
+	return scoped.slice(0, 60);
+}
+
+export async function getCurrentTmuxSessionName(): Promise<string | null> {
+	try {
+		const output = await runCommand(
+			["tmux", "display-message", "-p", "#S"],
+			"/",
+		);
+		const sessionName = output.trim();
+		if (!sessionName) return null;
+		return sessionName;
+	} catch {
+		return null;
+	}
+}
+
+function parseTmuxWindowList(output: string): TmuxWindowRecord[] {
+	return output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.map((line) => {
+			const [id, name, active] = line.split("\t");
+			return {
+				id: id?.trim() ?? "",
+				name: name?.trim() ?? "",
+				active: active?.trim() === "1",
+			};
+		})
+		.filter((record) => record.id.length > 0 && record.name.length > 0);
+}
+
+export async function listTmuxWindows(
+	sessionName: string,
+): Promise<TmuxWindowRecord[]> {
+	try {
+		const output = await runCommand(
+			[
+				"tmux",
+				"list-windows",
+				"-t",
+				sessionName,
+				"-F",
+				"#{window_id}\t#{window_name}\t#{window_active}",
+			],
+			"/",
+		);
+		return parseTmuxWindowList(output);
+	} catch {
+		return [];
+	}
+}
+
+export async function cleanupTmuxDuplicateWindows(input: {
+	sessionName: string;
+	targetWindowName: string;
+	keepWindowId?: string;
+}): Promise<void> {
+	const windows = await listTmuxWindows(input.sessionName);
+	const matching = windows.filter(
+		(window) => window.name === input.targetWindowName,
+	);
+	if (matching.length <= 1) return;
+
+	const survivorId =
+		input.keepWindowId ??
+		matching.find((window) => window.active)?.id ??
+		matching[0]?.id;
+	const duplicates = matching.filter((window) => window.id !== survivorId);
+
+	for (const duplicate of duplicates) {
+		try {
+			await runCommand(["tmux", "kill-window", "-t", duplicate.id], "/");
+		} catch {
+			// Best-effort cleanup only.
+		}
+	}
 }
 
 // ──────────────────────────────────────────────
@@ -47,28 +177,77 @@ async function spawnTmux(
 	directory: string,
 	windowName: string,
 	projectId: string,
-): Promise<void> {
+): Promise<TmuxSpawnMetadata> {
 	const mutex = new FileMutex("tmux", projectId);
 	const release = await mutex.acquire();
+	const scopedWindowName = formatProjectTmuxWindowName(projectId, windowName);
 
 	try {
 		await withTimeout(
 			(async () => {
+				const sessionName = await getCurrentTmuxSessionName();
+				if (sessionName) {
+					const existingWindows = await listTmuxWindows(sessionName);
+					const matchingScopedWindows = existingWindows.filter(
+						(window) => window.name === scopedWindowName,
+					);
+
+					if (matchingScopedWindows.length > 0) {
+						const windowToReuse =
+							matchingScopedWindows.find((window) => window.active) ??
+							matchingScopedWindows[0];
+
+						await runCommand(
+							["tmux", "select-window", "-t", windowToReuse.id],
+							directory,
+						);
+						await cleanupTmuxDuplicateWindows({
+							sessionName,
+							targetWindowName: scopedWindowName,
+							keepWindowId: windowToReuse.id,
+						});
+						return;
+					}
+
+					await cleanupTmuxDuplicateWindows({
+						sessionName,
+						targetWindowName: scopedWindowName,
+					});
+				}
+
 				// Create new tmux window in the current session
 				await runCommand(
-					["tmux", "new-window", "-n", windowName, "-c", directory],
+					["tmux", "new-window", "-n", scopedWindowName, "-c", directory],
 					directory,
 				);
+
+				const postSpawnSessionName =
+					sessionName ?? (await getCurrentTmuxSessionName());
+				if (postSpawnSessionName) {
+					await cleanupTmuxDuplicateWindows({
+						sessionName: postSpawnSessionName,
+						targetWindowName: scopedWindowName,
+					});
+				}
 			})(),
 			10_000,
 			"tmux spawn",
 		);
+
+		const sessionName = await getCurrentTmuxSessionName();
+		return {
+			tmux_session_name: sessionName ?? undefined,
+			tmux_window_name: scopedWindowName,
+		};
 	} finally {
 		await release();
 	}
 }
 
-async function spawnITerm(directory: string, windowName: string): Promise<void> {
+async function spawnITerm(
+	directory: string,
+	windowName: string,
+): Promise<void> {
 	const escapedDir = escapeAppleScript(directory);
 	const escapedName = escapeAppleScript(windowName);
 
@@ -118,12 +297,18 @@ export async function spawnTerminal(
 	directory: string,
 	windowName: string,
 	projectId: string,
-): Promise<{ terminal: TerminalKind }> {
-	const terminal = await detectTerminal();
+	options?: { allowTmux?: boolean },
+): Promise<{
+	terminal: TerminalKind;
+	tmux_session_name?: string;
+	tmux_window_name?: string;
+}> {
+	const terminal = await detectTerminal(options?.allowTmux ?? true);
+	let tmuxMetadata: TmuxSpawnMetadata | undefined;
 
 	switch (terminal) {
 		case "tmux":
-			await spawnTmux(directory, windowName, projectId);
+			tmuxMetadata = await spawnTmux(directory, windowName, projectId);
 			break;
 		case "iterm":
 			await spawnITerm(directory, windowName);
@@ -140,5 +325,9 @@ export async function spawnTerminal(
 			break;
 	}
 
-	return { terminal };
+	return {
+		terminal,
+		tmux_session_name: tmuxMetadata?.tmux_session_name,
+		tmux_window_name: tmuxMetadata?.tmux_window_name,
+	};
 }

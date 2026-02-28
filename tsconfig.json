@@ -16,18 +16,14 @@
 		"sourceMap": true,
 		"baseUrl": ".",
 		"paths": {
-			"@op1/notify": ["packages/notify/src/index.ts"],
-			"@op1/notify/*": ["packages/notify/src/*"],
 			"@op1/workspace": ["packages/workspace/src/index.ts"],
 			"@op1/workspace/*": ["packages/workspace/src/*"],
 			"@op1/install": ["packages/install/src/index.ts"],
 			"@op1/install/*": ["packages/install/src/*"],
+			"@op1/ast-grep": ["packages/ast-grep/src/index.ts"],
+			"@op1/ast-grep/*": ["packages/ast-grep/src/*"],
 			"@op1/lsp": ["packages/lsp/src/index.ts"],
-			"@op1/lsp/*": ["packages/lsp/src/*"],
-			"@op1/semantic-search": ["packages/semantic-search/src/index.ts"],
-			"@op1/semantic-search/*": ["packages/semantic-search/src/*"],
-			"@op1/code-graph": ["packages/code-graph/src/index.ts"],
-			"@op1/code-graph/*": ["packages/code-graph/src/*"]
+			"@op1/lsp/*": ["packages/lsp/src/*"]
 		}
 	},
 	"exclude": ["node_modules", "dist", "**/dist"]
