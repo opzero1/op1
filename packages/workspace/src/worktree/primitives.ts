@@ -5,9 +5,15 @@
  * low-level utilities for worktree management.
  */
 
-import { mkdir, writeFile, unlink, stat } from "fs/promises";
-import { join, dirname } from "path";
-import { homedir } from "os";
+import {
+	dirname,
+	homedir,
+	join,
+	mkdir,
+	stat,
+	unlink,
+	writeFile,
+} from "../bun-compat.js";
 import { isSystemError } from "../utils.js";
 
 // ──────────────────────────────────────────────
@@ -45,7 +51,7 @@ export class FileMutex {
 
 				// Attempt atomic creation (fails if exists)
 				await mkdir(dirname(this.lockPath), { recursive: true });
-				await writeFile(this.lockPath, `${process.pid}`, { flag: "wx" });
+				await writeFile(this.lockPath, Bun.randomUUIDv7(), { flag: "wx" });
 
 				// Lock acquired — return release function
 				return async () => {
@@ -61,7 +67,9 @@ export class FileMutex {
 			}
 		}
 
-		throw new Error(`Mutex timeout: could not acquire lock within ${timeoutMs}ms`);
+		throw new Error(
+			`Mutex timeout: could not acquire lock within ${timeoutMs}ms`,
+		);
 	}
 }
 
@@ -99,7 +107,10 @@ export function withTimeout<T>(
 	return Promise.race([
 		promise,
 		new Promise<never>((_resolve, reject) =>
-			setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+			setTimeout(
+				() => reject(new Error(`${label} timed out after ${ms}ms`)),
+				ms,
+			),
 		),
 	]);
 }

@@ -4,7 +4,18 @@
  * Re-exports the worktree tool factories for use by the workspace plugin.
  */
 
-export { createWorktreeTools } from "./tools.js";
-export { createWorktreeDB, type WorktreeDB, type WorktreeSession } from "./state.js";
-export { FileMutex, escapeShell, escapeAppleScript, sanitizeBranchName, withTimeout } from "./primitives.js";
+export {
+	escapeAppleScript,
+	escapeShell,
+	FileMutex,
+	sanitizeBranchName,
+	withTimeout,
+} from "./primitives.js";
+export {
+	createWorktreeDB,
+	type WorktreeDB,
+	type WorktreeLifecycleState,
+	type WorktreeSession,
+} from "./state.js";
 export { spawnTerminal } from "./terminal.js";
+export { createWorktreeTools } from "./tools.js";

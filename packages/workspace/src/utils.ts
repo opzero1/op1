@@ -12,8 +12,18 @@ export async function runCommand(cmd: string[], cwd: string): Promise<string> {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-	const output = await new Response(proc.stdout).text();
-	await proc.exited;
+	const [output, stderr, exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+
+	if (exitCode !== 0) {
+		const command = cmd.join(" ");
+		const detail = stderr.trim() || output.trim() || `exit code ${exitCode}`;
+		throw new Error(`Command failed (${command}): ${detail}`);
+	}
+
 	return output;
 }
 
@@ -93,7 +103,9 @@ export async function getGitDiffStats(directory: string): Promise<string> {
 /**
  * Bun-compatible error type guard for filesystem errors
  */
-export function isSystemError(error: unknown): error is Error & { code: string } {
+export function isSystemError(
+	error: unknown,
+): error is Error & { code: string } {
 	return error instanceof Error && "code" in error;
 }
 
