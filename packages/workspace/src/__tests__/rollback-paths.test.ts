@@ -5,13 +5,6 @@ import { WorkspacePlugin } from "../index";
 
 const tempRoots: string[] = [];
 
-type TaskGraphStatusTool = {
-	execute: (
-		args: { root_session_id?: string },
-		toolCtx: { sessionID?: string },
-	) => Promise<string>;
-};
-
 type ContinuationContinueTool = {
 	execute: (
 		args: { session_id?: string; idempotency_key?: string },
@@ -44,7 +37,7 @@ function createMockClient() {
 }
 
 describe("P1 rollback paths", () => {
-	test("disables taskGraph and continuation commands when feature flags are off", async () => {
+	test("disables continuation commands when feature flags are off", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-rollback-paths-test-"));
 		tempRoots.push(root);
 
@@ -80,16 +73,8 @@ describe("P1 rollback paths", () => {
 			client: createMockClient(),
 		} as never);
 
-		const taskGraphStatus = plugin.tool
-			?.task_graph_status as unknown as TaskGraphStatusTool;
 		const continuationContinue = plugin.tool
 			?.continuation_continue as unknown as ContinuationContinueTool;
-
-		const taskGraphDisabled = await taskGraphStatus.execute(
-			{},
-			{ sessionID: "rollback-session" },
-		);
-		expect(taskGraphDisabled).toContain("task_graph_status is disabled");
 
 		const continuationDisabled = await continuationContinue.execute(
 			{},

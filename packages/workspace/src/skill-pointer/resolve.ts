@@ -16,6 +16,11 @@ export interface SkillPointerResolution {
 	content?: string;
 	path?: string;
 	warning?: string;
+	code?:
+		| "pointer_resolved"
+		| "pointer_required_unavailable"
+		| "pointer_integrity_mismatch"
+		| "pointer_unavailable_fallback";
 }
 
 interface SkillPointerIndexSkill {
@@ -39,6 +44,7 @@ interface SkillPointerResolverOptions {
 	enabled: boolean;
 	skillsRoot: string;
 	externalSkillRoots?: string[];
+	mode?: "fallback" | "exclusive";
 }
 
 const INDEX_DIR = ".skillpointer";
@@ -152,11 +158,14 @@ export function createSkillPointerResolver(
 	async function resolveSkillBody(
 		skillName: string,
 	): Promise<SkillPointerResolution> {
+		const mode = options.mode === "exclusive" ? "exclusive" : "fallback";
+		const exclusive = options.enabled && mode === "exclusive";
 		const normalizedName = skillName.trim();
 		if (!normalizedName) {
 			return {
 				source: "missing",
 				warning: "Skill name is required.",
+				code: "pointer_required_unavailable",
 			};
 		}
 
@@ -179,10 +188,33 @@ export function createSkillPointerResolver(
 							source: "vault",
 							content,
 							path: vaultPath,
+							code: "pointer_resolved",
+						};
+					}
+					if (exclusive) {
+						return {
+							source: "missing",
+							warning: `SkillPointer exclusive mode denied fallback for '${normalizedName}' due to checksum mismatch.`,
+							code: "pointer_integrity_mismatch",
 						};
 					}
 				}
+				if (exclusive) {
+					return {
+						source: "missing",
+						warning: `SkillPointer exclusive mode denied fallback for '${normalizedName}' because pointer vault body is unavailable.`,
+						code: "pointer_required_unavailable",
+					};
+				}
 			}
+		}
+
+		if (exclusive) {
+			return {
+				source: "missing",
+				warning: `SkillPointer exclusive mode denied fallback for '${normalizedName}' because no valid pointer entry was available.`,
+				code: "pointer_required_unavailable",
+			};
 		}
 
 		const legacyPath = join(options.skillsRoot, normalizedName, "SKILL.md");
@@ -193,6 +225,7 @@ export function createSkillPointerResolver(
 				content: await legacyFile.text(),
 				path: legacyPath,
 				warning: "SkillPointer fallback: resolved legacy skill body.",
+				code: "pointer_unavailable_fallback",
 			};
 		}
 
@@ -206,6 +239,7 @@ export function createSkillPointerResolver(
 					path: projectPath,
 					warning:
 						"SkillPointer fallback: resolved Claude-compatible external skill body.",
+					code: "pointer_unavailable_fallback",
 				};
 			}
 
@@ -223,6 +257,7 @@ export function createSkillPointerResolver(
 					path: legacyExternalPath,
 					warning:
 						"SkillPointer fallback: resolved Claude-compatible external skill body.",
+					code: "pointer_unavailable_fallback",
 				};
 			}
 		}
@@ -230,6 +265,7 @@ export function createSkillPointerResolver(
 		return {
 			source: "missing",
 			warning: `Skill '${normalizedName}' was not found in pointer vault or legacy directory.`,
+			code: "pointer_required_unavailable",
 		};
 	}
 

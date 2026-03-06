@@ -32,12 +32,14 @@ function createMockMcp(
 // Default plugin choices for testing
 const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
 	workspace: false,
+	delegation: false,
 	astGrep: false,
 	lsp: false,
 };
 
 const ENABLED_PLUGIN_CHOICES: PluginChoice = {
 	workspace: true,
+	delegation: true,
 	astGrep: false,
 	lsp: false,
 };
@@ -131,7 +133,11 @@ describe("mergeConfig", () => {
 			allAgents,
 		);
 
-		expect(result.plugin).toEqual(["@existing/plugin", "@op1/workspace"]);
+		expect(result.plugin).toEqual([
+			"@existing/plugin",
+			"@op1/workspace",
+			"@op1/delegation",
+		]);
 	});
 
 	test("does not duplicate plugins if already present", () => {
@@ -149,7 +155,7 @@ describe("mergeConfig", () => {
 			allAgents,
 		);
 
-		expect(result.plugin).toEqual(["@op1/workspace"]);
+		expect(result.plugin).toEqual(["@op1/workspace", "@op1/delegation"]);
 	});
 
 	test("merges MCPs without overwriting existing ones", () => {
@@ -223,6 +229,28 @@ describe("mergeConfig", () => {
 
 		// Not enabled for coder
 		expect(result.agent?.coder?.tools?.["linear_*"]).toBeUndefined();
+	});
+
+	test("supports mcp0-style agent-scoped tool visibility", () => {
+		const newMcps = [
+			createMockMcp("mcp0", "mcp0_*", ["researcher", "coder", "frontend"]),
+		];
+
+		const result = mergeConfig(
+			null,
+			null,
+			newMcps,
+			DEFAULT_PLUGIN_CHOICES,
+			{},
+			null,
+			allAgents,
+		);
+
+		expect(result.tools?.["mcp0_*"]).toBe(false);
+		expect(result.agent?.researcher?.tools?.["mcp0_*"]).toBe(true);
+		expect(result.agent?.coder?.tools?.["mcp0_*"]).toBe(true);
+		expect(result.agent?.frontend?.tools?.["mcp0_*"]).toBe(true);
+		expect(result.agent?.oracle?.tools?.["mcp0_*"]).toBeUndefined();
 	});
 
 	test("preserves existing agent tool configurations", () => {
@@ -380,7 +408,7 @@ describe("mergeConfig", () => {
 		expect(result.approval?.mode).toBe("off");
 		expect(result.approval?.tools).toEqual([
 			"plan_archive",
-			"delegation_cancel",
+			"background_cancel",
 			"worktree_delete",
 		]);
 	});
@@ -478,7 +506,11 @@ describe("mergeConfig", () => {
 		expect(result.provider).toEqual(originalConfig.provider);
 
 		// But plugins should be from new config (plus op1 plugins)
-		expect(result.plugin).toEqual(["@old/plugin", "@op1/workspace"]);
+		expect(result.plugin).toEqual([
+			"@old/plugin",
+			"@op1/workspace",
+			"@op1/delegation",
+		]);
 
 		// Model should be preserved
 		expect(result.model).toBe("anthropic/claude-opus-4");
@@ -536,6 +568,7 @@ describe("mergeConfig", () => {
 		// Plugins merged
 		expect(result.plugin).toContain("@existing/plugin");
 		expect(result.plugin).toContain("@op1/workspace");
+		expect(result.plugin).toContain("@op1/delegation");
 
 		// MCPs merged
 		expect(result.mcp).toHaveProperty("existing-mcp");

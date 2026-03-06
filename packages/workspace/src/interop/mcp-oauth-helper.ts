@@ -1,4 +1,5 @@
 import { homedir, join } from "../bun-compat.js";
+import { resolveMcpPointerIndex } from "./mcp-pointer-resolve.js";
 
 interface JsonConfigFile {
 	path: string;
@@ -18,6 +19,16 @@ export interface McpOAuthServerSnapshot {
 	name: string;
 	url: string;
 	source_config: string;
+	pointer_source: "pointer" | "legacy";
+	pointer_requirement?: "required" | "optional";
+	pointer_lifecycle_state?:
+		| "idle"
+		| "starting"
+		| "ready"
+		| "degraded"
+		| "closed";
+	pointer_health_status?: "healthy" | "degraded" | "unavailable";
+	pointer_stale: boolean;
 	oauth_capable: boolean;
 	has_client_id: boolean;
 	has_client_secret: boolean;
@@ -29,6 +40,8 @@ export interface McpOAuthHelperSnapshot {
 	generated_at: string;
 	config_sources: string[];
 	auth_store_path?: string;
+	pointer_source: "pointer" | "legacy";
+	pointer_issues: McpOAuthServerSnapshot["recommended_action"][];
 	servers: McpOAuthServerSnapshot[];
 }
 
@@ -153,6 +166,32 @@ function buildRecommendedAction(name: string, status: string): string {
 	return `Authenticate this server with: opencode mcp auth ${name}`;
 }
 
+function isOAuthCapableConfig(config: Record<string, unknown>): boolean {
+	if (config.oauth === true) {
+		return true;
+	}
+
+	if (config.oauth && typeof config.oauth === "object") {
+		return true;
+	}
+
+	if (config.type === "local") {
+		const command = config.command;
+		if (Array.isArray(command)) {
+			return command.some(
+				(token): token is string =>
+					typeof token === "string" && token.includes("mcp-remote"),
+			);
+		}
+
+		if (typeof command === "string") {
+			return command.includes("mcp-remote");
+		}
+	}
+
+	return false;
+}
+
 export async function buildMcpOAuthHelperSnapshot(input: {
 	directory: string;
 	homeDirectory?: string;
@@ -168,21 +207,32 @@ export async function buildMcpOAuthHelperSnapshot(input: {
 	).filter((entry): entry is JsonConfigFile => entry !== null);
 
 	const mergedMcp = mergeMcpConfigs(configFiles);
+	const pointerResolution = await resolveMcpPointerIndex({ homeDirectory });
+	const pointerServers = new Map(
+		(pointerResolution.index?.servers ?? []).map((server) => [
+			server.id,
+			server,
+		]),
+	);
 	const authStoreResult = await readAuthStore(
 		resolveAuthStoreCandidates(homeDirectory),
 	);
 
 	const serverEntries = Object.entries(mergedMcp)
-		.filter(([, config]) => config.type === "remote")
-		.filter(([, config]) => {
-			if (config.oauth === true) return true;
-			return Boolean(config.oauth && typeof config.oauth === "object");
+		.filter(([name, config]) => {
+			if (isOAuthCapableConfig(config)) {
+				return true;
+			}
+
+			const pointerServer = pointerServers.get(name);
+			return pointerServer?.auth.oauth_capable === true;
 		})
 		.filter(([name]) => !input.server || name === input.server)
 		.sort((a, b) => a[0].localeCompare(b[0]));
 
 	const servers: McpOAuthServerSnapshot[] = serverEntries.map(
 		([name, config]) => {
+			const pointerServer = pointerServers.get(name);
 			const oauthConfig =
 				config.oauth && typeof config.oauth === "object"
 					? (config.oauth as Record<string, unknown>)
@@ -196,6 +246,13 @@ export async function buildMcpOAuthHelperSnapshot(input: {
 					typeof config.source_config === "string"
 						? config.source_config
 						: "unknown",
+				pointer_source: pointerServer ? "pointer" : "legacy",
+				pointer_requirement: pointerServer?.requirement,
+				pointer_lifecycle_state: pointerServer?.lifecycle_state,
+				pointer_health_status: pointerServer?.health_status,
+				pointer_stale:
+					pointerServer?.capability?.expires_at !== undefined &&
+					Date.parse(pointerServer.capability.expires_at) <= Date.now(),
 				oauth_capable: true,
 				has_client_id:
 					oauthConfig !== null && typeof oauthConfig.clientId === "string",
@@ -211,6 +268,8 @@ export async function buildMcpOAuthHelperSnapshot(input: {
 		generated_at: new Date().toISOString(),
 		config_sources: configFiles.map((entry) => entry.path),
 		auth_store_path: authStoreResult.path,
+		pointer_source: pointerResolution.source,
+		pointer_issues: pointerResolution.issues.map((issue) => issue.message),
 		servers,
 	};
 }

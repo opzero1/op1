@@ -1,0 +1,20 @@
+{
+	"schema_version": "1.0.0",
+	"release_train_id": "train-placeholder",
+	"source_contract_sha": "sha256-placeholder",
+	"allowed_modes": ["fallback", "exclusive"],
+	"failure_classes": [
+		"pointer_required_unavailable",
+		"pointer_integrity_mismatch",
+		"pointer_unavailable_fallback"
+	],
+	"materialization_states": ["stubbed", "materializing", "ready", "degraded"],
+	"required_payload_fields": [
+		"schema_version",
+		"release_train_id",
+		"source_contract_sha",
+		"allowed_modes",
+		"failure_classes",
+		"materialization_states"
+	]
+}

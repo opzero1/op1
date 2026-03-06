@@ -27,10 +27,11 @@ Apply in priority order:
 
 ### Layer 1: Correctness & Safety
 - Logic errors, off-by-one, incorrect conditionals
-- Edge cases: null/empty/undefined inputs, error conditions, race conditions
-- Error handling completeness — silent failure paths, swallowed catches, hidden fallbacks
+- Contract-driven edge cases: missing required inputs, explicitly optional or undefined values, error conditions, race conditions
+- Error handling completeness — silent failure paths, swallowed catches, or fallback paths that hide failures or change behavior
 - Incorrect error semantics (auth vs config vs runtime errors)
-- Type safety and null checks
+- Type safety and contract-accurate optionality
+- Do not ask for optional chaining, null handling, fallback branches, or empty-input handling unless the type, schema, prompt, or existing behavior makes absence possible
 - **Behavioral changes** — flag if a change alters existing behavior, intentionally or not
 
 ### Layer 2: Security
@@ -143,6 +144,9 @@ If uncertain about an issue:
 
 - Do NOT propose broad refactors outside the changed scope
 - Do NOT request cosmetic rewrites unless they hide real risk
+- Do NOT ask for fallback paths in new required flows unless compatibility or an explicit contract requires them
+- Do NOT ask for empty-input handling unless empty input is part of the stated, typed, or existing contract
+- Do NOT request docs or README updates unless the user asked for docs or the change alters a documented public contract
 - Do NOT include praise/fluff — keep comments direct and useful
 - Do NOT be a zealot about style — some "violations" are acceptable when they're the simplest option
 - Do NOT flag something as a bug if you're unsure — investigate first

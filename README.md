@@ -11,7 +11,7 @@ bunx @op1/install
 The interactive installer will:
 - Back up your existing config (if any)
 - Install a lean set of agent/command/skill templates
-- Configure workspace-first plugins (`@op1/workspace` + optional `@op1/lsp` and `@op1/ast-grep`)
+- Configure workspace-first plugins (`@op1/workspace`, `@op1/delegation`, and optional `@op1/lsp` / `@op1/ast-grep`)
 - Configure MCP servers (Context7 and Grep.app by default, with optional categories)
 - Let you configure per-agent models or a global model
 
@@ -21,14 +21,14 @@ If you prefer manual setup:
 
 ```bash
 # Install plugins in your project
-bun add @op1/workspace @op1/lsp @op1/ast-grep
+bun add @op1/workspace @op1/delegation @op1/lsp @op1/ast-grep
 ```
 
 Then add to your `opencode.json`:
 
 ```json
 {
-  "plugin": ["@op1/workspace", "@op1/lsp", "@op1/ast-grep"]
+	"plugin": ["@op1/workspace", "@op1/delegation", "@op1/lsp", "@op1/ast-grep"]
 }
 ```
 
@@ -40,6 +40,7 @@ Then add to your `opencode.json`:
 |---------|-------------|---------|
 | [`@op1/install`](https://www.npmjs.com/package/@op1/install) | Interactive CLI installer | `bunx @op1/install` |
 | [`@op1/workspace`](https://www.npmjs.com/package/@op1/workspace) | Plan management, notepads, verification hooks | `bun add @op1/workspace` |
+| [`@op1/delegation`](https://www.npmjs.com/package/@op1/delegation) | Async `task` override, background output, cancellation, task diagnostics | `bun add @op1/delegation` |
 
 ### Code Tools
 
@@ -89,14 +90,24 @@ After installation, your `~/.config/opencode/opencode.json` will include:
 
 ```json
 {
-  "plugin": ["@op1/workspace", "@op1/lsp", "@op1/ast-grep"],
-  "model": "your-configured-model",
+	"plugin": ["@op1/workspace", "@op1/delegation", "@op1/lsp", "@op1/ast-grep"],
+	"model": "your-configured-model",
   "mcp": {
     "context7": { "type": "remote", "url": "https://mcp.context7.com/mcp" },
     "grep_app": { "type": "remote", "url": "https://mcp.grep.app" }
   }
 }
 ```
+
+## mcp0 (Warmplane Port)
+
+`mcp0` is the planned local MCP control-plane path for token-efficient MCP usage in op1.
+
+- Installer category: `mcp0 (Warmplane)`
+- Expected command: `warmplane mcp-server`
+- Intended compact tool namespace: `mcp0_*`
+
+When enabled, keep mcp0 available only to agents that need it (for example `researcher`, `coder`, `frontend`) to reduce unnecessary tool-surface exposure.
 
 ### Per-Agent Models
 

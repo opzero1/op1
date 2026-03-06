@@ -12,7 +12,7 @@ describe("approval policy", () => {
 		expect(policy.mode).toBe("off");
 		expect(policy.tools).toEqual([
 			"plan_archive",
-			"delegation_cancel",
+			"background_cancel",
 			"worktree_delete",
 		]);
 		expect(policy.nonInteractive).toBe("fail-closed");
@@ -35,7 +35,7 @@ describe("approval policy", () => {
 
 		expect(
 			shouldEnforceApproval({
-				toolName: "delegation_cancel",
+				toolName: "background_cancel",
 				featureEnabled: true,
 				policy,
 			}),
@@ -55,7 +55,7 @@ describe("approval policy", () => {
 
 		expect(
 			shouldEnforceApproval({
-				toolName: "delegation_cancel",
+				toolName: "background_cancel",
 				featureEnabled: true,
 				policy,
 			}),

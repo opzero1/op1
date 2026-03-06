@@ -165,16 +165,16 @@ describe("P0 feature smoke", () => {
 		const contextScout = createContextScoutStateManager(workspaceDir);
 		const upsertSummary = await contextScout.upsertPatterns([
 			{
-				pattern: "delegate.*router",
+				pattern: "task.*router",
 				severity: "high",
 				confidence: 0.93,
 				source_tool: "grep",
-				tags: ["delegation", "routing"],
+				tags: ["task", "routing"],
 			},
 		]);
 		expect(upsertSummary.total).toBeGreaterThan(0);
 		const ranked = await contextScout.listRankedPatterns({ limit: 1 });
-		expect(ranked[0]?.pattern).toBe("delegate.*router");
+		expect(ranked[0]?.pattern).toBe("task.*router");
 
 		const skillPointerResolver = createSkillPointerResolver({
 			enabled: hookConfig.features.skillPointer,

@@ -36,9 +36,10 @@ Before reviewing, load relevant skills:
 
 ### Layer 1: Correctness (Primary Focus)
 - Logic errors, off-by-one, incorrect conditionals
-- Edge cases: null/empty/undefined inputs, error conditions, race conditions
+- Contract-driven edge cases: missing required inputs, explicitly optional or undefined values, error conditions, race conditions
 - Missing or incorrect error handling (swallowed errors, wrong error types)
 - Unreachable code paths, broken guards
+- Only ask for optional chaining, fallback branches, or empty-input handling when the type, schema, prompt, or existing behavior makes absence possible
 - **Behavioral changes** — flag if a change alters existing behavior, especially unintentionally
 
 ### Layer 2: Security
@@ -85,6 +86,7 @@ Before reviewing, load relevant skills:
 - Don't be a zealot about style — some "violations" are acceptable when they're the simplest option
 - Verify the code is *actually* in violation before complaining about conventions
 - Check existing patterns in the codebase before claiming something doesn't fit
+- Don't ask for docs or README updates unless the user requested docs or the change modifies a documented public contract
 
 ## Output Format
 

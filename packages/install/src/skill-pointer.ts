@@ -1,3 +1,9 @@
+import {
+	computeContractChecksum,
+	isCompatibleSchemaVersion,
+	SKILL_POINTER_CONTRACT_SCHEMA_VERSION,
+} from "./skill-pointer-contract.js";
+
 const IS_WINDOWS = (Bun.env.OS ?? "").toLowerCase().includes("windows");
 
 function toPosixPath(input: string): string {
@@ -132,6 +138,12 @@ export interface SkillPointerCategoryEntry {
 
 export interface SkillPointerIndex {
 	version: 1;
+	contract: {
+		schema_version: string;
+		release_train_id: string;
+		source_contract_sha: string;
+		normalized_sha256: string;
+	};
 	generated_at: string;
 	vault_root: string;
 	total_skills: number;
@@ -166,6 +178,8 @@ export interface InstallSkillPointerOptions {
 	vaultDir: string;
 	dryRun?: boolean;
 	nowMs?: number;
+	releaseTrainId?: string;
+	sourceContractSha?: string;
 }
 
 export interface InstallSkillPointerResult {
@@ -289,6 +303,8 @@ function buildPointerIndex(input: {
 	sourceRoot: string;
 	vaultDir: string;
 	discovered: DiscoveredSkill[];
+	releaseTrainId: string;
+	sourceContractSha: string;
 }): SkillPointerIndex {
 	const byCategory = new Map<string, DiscoveredSkill[]>();
 	for (const skill of input.discovered) {
@@ -358,8 +374,37 @@ function buildPointerIndex(input: {
 		Number(rawLoadImprovementPercent.toFixed(2)),
 	);
 
+	const contract = {
+		schema_version: SKILL_POINTER_CONTRACT_SCHEMA_VERSION,
+		release_train_id: input.releaseTrainId,
+		source_contract_sha: input.sourceContractSha,
+		normalized_sha256: "",
+	};
+
+	contract.normalized_sha256 = computeContractChecksum({
+		schema_version: contract.schema_version,
+		release_train_id: contract.release_train_id,
+		source_contract_sha: contract.source_contract_sha,
+		allowed_modes: ["fallback", "exclusive"],
+		failure_classes: [
+			"pointer_required_unavailable",
+			"pointer_integrity_mismatch",
+			"pointer_unavailable_fallback",
+		],
+		materialization_states: ["stubbed", "materializing", "ready", "degraded"],
+		required_payload_fields: [
+			"schema_version",
+			"release_train_id",
+			"source_contract_sha",
+			"allowed_modes",
+			"failure_classes",
+			"materialization_states",
+		],
+	});
+
 	return {
 		version: POINTER_INDEX_VERSION,
+		contract,
 		generated_at: new Date(input.nowMs).toISOString(),
 		vault_root: toPosixPath(input.vaultDir),
 		total_skills: input.discovered.length,
@@ -461,6 +506,19 @@ export async function validateSkillPointerIndex(input: {
 		});
 	}
 
+	if (
+		!isCompatibleSchemaVersion({
+			readerVersion: SKILL_POINTER_CONTRACT_SCHEMA_VERSION,
+			writerVersion: index.contract?.schema_version ?? "0.0.0",
+		})
+	) {
+		issues.push({
+			code: "unsupported_contract_schema",
+			message: `SkillPointer contract schema ${index.contract?.schema_version ?? "unknown"} is incompatible with reader ${SKILL_POINTER_CONTRACT_SCHEMA_VERSION}.`,
+			path: input.indexPath,
+		});
+	}
+
 	for (const category of index.categories ?? []) {
 		const pointerPath = joinPath(input.activeSkillsDir, category.pointer_path);
 		if (!(await Bun.file(pointerPath).exists())) {
@@ -518,6 +576,8 @@ export async function installSkillPointerArtifacts(
 		sourceRoot: options.templateSkillsDir,
 		vaultDir: options.vaultDir,
 		discovered,
+		releaseTrainId: options.releaseTrainId ?? "local-dev",
+		sourceContractSha: options.sourceContractSha ?? "",
 	});
 
 	const indexPath = joinPath(
@@ -602,6 +662,8 @@ export async function rebuildSkillPointerArtifacts(options: {
 		sourceRoot: options.vaultDir,
 		vaultDir: options.vaultDir,
 		discovered,
+		releaseTrainId: "rebuild-local",
+		sourceContractSha: "",
 	});
 
 	const indexPath = joinPath(

@@ -88,7 +88,7 @@ skill("humanizer")         # Remove AI writing patterns
 - NEVER use emojis unless explicitly requested
 - NEVER create documentation files unless explicitly requested
 - NEVER deviate from the project's existing documentation style
-- NEVER spawn or delegate to other agents - you are a leaf agent
+- NEVER spawn or hand work to other agents - you are a leaf agent
 - NEVER write code - you write prose about code
 
 ## Output Quality Standards

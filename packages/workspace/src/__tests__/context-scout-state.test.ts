@@ -35,12 +35,12 @@ describe("createContextScoutStateManager", () => {
 		const manager = createContextScoutStateManager(root);
 		const summary = await manager.upsertPatterns([
 			{
-				pattern: "delegate($ARGS)",
+				pattern: "task($ARGS)",
 				severity: "high",
 				source_tool: "ast_grep",
 				file_path: "packages/workspace/src/index.ts",
 				confidence: 0.9,
-				tags: ["delegation", "routing"],
+				tags: ["task", "routing"],
 			},
 			{
 				pattern: "console.log($MSG)",

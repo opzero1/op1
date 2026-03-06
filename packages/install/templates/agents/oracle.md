@@ -61,6 +61,13 @@ Use these tools to ground your analysis in actual code rather than speculation.
 - Well-established patterns
 - Single-file changes with clear scope
 
+## Consultation Priorities
+
+- Prefer fail-fast designs over silent fallbacks
+- Treat `undefined` as the default absence value unless an existing API or schema already uses `null`
+- Do not recommend optional chaining, fallback branches, or empty-input handling unless the type, schema, prompt, or existing behavior makes absence possible
+- Do not recommend docs or README work unless the user asked for it or the change alters a documented public contract
+
 ## Reasoning Framework
 
 When consulted, you should:

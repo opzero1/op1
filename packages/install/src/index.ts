@@ -10,6 +10,12 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import {
+	type BuilderMcpDefinition,
+	type InstallMcpPointerArtifactsResult,
+	installMcpPointerArtifacts,
+	validateMcpPointerArtifacts,
+} from "./mcp-pointer.js";
+import {
 	type InstallSkillPointerResult,
 	installSkillPointerArtifacts,
 	rebuildSkillPointerArtifacts,
@@ -134,14 +140,79 @@ interface McpDefinition {
 	config: McpConfig;
 	toolPattern: string; // e.g., "linear_*"
 	agentAccess: string[]; // which agents should have access
+	required?: boolean;
+	oauthCapable?: boolean;
 }
+
+type McpCriticality = "required" | "optional";
 
 interface McpCategory {
 	id: string;
 	name: string;
 	description: string;
 	requiresEnvVar?: string;
+	requiredByDefault?: boolean;
 	mcps: McpDefinition[];
+}
+
+const MCP_DEFAULT_CRITICALITY: McpCriticality = "optional";
+
+function resolveMcpCriticality(
+	category: McpCategory,
+	mcp: McpDefinition,
+): McpCriticality {
+	if (typeof mcp.required === "boolean") {
+		return mcp.required ? "required" : "optional";
+	}
+
+	if (category.requiredByDefault === true) {
+		return "required";
+	}
+
+	return MCP_DEFAULT_CRITICALITY;
+}
+
+function getRequiredMcpDefinitions(categories: McpCategory[]): McpDefinition[] {
+	const required = new Map<string, McpDefinition>();
+
+	for (const category of categories) {
+		for (const mcp of category.mcps) {
+			if (resolveMcpCriticality(category, mcp) === "required") {
+				required.set(mcp.id, mcp);
+			}
+		}
+	}
+
+	return [...required.values()];
+}
+
+function isFullyRequiredCategory(category: McpCategory): boolean {
+	if (category.mcps.length === 0) {
+		return false;
+	}
+
+	return category.mcps.every(
+		(mcp) => resolveMcpCriticality(category, mcp) === "required",
+	);
+}
+
+function toMcpPointerDefinition(input: {
+	mcp: McpDefinition;
+	category: McpCategory;
+	sourceConfigPath: string;
+}): BuilderMcpDefinition {
+	return {
+		id: input.mcp.id,
+		name: input.mcp.name,
+		toolPattern: input.mcp.toolPattern,
+		required:
+			resolveMcpCriticality(input.category, input.mcp) === "required"
+				? "required"
+				: "optional",
+		config: input.mcp.config,
+		oauthCapable: input.mcp.oauthCapable,
+		sourceConfigPath: input.sourceConfigPath,
+	};
 }
 
 const MCP_CATEGORIES: McpCategory[] = [
@@ -214,6 +285,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				id: "linear",
 				name: "Linear",
 				description: "Issue tracking",
+				oauthCapable: true,
 				config: {
 					type: "local",
 					command: ["bunx", "-y", "mcp-remote", "https://mcp.linear.app/mcp"],
@@ -225,6 +297,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				id: "notion",
 				name: "Notion",
 				description: "Documentation and knowledge base",
+				oauthCapable: true,
 				config: {
 					type: "local",
 					command: ["bunx", "-y", "mcp-remote", "https://mcp.notion.com/mcp"],
@@ -268,6 +341,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				id: "figma",
 				name: "Figma",
 				description: "Design tokens, components, assets",
+				oauthCapable: true,
 				config: {
 					type: "remote",
 					url: "https://mcp.figma.com/mcp",
@@ -278,9 +352,30 @@ const MCP_CATEGORIES: McpCategory[] = [
 		],
 	},
 	{
+		id: "mcp0",
+		name: "mcp0 (Warmplane)",
+		description:
+			"Local MCP control-plane facade (compact, deterministic tool surface)",
+		mcps: [
+			{
+				id: "mcp0",
+				name: "mcp0",
+				description:
+					"Warmplane facade server. Expects warmplane on PATH and local mcp0 config.",
+				config: {
+					type: "local",
+					command: ["warmplane", "mcp-server"],
+				},
+				toolPattern: "mcp0_*",
+				agentAccess: ["researcher", "coder", "frontend"],
+			},
+		],
+	},
+	{
 		id: "utilities",
 		name: "Utilities",
 		description: "Library docs and code search (no auth required)",
+		requiredByDefault: true,
 		mcps: [
 			{
 				id: "context7",
@@ -325,6 +420,7 @@ interface MainOptions {
 
 interface PluginChoice {
 	workspace: boolean;
+	delegation: boolean;
 	astGrep: boolean;
 	lsp: boolean;
 }
@@ -399,6 +495,17 @@ interface WorkspaceVerification {
 	throttleMs?: number;
 }
 
+interface WorkspaceMcpPointer {
+	enabled?: boolean;
+	mode?: "legacy-only" | "pointer-only" | "mixed";
+}
+
+interface WorkspaceSkillPointer {
+	mode?: "fallback" | "exclusive";
+	releaseTrainId?: string;
+	sourceContractSha?: string;
+}
+
 interface WorkspaceApproval {
 	mode?: "off" | "selected" | "all_mutating";
 	tools?: string[];
@@ -414,6 +521,8 @@ interface WorkspacePluginConfig {
 	thresholds?: WorkspaceThresholds;
 	notifications?: WorkspaceNotifications;
 	verification?: WorkspaceVerification;
+	mcpPointer?: WorkspaceMcpPointer;
+	skillPointer?: WorkspaceSkillPointer;
 	approval?: WorkspaceApproval;
 	[key: string]: unknown;
 }
@@ -473,9 +582,16 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
 		autopilot: true,
 		throttleMs: 45000,
 	},
+	mcpPointer: {
+		enabled: true,
+		mode: "mixed",
+	},
+	skillPointer: {
+		mode: "fallback",
+	},
 	approval: {
 		mode: "off",
-		tools: ["plan_archive", "delegation_cancel", "worktree_delete"],
+		tools: ["plan_archive", "background_cancel", "worktree_delete"],
 		exemptTools: [],
 		ttlMs: 300000,
 		nonInteractive: "fail-closed",
@@ -513,6 +629,14 @@ function mergeWorkspaceConfig(
 		verification: {
 			...(DEFAULT_WORKSPACE_CONFIG.verification || {}),
 			...(config?.verification || {}),
+		},
+		mcpPointer: {
+			...(DEFAULT_WORKSPACE_CONFIG.mcpPointer || {}),
+			...(config?.mcpPointer || {}),
+		},
+		skillPointer: {
+			...(DEFAULT_WORKSPACE_CONFIG.skillPointer || {}),
+			...(config?.skillPointer || {}),
 		},
 		approval: mergedApproval,
 	};
@@ -1051,6 +1175,12 @@ function mergeConfig(
 	if (pluginChoices.workspace && !existingPlugins.includes("@op1/workspace")) {
 		newPlugins.push("@op1/workspace");
 	}
+	if (
+		pluginChoices.delegation &&
+		!existingPlugins.includes("@op1/delegation")
+	) {
+		newPlugins.push("@op1/delegation");
+	}
 	if (pluginChoices.astGrep && !existingPlugins.includes("@op1/ast-grep")) {
 		newPlugins.push("@op1/ast-grep");
 	}
@@ -1356,7 +1486,7 @@ export async function main(mainOptions: MainOptions = {}) {
 			{
 				value: "plugins",
 				label: "Plugins",
-				hint: "Workspace + optional code tooling plugins",
+				hint: "Workspace, delegation, and optional code tooling plugins",
 			},
 		],
 		initialValues: ["agents", "commands", "skills", "plugins"],
@@ -1375,13 +1505,24 @@ export async function main(mainOptions: MainOptions = {}) {
 		plugins: components.includes("plugins"),
 	};
 
-	// Plugin selection - workspace is always included, others optional
+	// Plugin selection - workspace and delegation are included by default, others optional
 	const pluginChoices: PluginChoice = {
 		workspace: true,
+		delegation: options.plugins,
 		astGrep: false,
 		lsp: false,
 	};
 	if (options.plugins) {
+		const wantDelegation = await p.confirm({
+			message:
+				"Enable task delegation plugin? (async task, background_output, background_cancel)",
+			initialValue: true,
+		});
+
+		if (!p.isCancel(wantDelegation)) {
+			pluginChoices.delegation = wantDelegation;
+		}
+
 		const wantAstGrep = await p.confirm({
 			message:
 				"Enable AST-grep? (structural code search/replace, 25 languages)",
@@ -1406,17 +1547,22 @@ export async function main(mainOptions: MainOptions = {}) {
 	// MCP Category selection
 	p.log.info(`\n${pc.bold("MCP Server Configuration")}`);
 
-	// Always include utilities (context7, grep_app) - they're essential
-	const utilitiesCategory = MCP_CATEGORIES.find((c) => c.id === "utilities");
-	const selectedMcps: McpDefinition[] = utilitiesCategory
-		? [...utilitiesCategory.mcps]
-		: [];
+	// Include required MCPs from the contract by default.
+	const requiredMcps = getRequiredMcpDefinitions(MCP_CATEGORIES);
+	const selectedMcps: McpDefinition[] = [...requiredMcps];
 
-	// Ask about optional categories (excluding utilities which is always included)
-	const optionalCategories = MCP_CATEGORIES.filter((c) => c.id !== "utilities");
+	const optionalCategories = MCP_CATEGORIES.filter(
+		(category) => !isFullyRequiredCategory(category),
+	);
 
 	if (optionalCategories.length > 0) {
-		p.log.info(pc.dim("Context7 and Grep.app are included by default."));
+		if (requiredMcps.length > 0) {
+			p.log.info(
+				pc.dim(
+					`Required MCPs are included by default: ${requiredMcps.map((mcp) => mcp.name).join(", ")}.`,
+				),
+			);
+		}
 		p.log.info(pc.dim("Use ↑↓ to navigate, space to toggle, enter to confirm"));
 
 		const selectedCategories = await p.multiselect({
@@ -1605,6 +1751,8 @@ export async function main(mainOptions: MainOptions = {}) {
 	let skillPointerResult: InstallSkillPointerResult | null = null;
 	let skillPointerFallbackReason: string | null = null;
 	let skillPointerRecoveryNote: string | null = null;
+	let mcpPointerResult: InstallMcpPointerArtifactsResult | null = null;
+	let mcpPointerFallbackReason: string | null = null;
 
 	try {
 		const originalConfig = configFileResult.data;
@@ -1620,6 +1768,33 @@ export async function main(mainOptions: MainOptions = {}) {
 			globalModelToSet,
 			allAgents,
 		);
+
+		const totalCatalogMcpCount = MCP_CATEGORIES.reduce(
+			(sum, category) => sum + category.mcps.length,
+			0,
+		);
+		const selectedMcpPointerDefs: BuilderMcpDefinition[] = selectedMcps
+			.map((mcp) => {
+				const category = MCP_CATEGORIES.find((entry) =>
+					entry.mcps.some((candidate) => candidate.id === mcp.id),
+				);
+				if (!category) {
+					return null;
+				}
+
+				return toMcpPointerDefinition({
+					mcp,
+					category,
+					sourceConfigPath: globalConfigFile,
+				});
+			})
+			.filter((entry): entry is BuilderMcpDefinition => entry !== null);
+		const mcpPointerEnabled =
+			mergedWorkspaceConfig.mcpPointer?.enabled !== false;
+		const skillPointerMode =
+			mergedWorkspaceConfig.skillPointer?.mode === "exclusive"
+				? "exclusive"
+				: "fallback";
 
 		const installTargets: Array<{
 			enabled: boolean;
@@ -1680,6 +1855,11 @@ export async function main(mainOptions: MainOptions = {}) {
 						});
 						totalFiles += skillPointerResult.fileWrites;
 					} catch (error) {
+						if (skillPointerMode === "exclusive") {
+							throw new Error(
+								`SkillPointer exclusive mode aborted install target: ${error instanceof Error ? error.message : String(error)}`,
+							);
+						}
 						totalFiles += await countDirFiles(src);
 						skillPointerFallbackReason =
 							error instanceof Error ? error.message : String(error);
@@ -1692,6 +1872,25 @@ export async function main(mainOptions: MainOptions = {}) {
 				}
 
 				totalFiles += await countDirFiles(src);
+			}
+
+			if (mcpPointerEnabled) {
+				try {
+					mcpPointerResult = await installMcpPointerArtifacts({
+						configDir: globalConfigDir,
+						mcps: selectedMcpPointerDefs,
+						totalCatalogMcpCount,
+						dryRun: true,
+					});
+					totalFiles += mcpPointerResult.fileWrites;
+				} catch (error) {
+					mcpPointerFallbackReason =
+						error instanceof Error ? error.message : String(error);
+					mergedWorkspaceConfig.mcpPointer = {
+						...(mergedWorkspaceConfig.mcpPointer || {}),
+						enabled: false,
+					};
+				}
 			}
 
 			totalFiles += 2; // opencode.json + workspace.json writes
@@ -1759,6 +1958,11 @@ export async function main(mainOptions: MainOptions = {}) {
 							totalFiles += skillPointerResult.fileWrites;
 							skillPointerRecoveryNote = `SkillPointer recovered through rebuild after initial failure: ${primaryError}`;
 						} catch (recoveryError) {
+							if (skillPointerMode === "exclusive") {
+								throw new Error(
+									`SkillPointer exclusive mode aborted install target. Initial failure: ${primaryError}; rebuild failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`,
+								);
+							}
 							totalFiles += await copyDir(src, target.destination);
 							skillPointerFallbackReason = `Initial failure: ${primaryError}; rebuild failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
 							mergedWorkspaceConfig.features = {
@@ -1772,6 +1976,38 @@ export async function main(mainOptions: MainOptions = {}) {
 				}
 
 				totalFiles += await copyDir(src, target.destination);
+			}
+
+			if (mcpPointerEnabled) {
+				try {
+					mcpPointerResult = await installMcpPointerArtifacts({
+						configDir: globalConfigDir,
+						mcps: selectedMcpPointerDefs,
+						totalCatalogMcpCount,
+					});
+
+					const integrity = await validateMcpPointerArtifacts({
+						indexPath: mcpPointerResult.indexPath,
+						checksumPath: mcpPointerResult.checksumPath,
+					});
+					if (!integrity.ok) {
+						throw new Error(
+							integrity.issues
+								.map((issue) => `${issue.code}: ${issue.message}`)
+								.join("; "),
+						);
+					}
+
+					totalFiles += mcpPointerResult.fileWrites;
+				} catch (error) {
+					mcpPointerFallbackReason =
+						error instanceof Error ? error.message : String(error);
+					mergedWorkspaceConfig.mcpPointer = {
+						...(mergedWorkspaceConfig.mcpPointer || {}),
+						enabled: false,
+					};
+					mcpPointerResult = null;
+				}
 			}
 
 			// Write merged config
@@ -1856,6 +2092,16 @@ export async function main(mainOptions: MainOptions = {}) {
 			`${pc.green("✓")} MCPs ${configVerb}: ${selectedMcps.map((m) => pc.cyan(m.name)).join(", ")}`,
 		);
 	}
+	if (mcpPointerResult) {
+		summaryLines.push(
+			`${pc.green("✓")} MCP pointer ${dryRun ? "would generate" : "generated"} ${pc.cyan(String(mcpPointerResult.activeMcpCount))} active entries (${pc.cyan(String(mcpPointerResult.deferredMcpCount))} deferred) at ${pc.dim("~/.config/opencode/.mcp-pointer/index.json")}`,
+		);
+	}
+	if (mcpPointerFallbackReason) {
+		summaryLines.push(
+			`${pc.yellow("⚠")} MCP pointer ${dryRun ? "preview failed" : "failed"}; continuing in legacy MCP mode. Reason: ${mcpPointerFallbackReason}`,
+		);
+	}
 	if (dryRun) {
 		summaryLines.push(`${pc.yellow("⚑")} Dry run mode: no files were written`);
 	}
@@ -1937,10 +2183,13 @@ export {
 	mergeConfig,
 	mergeWorkspaceConfig,
 	MCP_CATEGORIES,
+	getRequiredMcpDefinitions,
+	resolveMcpCriticality,
 };
 export type {
 	InstallOptions,
 	PluginChoice,
+	McpCriticality,
 	McpDefinition,
 	McpCategory,
 	OpenCodeConfig,

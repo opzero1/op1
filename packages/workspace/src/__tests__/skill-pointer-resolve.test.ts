@@ -108,7 +108,56 @@ describe("skill pointer resolver", () => {
 		const resolved = await resolver.resolveSkillBody(skillName);
 		expect(resolved.source).toBe("legacy");
 		expect(resolved.warning).toContain("fallback");
+		expect(resolved.code).toBe("pointer_unavailable_fallback");
 		expect(resolved.content).toContain("Legacy skill body");
+	});
+
+	test("denies fallback in exclusive mode when vault entry is unavailable", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-skill-pointer-resolve-"));
+		tempRoots.push(root);
+
+		const skillsRoot = join(root, "skills");
+		const vaultRoot = join(root, "skill-vault");
+		const skillName = "git-master";
+		await Bun.write(
+			join(skillsRoot, skillName, "SKILL.md"),
+			"# git-master\n\nLegacy skill body.",
+		);
+
+		await Bun.write(
+			join(skillsRoot, ".skillpointer", "index.json"),
+			JSON.stringify(
+				{
+					version: 1,
+					vault_root: vaultRoot,
+					categories: [
+						{
+							category: "workflow",
+							skills: [
+								{
+									name: skillName,
+									vault_path: `workflow/${skillName}/SKILL.md`,
+									checksum_sha256: "deadbeef",
+								},
+							],
+						},
+					],
+				},
+				null,
+				2,
+			),
+		);
+
+		const resolver = createSkillPointerResolver({
+			enabled: true,
+			mode: "exclusive",
+			skillsRoot,
+		});
+
+		const resolved = await resolver.resolveSkillBody(skillName);
+		expect(resolved.source).toBe("missing");
+		expect(resolved.code).toBe("pointer_required_unavailable");
+		expect(resolved.warning).toContain("exclusive mode denied fallback");
 	});
 
 	test("reports missing index when skill pointer mode is enabled", async () => {

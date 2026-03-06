@@ -109,7 +109,7 @@ The task completed but returned no response. This indicates:
 - The agent did not terminate correctly
 - The agent returned an empty result
 
-**ACTION:** Re-delegate the task with more specific instructions,
+**ACTION:** Re-run the task with more specific instructions,
 or investigate what went wrong before proceeding.
 </system-reminder>`;
 
@@ -337,8 +337,10 @@ export function handleToolOutputSafety(
 		}
 
 		// 4. Anti-Polling Reminder for Background Tasks
-		const taskArgs = input.args as { background?: boolean } | undefined;
-		if (taskArgs?.background) {
+		const taskArgs = input.args as
+			| { background?: boolean; run_in_background?: boolean }
+			| undefined;
+		if (taskArgs?.background || taskArgs?.run_in_background) {
 			output.output = output.output + ANTI_POLLING_REMINDER;
 		}
 	}
@@ -398,8 +400,10 @@ export async function handleToolOutputSafetyDynamic(
 		}
 
 		// 4. Anti-Polling Reminder for Background Tasks
-		const taskArgs = input.args as { background?: boolean } | undefined;
-		if (taskArgs?.background) {
+		const taskArgs = input.args as
+			| { background?: boolean; run_in_background?: boolean }
+			| undefined;
+		if (taskArgs?.background || taskArgs?.run_in_background) {
 			output.output = output.output + ANTI_POLLING_REMINDER;
 		}
 	}

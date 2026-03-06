@@ -13,7 +13,7 @@ description: Internal logic and data flow philosophy (The 5 Laws of Elegant Defe
 
 **Concept:** Indentation is the enemy of simplicity. Deep nesting hides bugs.
 
-**Rule:** Handle edge cases, nulls, and errors at the very top of functions.
+**Rule:** Handle missing required inputs, explicitly optional or undefined values, and errors at the very top of functions. Prefer `undefined` over `null` for absence unless an existing API or schema already uses `null`. Do not invent empty-input branches unless the contract explicitly allows empty input.
 
 **Practice:**
 ```typescript
@@ -78,9 +78,11 @@ function addItem(list: Item[], item: Item): void {
 
 **Concept:** Silent failures cause complexity later.
 
-**Rule:** If a state is invalid, halt immediately with a descriptive error. Do not try to "patch" bad data.
+**Rule:** If required state is missing or the contract is violated, halt immediately with a descriptive error. Do not patch bad data with silent fallbacks.
 
 **Result:** Keeps logic simple by never accounting for "half-broken" states.
+
+**Default:** Prefer fail-fast errors to fallback paths. Add a fallback only when preserving existing behavior or honoring an explicitly optional contract.
 
 ```typescript
 // ✅ GOOD: Fail immediately

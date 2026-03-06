@@ -1,12 +1,13 @@
 # @op1/workspace
 
-Operational continuity plugin for OpenCode: plans, notepads, delegation state, worktree tooling, tmux orchestration, and runtime safety hooks.
+Operational continuity plugin for OpenCode: plans, notepads, worktree tooling, tmux orchestration, and runtime safety hooks.
 
 ## What It Provides
 
 - Persistent plan workflow (`plan_*` + linked plan docs)
 - Notepad memory across sessions (`learnings`, `issues`, `decisions`)
-- Delegation/session continuity and diagnostics
+- Session continuity and diagnostics
+- Pairs with `@op1/delegation` for async `task` orchestration
 - Worktree and terminal orchestration (including tmux-aware behavior)
 - Safety hooks (verification reminders, context scouting, compaction, non-interactive guard)
 
@@ -82,7 +83,7 @@ All operational improvements are on by default. Approval remains opt-in.
   },
   "approval": {
     "mode": "off",
-    "tools": ["plan_archive", "delegation_cancel", "worktree_delete"],
+    "tools": ["plan_archive", "background_cancel", "worktree_delete"],
     "exemptTools": [],
     "ttlMs": 300000,
     "nonInteractive": "fail-closed"
@@ -133,9 +134,16 @@ Key tool groups exposed by this plugin:
 - Plan: `plan_save`, `plan_read`, `plan_list`, `plan_set_active`, `plan_archive`, `plan_unarchive`
 - Plan docs: `plan_doc_link`, `plan_doc_list`, `plan_doc_load`
 - Notepads: `notepad_read`, `notepad_write`, `notepad_list`
-- Delegation: `delegate`, `delegation_read`, `delegation_list`, `delegation_cancel`
 - Sessions: `session_list`, `session_read`, `session_search`, `session_info`
 - Worktree: `worktree_create`, `worktree_list`, `worktree_enter`, `worktree_leave`, `worktree_delete`
+
+Async task orchestration lives in `@op1/delegation`:
+
+- `task`
+- `background_output`
+- `background_cancel`
+- `agent_status`
+- `task_graph_status`
 
 ## Data Layout
 
@@ -145,7 +153,7 @@ Runtime state is stored under:
 <project>/.opencode/workspace/
 ```
 
-Includes plans, notepads, delegation/session registries, and feature state files.
+Includes plans, notepads, session registries, and feature state files. `@op1/delegation` also stores its durable task records here.
 
 ## License
 

@@ -28,9 +28,9 @@ skill("brainstorming")   # MANDATORY before creative work
 Before drafting ANY plan, gather context:
 
 ```
-task(agent="explore", prompt="Find existing patterns for [topic]", background=true)
-task(agent="explore", prompt="Find test infrastructure and conventions", background=true)
-task(agent="researcher", prompt="Find official docs and best practices for [technology]", background=true)
+task(subagent_type="explore", description="Find patterns", prompt="Find existing patterns for [topic]", run_in_background=true)
+task(subagent_type="explore", description="Find test setup", prompt="Find test infrastructure and conventions", run_in_background=true)
+task(subagent_type="researcher", description="Research best practices", prompt="Find official docs and best practices for [technology]", run_in_background=true)
 ```
 
 **NEVER plan blind. Context first, plan second.**

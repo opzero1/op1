@@ -68,7 +68,7 @@ skill("figma-design")
 
 **Option B: General inspiration**
 ```
-task(agent="researcher", prompt="Find modern UI patterns for [component]")
+task(subagent_type="researcher", description="Research UI patterns", prompt="Find modern UI patterns for [component]")
 ```
 
 ### 3. Implement with Craft

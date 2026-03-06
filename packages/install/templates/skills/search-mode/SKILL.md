@@ -17,13 +17,13 @@ Launch multiple background agents IN PARALLEL:
 
 ```
 // Codebase patterns (INTERNAL)
-task(agent="explore", prompt="Find [pattern 1]...", background=true)
-task(agent="explore", prompt="Find [pattern 2]...", background=true)
-task(agent="explore", prompt="Find [pattern 3]...", background=true)
+task(subagent_type="explore", description="Find pattern one", prompt="Find [pattern 1]...", run_in_background=true)
+task(subagent_type="explore", description="Find pattern two", prompt="Find [pattern 2]...", run_in_background=true)
+task(subagent_type="explore", description="Find pattern three", prompt="Find [pattern 3]...", run_in_background=true)
 
 // External resources (EXTERNAL)
-task(agent="researcher", prompt="Find docs for...", background=true)
-task(agent="researcher", prompt="Find GitHub examples...", background=true)
+task(subagent_type="researcher", description="Find docs", prompt="Find docs for...", run_in_background=true)
+task(subagent_type="researcher", description="Find examples", prompt="Find GitHub examples...", run_in_background=true)
 ```
 
 ### Direct Tools (Use in Parallel)
@@ -51,10 +51,10 @@ For: "Find all authentication implementations"
 
 ```
 // Parallel agents
-task(agent="explore", prompt="Find auth middleware implementations", background=true)
-task(agent="explore", prompt="Find login/logout functions", background=true)
-task(agent="explore", prompt="Find JWT/session handling", background=true)
-task(agent="researcher", prompt="Find NextAuth.js best practices", background=true)
+task(subagent_type="explore", description="Find auth middleware", prompt="Find auth middleware implementations", run_in_background=true)
+task(subagent_type="explore", description="Find auth flows", prompt="Find login/logout functions", run_in_background=true)
+task(subagent_type="explore", description="Find session handling", prompt="Find JWT/session handling", run_in_background=true)
+task(subagent_type="researcher", description="Research NextAuth", prompt="Find NextAuth.js best practices", run_in_background=true)
 
 // Direct tools (in parallel)
 glob(pattern="**/*auth*")

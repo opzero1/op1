@@ -32,3 +32,25 @@ If consumers need access to classes (e.g., `MockEmbedder` for testing), export t
   "./embedders": "./dist/embedder.js"  // Classes available separately
 }
 ```
+
+## Hook Registration Pattern
+
+OpenCode plugin hooks must be returned as **top-level keys**, not under a nested `hook` object.
+
+```typescript
+// ❌ DON'T: Nested hook map
+return {
+  tool: { task: myTool },
+  hook: {
+    "tool.execute.after": afterHook,
+  },
+}
+
+// ✅ DO: Direct hook keys on the plugin return object
+return {
+  tool: { task: myTool },
+  "tool.execute.after": afterHook,
+}
+```
+
+Use `opencode debug config` plus a real `opencode run` smoke test to verify the runtime is loading the plugin shape you expect.

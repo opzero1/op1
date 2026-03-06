@@ -58,6 +58,10 @@ interface HookVerification {
 	throttleMs?: number;
 }
 
+interface HookSkillPointer {
+	mode?: "fallback" | "exclusive";
+}
+
 /**
  * Plugin-level configuration for hook feature flags.
  * Consumers can pass this to control which hooks are active.
@@ -75,6 +79,8 @@ export interface HookConfig {
 	notifications?: HookNotifications;
 	/** Verification autopilot settings */
 	verification?: HookVerification;
+	/** Skill pointer fail policy */
+	skillPointer?: HookSkillPointer;
 	/** Approval-gate policy controls */
 	approval?: ApprovalPolicyConfig;
 }
@@ -95,6 +101,7 @@ export interface ResolvedHookConfig {
 		autopilot: boolean;
 		throttleMs: number;
 	};
+	skillPointer: Required<HookSkillPointer>;
 	approval: ResolvedApprovalPolicy;
 }
 
@@ -139,6 +146,10 @@ const DEFAULT_VERIFICATION: Required<HookVerification> = {
 	throttleMs: DEFAULT_THRESHOLDS.verificationThrottleMs,
 };
 
+const DEFAULT_SKILL_POINTER: Required<HookSkillPointer> = {
+	mode: "fallback",
+};
+
 const DISABLED_HOOKS_BY_FEATURE: Record<keyof HookFeatureFlags, string[]> = {
 	momentum: ["momentum"],
 	completionPromise: ["completionPromise"],
@@ -170,6 +181,7 @@ export const DEFAULT_HOOK_CONFIG: ResolvedHookConfig = {
 	thresholds: DEFAULT_THRESHOLDS,
 	notifications: DEFAULT_NOTIFICATIONS,
 	verification: DEFAULT_VERIFICATION,
+	skillPointer: DEFAULT_SKILL_POINTER,
 	approval: resolveApprovalPolicy(),
 };
 
@@ -258,6 +270,12 @@ function mergeHookConfig(base: HookConfig, incoming: HookConfig): HookConfig {
 				incoming.verification as Record<string, unknown> | undefined,
 			),
 		},
+		skillPointer: {
+			...(base.skillPointer ?? {}),
+			...stripUndefined(
+				incoming.skillPointer as Record<string, unknown> | undefined,
+			),
+		},
 		approval: {
 			...(base.approval ?? {}),
 			...stripUndefined(
@@ -277,6 +295,7 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 	const thresholdValue = asRecord(section.thresholds);
 	const notificationValue = asRecord(section.notifications);
 	const verificationValue = asRecord(section.verification);
+	const skillPointerValue = asRecord(section.skillPointer);
 	const approvalValue = asRecord(section.approval);
 
 	const features: HookFeatureFlags = {
@@ -404,6 +423,15 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 				: undefined,
 	};
 
+	const skillPointer: HookSkillPointer = {
+		mode:
+			skillPointerValue?.mode === "exclusive"
+				? "exclusive"
+				: skillPointerValue?.mode === "fallback"
+					? "fallback"
+					: undefined,
+	};
+
 	const approval: ApprovalPolicyConfig = {
 		mode: parseApprovalMode(approvalValue?.mode),
 		tools: Array.isArray(approvalValue?.tools)
@@ -440,6 +468,7 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 		thresholds,
 		notifications,
 		verification,
+		skillPointer,
 		approval,
 	};
 }
@@ -585,6 +614,10 @@ export function resolveHookConfig(partial?: HookConfig): ResolvedHookConfig {
 		verification: {
 			...DEFAULT_VERIFICATION,
 			...(merged.verification ?? {}),
+		},
+		skillPointer: {
+			...DEFAULT_SKILL_POINTER,
+			...(merged.skillPointer ?? {}),
 		},
 		approval: resolveApprovalPolicy(merged.approval),
 	};

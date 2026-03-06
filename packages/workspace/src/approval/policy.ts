@@ -25,14 +25,14 @@ const MAX_TTL_MS = 24 * 60 * 60_000;
 
 const DEFAULT_SELECTED_TOOLS = [
 	"plan_archive",
-	"delegation_cancel",
+	"background_cancel",
 	"worktree_delete",
 ] as const;
 
 const MUTATING_TOOLS = [
 	"plan_archive",
 	"plan_unarchive",
-	"delegation_cancel",
+	"background_cancel",
 	"worktree_create",
 	"worktree_enter",
 	"worktree_leave",
@@ -42,7 +42,7 @@ const MUTATING_TOOLS = [
 const TOOL_RISK_TIERS: Record<string, ApprovalRiskTier> = {
 	plan_archive: "high",
 	plan_unarchive: "medium",
-	delegation_cancel: "high",
+	background_cancel: "high",
 	worktree_create: "medium",
 	worktree_enter: "medium",
 	worktree_leave: "medium",

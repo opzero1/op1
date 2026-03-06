@@ -59,7 +59,7 @@ describe("approval state manager", () => {
 		const manager = createApprovalStateManager(env.workspaceDir);
 		const grant = await manager.approveTool({
 			sessionID: "root-expiry",
-			tool: "delegation_cancel",
+			tool: "background_cancel",
 			ttlMs: 1,
 		});
 		expect(grant).toBeDefined();
@@ -68,7 +68,7 @@ describe("approval state manager", () => {
 
 		const active = await manager.getActiveGrant(
 			"root-expiry",
-			"delegation_cancel",
+			"background_cancel",
 		);
 		expect(active).toBeNull();
 	});

@@ -1,6 +1,6 @@
 ---
 name: ulw
-description: ULTRAWORK MODE - Maximum capability activation. Use when you need parallel agent orchestration, strict verification, and zero tolerance for incomplete work. Triggers automatically on 'ultrawork' or 'ulw' in message.
+description: ULTRAWORK MODE - Maximum capability activation. Use when you need parallel agent orchestration, strict verification, and zero tolerance for incomplete work. Prefer explicit activation via `/ulw`, `/work`, `/continue`, or a clear user request for ultrawork mode.
 ---
 
 # ULTRAWORK MODE (ULW)
@@ -40,9 +40,9 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 **Tier 1: Agent-Level Parallelism**
 ```
 // Fire 3-10+ background agents simultaneously
-task(agent="explore", prompt="Find X...", background=true)
-task(agent="explore", prompt="Find Y...", background=true)
-task(agent="researcher", prompt="Find Z docs...", background=true)
+task(subagent_type="explore", description="Find X", prompt="Find X...", run_in_background=true)
+task(subagent_type="explore", description="Find Y", prompt="Find Y...", run_in_background=true)
+task(subagent_type="researcher", description="Find docs", prompt="Find Z docs...", run_in_background=true)
 // Continue working, collect with background_output when needed
 ```
 
@@ -78,8 +78,8 @@ Use the `batch` tool for 2-25 independent tool operations:
 **Tier 3: Combined (MAXIMUM THROUGHPUT)**
 ```
 // Spawn agents + batch tools simultaneously
-task(agent="explore", background=true)
-task(agent="researcher", background=true)
+task(subagent_type="explore", description="Explore code", prompt="Find the needed code paths", run_in_background=true)
+task(subagent_type="researcher", description="Research docs", prompt="Find the relevant documentation", run_in_background=true)
 batch([read(5 files), grep(3 patterns), glob(2 paths)])
 ```
 
@@ -199,7 +199,7 @@ Use batch tool during verification for efficiency:
 2. **Spawn** explore/researcher agents in PARALLEL (3-10+ if needed)
 3. **Plan** with gathered context (use `plan` agent for complex work)
 4. **Execute** with continuous verification against original requirements
-5. **Review** delegate to `reviewer` before completion
+5. **Review** hand off to `reviewer` before completion
 6. **Verify** build, test, show evidence
 7. **Complete** only when ALL requirements proven to work
 
@@ -209,20 +209,20 @@ Use batch tool during verification for efficiency:
 
 ```
 // Codebase search
-task(agent="explore", prompt="...", background=true)
+task(subagent_type="explore", description="Search code", prompt="...", run_in_background=true)
 
 // External docs/GitHub
-task(agent="researcher", prompt="...", background=true)
+task(subagent_type="researcher", description="Research docs", prompt="...", run_in_background=true)
 
 // Strategic planning
-task(agent="plan", prompt="...")
+task(subagent_type="plan", description="Plan work", prompt="...")
 
 // Architecture consultation
-task(agent="oracle", prompt="...")
+task(subagent_type="oracle", description="Review architecture", prompt="...")
 
 // Implementation
-task(agent="coder", prompt="...", skills=["code-philosophy"])
+task(subagent_type="coder", description="Implement change", prompt="...")
 
 // Code review
-task(agent="reviewer", prompt="Review changes in [files]")
+task(subagent_type="reviewer", description="Review changes", prompt="Review changes in [files]")
 ```

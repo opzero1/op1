@@ -14,17 +14,6 @@ type ContinuationContinueTool = {
 	) => Promise<string>;
 };
 
-type TaskGraphStatusTool = {
-	execute: (
-		args: {
-			root_session_id?: string;
-			include_completed?: boolean;
-			limit?: number;
-		},
-		toolCtx: { sessionID?: string },
-	) => Promise<string>;
-};
-
 type WorktreeCreateTool = {
 	execute: (
 		args: { branch: string; open_terminal?: boolean },
@@ -86,7 +75,7 @@ async function setupGitRepository(root: string): Promise<void> {
 }
 
 describe("P1 feature smoke", () => {
-	test("runs boundary + task-graph + continuation + externalScout + tmux orchestration in one config", async () => {
+	test("runs boundary + continuation + externalScout + tmux orchestration in one config", async () => {
 		const homeRoot = await mkdtemp(join(tmpdir(), "op1-p1-smoke-home-"));
 		tempRoots.push(homeRoot);
 		Bun.env.HOME = homeRoot;
@@ -135,15 +124,12 @@ describe("P1 feature smoke", () => {
 
 		const continuationContinue = plugin.tool
 			?.continuation_continue as unknown as ContinuationContinueTool;
-		const taskGraphStatus = plugin.tool
-			?.task_graph_status as unknown as TaskGraphStatusTool;
 		const worktreeCreate = plugin.tool
 			?.worktree_create as unknown as WorktreeCreateTool;
 		const worktreeDelete = plugin.tool
 			?.worktree_delete as unknown as WorktreeDeleteTool;
 
 		expect(continuationContinue).toBeDefined();
-		expect(taskGraphStatus).toBeDefined();
 		expect(worktreeCreate).toBeDefined();
 		expect(worktreeDelete).toBeDefined();
 
@@ -158,17 +144,6 @@ describe("P1 feature smoke", () => {
 			{ sessionID: "child-session" },
 		);
 		expect(runningTransition).toContain('"mode": "running"');
-
-		const graphPayload = await taskGraphStatus.execute(
-			{},
-			{ sessionID: "child-session" },
-		);
-		const graph = JSON.parse(graphPayload) as {
-			root_session_id?: string;
-			nodes?: unknown[];
-		};
-		expect(graph.root_session_id).toBe("root-session");
-		expect(Array.isArray(graph.nodes)).toBe(true);
 
 		const branch = "feature/p1-smoke";
 		const created = await worktreeCreate.execute(
