@@ -1,17 +1,14 @@
 /**
  * Symbol Extractor
- * 
+ *
  * Coordinates language adapters to extract symbols from source files.
  */
 
 import type { SymbolNode } from "../types";
-import {
-	generateCanonicalId,
-	generateContentHash,
-} from "./canonical-id";
+import { generateCanonicalId, generateContentHash } from "./canonical-id";
 import type { LanguageAdapter, RawSymbol } from "./language-adapter";
-import { createTypeScriptAdapter } from "./typescript-adapter";
 import { createPythonAdapter } from "./python-adapter";
+import { createTypeScriptAdapter } from "./typescript-adapter";
 
 export interface SymbolExtractor {
 	/** Extract symbols from a file */

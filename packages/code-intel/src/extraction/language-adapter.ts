@@ -1,6 +1,6 @@
 /**
  * Language Adapter Interface
- * 
+ *
  * Abstracts language-specific symbol extraction from AST nodes.
  */
 
@@ -31,13 +31,14 @@ export interface LanguageAdapter {
 	extensions: string[];
 
 	/** Extract symbols from source code */
-	extractSymbols(
-		sourceCode: string,
-		filePath: string,
-	): Promise<RawSymbol[]>;
+	extractSymbols(sourceCode: string, filePath: string): Promise<RawSymbol[]>;
 
 	/** Get qualified name for a symbol */
-	getQualifiedName(filePath: string, symbolName: string, parentName?: string): string;
+	getQualifiedName(
+		filePath: string,
+		symbolName: string,
+		parentName?: string,
+	): string;
 }
 
 /**

@@ -22,38 +22,41 @@
  * - Lazy initialization: Only builds index on first use
  */
 
-// Export plugin (default export for OpenCode plugin loader)
-export { CodeIntelPlugin } from "./plugin";
-export { default } from "./plugin";
-
-// Re-export types only (no classes that could be mistakenly called as functions)
-// IMPORTANT: OpenCode plugin loader iterates all exports and tries to call them.
-// Exporting classes at the top level causes "Cannot call a class constructor without |new|" errors.
 export type {
-	SymbolType,
-	SymbolNode,
-	EdgeType,
-	EdgeOrigin,
-	SymbolEdge,
-	FileStatus,
-	FileRecord,
-	RepoMapEntry,
-	IndexLifecycleState,
-	IndexStatus,
-	RerankMode,
-	QueryOptions,
-	QueryResult,
-	RiskLevel,
-	ImpactAnalysis,
-	CodeIntelConfig,
-} from "./types";
-
-export type { IndexManager, IndexManagerConfig } from "./indexing/index-manager";
-export type { SmartQuery, SmartQueryOptions } from "./query/smart-query";
-export type { ImpactAnalyzer, ImpactAnalysisOptions } from "./query/impact-analysis";
+	IndexManager,
+	IndexManagerConfig,
+} from "./indexing/index-manager";
+// Export plugin (default export for OpenCode plugin loader)
+export { CodeIntelPlugin, default } from "./plugin";
 export type {
 	GraphExpander,
 	GraphExpansionOptions,
 	GraphExpansionResult,
 	GraphNode,
 } from "./query/graph-expander";
+export type {
+	ImpactAnalysisOptions,
+	ImpactAnalyzer,
+} from "./query/impact-analysis";
+export type { SmartQuery, SmartQueryOptions } from "./query/smart-query";
+// Re-export types only (no classes that could be mistakenly called as functions)
+// IMPORTANT: OpenCode plugin loader iterates all exports and tries to call them.
+// Exporting classes at the top level causes "Cannot call a class constructor without |new|" errors.
+export type {
+	CodeIntelConfig,
+	EdgeOrigin,
+	EdgeType,
+	FileRecord,
+	FileStatus,
+	ImpactAnalysis,
+	IndexLifecycleState,
+	IndexStatus,
+	QueryOptions,
+	QueryResult,
+	RepoMapEntry,
+	RerankMode,
+	RiskLevel,
+	SymbolEdge,
+	SymbolNode,
+	SymbolType,
+} from "./types";

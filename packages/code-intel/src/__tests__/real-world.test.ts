@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Real-World Usage Test for @op1/code-intel
- * 
+ *
  * This script simulates how a developer would actually use the package:
  * 1. Create a SQLite database
  * 2. Extract symbols from real TypeScript files
@@ -11,35 +11,26 @@
  * 6. Use diagnostics for logging/metrics
  */
 
+import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { readdir } from "node:fs/promises";
-
-// Import from the package
-import {
-	createSymbolStore,
-	createEdgeStore,
-	createFileStore,
-} from "../storage";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createCodeIntelMetrics, createLogger } from "../diagnostics";
 
 import {
+	createTypeScriptAdapter,
 	generateCanonicalId,
 	generateContentHash,
-	createTypeScriptAdapter,
 } from "../extraction";
-
+import { createBranchManager } from "../indexing";
+import { createBranchDiffer } from "../query";
+// Import from the package
 import {
-	createBranchDiffer,
-} from "../query";
-
-import {
-	createLogger,
-	createCodeIntelMetrics,
-} from "../diagnostics";
-
-import {
-	createBranchManager,
-} from "../indexing";
+	createEdgeStore,
+	createFileStore,
+	createSymbolStore,
+} from "../storage";
 
 import type { SymbolNode } from "../types";
 
@@ -47,8 +38,10 @@ import type { SymbolNode } from "../types";
 // Test Configuration
 // ============================================================================
 
-const WORKSPACE_ROOT = process.cwd();
+const WORKSPACE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const TEST_DB_PATH = ":memory:"; // Use in-memory for testing
+
+test("real world usage script", async () => {
 
 console.log("=".repeat(70));
 console.log("@op1/code-intel - Real-World Usage Test");
@@ -137,7 +130,11 @@ console.log("📝 STEP 2: Extracting symbols from real TypeScript files...");
 
 const adapter = createTypeScriptAdapter();
 const metrics = createCodeIntelMetrics();
-const logger = createLogger({ console: false, storeEntries: true, level: "debug" });
+const logger = createLogger({
+	console: false,
+	storeEntries: true,
+	level: "debug",
+});
 
 // Read actual source files from this package
 const sourceFiles = [
@@ -151,23 +148,27 @@ const branch = "main";
 
 for (const filePath of sourceFiles) {
 	const fullPath = join(WORKSPACE_ROOT, filePath);
-	
+
 	try {
 		const file = Bun.file(fullPath);
 		if (!(await file.exists())) {
 			console.log(`  ⚠️  File not found: ${filePath}`);
 			continue;
 		}
-		
+
 		const content = await file.text();
 		const rawSymbols = await adapter.extractSymbols(content, filePath);
-		
+
 		console.log(`  📄 ${filePath}: ${rawSymbols.length} symbols extracted`);
-		
+
 		// Convert to SymbolNode and store
 		for (const raw of rawSymbols) {
 			const symbol: SymbolNode = {
-				id: generateCanonicalId(raw.qualified_name, raw.signature, "typescript"),
+				id: generateCanonicalId(
+					raw.qualified_name,
+					raw.signature,
+					"typescript",
+				),
 				name: raw.name,
 				qualified_name: raw.qualified_name,
 				type: raw.type,
@@ -184,21 +185,22 @@ for (const filePath of sourceFiles) {
 				updated_at: Date.now(),
 				revision_id: 1,
 			};
-			
+
 			allSymbols.push(symbol);
 			symbolStore.upsert(symbol);
 			metrics.symbolsExtracted.inc();
 		}
-		
+
 		metrics.filesIndexed.inc();
-		
 	} catch (error) {
 		console.log(`  ❌ Error processing ${filePath}: ${error}`);
 		metrics.indexingErrors.inc();
 	}
 }
 
-console.log(`\n✅ Extracted ${allSymbols.length} total symbols from ${sourceFiles.length} files\n`);
+console.log(
+	`\n✅ Extracted ${allSymbols.length} total symbols from ${sourceFiles.length} files\n`,
+);
 
 // ============================================================================
 // Test 2: Query symbols from database
@@ -222,11 +224,15 @@ console.log(`  📊 Type Aliases: ${typeAliases.length}`);
 
 // Query specific symbols
 const loggerSymbols = symbolStore.getByName("createLogger", branch);
-console.log(`\n  🔎 Found 'createLogger': ${loggerSymbols.length > 0 ? "YES" : "NO"}`);
+console.log(
+	`\n  🔎 Found 'createLogger': ${loggerSymbols.length > 0 ? "YES" : "NO"}`,
+);
 if (loggerSymbols.length > 0) {
 	console.log(`     - Type: ${loggerSymbols[0].type}`);
 	console.log(`     - File: ${loggerSymbols[0].file_path}`);
-	console.log(`     - Lines: ${loggerSymbols[0].start_line}-${loggerSymbols[0].end_line}`);
+	console.log(
+		`     - Lines: ${loggerSymbols[0].start_line}-${loggerSymbols[0].end_line}`,
+	);
 }
 
 console.log("\n✅ Database queries successful\n");
@@ -295,13 +301,15 @@ console.log("📈 STEP 6: Testing diagnostics (metrics & logging)...");
 const snapshot = metrics.registry.snapshot();
 
 console.log(`  📊 Files indexed: ${snapshot.counters.files_indexed || 0}`);
-console.log(`  📊 Symbols extracted: ${snapshot.counters.symbols_extracted || 0}`);
+console.log(
+	`  📊 Symbols extracted: ${snapshot.counters.symbols_extracted || 0}`,
+);
 console.log(`  📊 Indexing errors: ${snapshot.counters.indexing_errors || 0}`);
 
 // Test timer
 const timer = metrics.indexingDuration;
 const stopTimer = timer.start();
-await new Promise(r => setTimeout(r, 10));
+await new Promise((r) => setTimeout(r, 10));
 const duration = stopTimer();
 
 console.log(`  📊 Timer test: ${duration.toFixed(2)}ms`);
@@ -337,20 +345,25 @@ const results = {
 
 console.log("\n📋 Results:");
 for (const [key, value] of Object.entries(results)) {
-	const status = value === true || (typeof value === "number" && value > 0) ? "✅" : "❌";
+	const status =
+		value === true || (typeof value === "number" && value > 0) ? "✅" : "❌";
 	console.log(`  ${status} ${key}: ${value}`);
 }
 
-const allPassed = Object.values(results).every(v => v === true || (typeof v === "number" && v >= 0));
+const allPassed = Object.values(results).every(
+	(v) => v === true || (typeof v === "number" && v >= 0),
+);
 
 console.log("\n" + "=".repeat(70));
 if (allPassed) {
 	console.log("🎉 ALL REAL-WORLD TESTS PASSED!");
 } else {
 	console.log("❌ SOME TESTS FAILED - SEE ABOVE");
-	process.exit(1);
 }
 console.log("=".repeat(70));
 
+expect(allPassed).toBe(true);
+
 // Cleanup
 db.close();
+}, 60000);

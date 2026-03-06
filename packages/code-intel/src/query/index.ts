@@ -3,88 +3,80 @@
  */
 
 export {
+	type BranchDiffer,
+	type BranchDiffOptions,
+	type BranchDiffResult,
+	createBranchDiffer,
+	type DiffStatus,
+	type EdgeDiff,
+	type SymbolDiff,
+} from "./branch-diff";
+export {
+	type ContextCache,
+	type ContextCacheConfig,
+	type ContextCacheStats,
+	createContextCache,
+	createEmbeddingCache,
+	type EmbeddingCache,
+	generateCacheKey,
+} from "./context-cache";
+export {
 	createGraphExpander,
 	type GraphExpander,
 	type GraphExpansionOptions,
 	type GraphExpansionResult,
 	type GraphNode,
 } from "./graph-expander";
-
+export {
+	createLLMHyDEGenerator,
+	createTemplateHyDEGenerator,
+	type HyDEGenerator,
+	type HyDEOptions,
+	type LLMProvider,
+} from "./hyde";
 export {
 	createImpactAnalyzer,
-	type ImpactAnalyzer,
 	type ImpactAnalysisOptions,
+	type ImpactAnalyzer,
 } from "./impact-analysis";
-
 export {
-	createBranchDiffer,
-	type BranchDiffer,
-	type BranchDiffResult,
-	type BranchDiffOptions,
-	type SymbolDiff,
-	type EdgeDiff,
-	type DiffStatus,
-} from "./branch-diff";
-
-export {
-	createMultiGranularSearch,
 	createEnhancedMultiGranularSearch,
-	type MultiGranularSearch,
-	type MultiGranularSearchDeps,
-	type MultiGranularSearchOptions,
-	type MultiGranularResult,
+	createMultiGranularSearch,
 	type EnhancedMultiGranularSearch,
 	type EnhancedMultiGranularSearchDeps,
 	type EnhancedSearchOptions,
 	type EnhancedSearchResult,
+	type MultiGranularResult,
+	type MultiGranularSearch,
+	type MultiGranularSearchDeps,
+	type MultiGranularSearchOptions,
 } from "./multi-granular-search";
-
 export {
-	createQueryRewriter,
 	createHyDERewriter,
+	createQueryRewriter,
+	type HyDERewriter,
 	type QueryRewriter,
 	type QueryRewriterConfig,
 	type RewrittenQuery,
-	type HyDERewriter,
 } from "./query-rewriter";
-
 export {
-	createSimpleReranker,
+	type AsyncReranker,
 	createBM25Reranker,
 	createCompositeReranker,
+	createSimpleReranker,
 	type Reranker,
-	type AsyncReranker,
 	type RerankItem,
-	type RerankResult,
 	type RerankOptions,
+	type RerankResult,
 } from "./reranker";
-
-export {
-	createVoyageReranker,
-	isVoyageRerankerAvailable,
-	type VoyageRerankerOptions,
-} from "./voyage-reranker";
-
-export {
-	createContextCache,
-	createEmbeddingCache,
-	generateCacheKey,
-	type ContextCache,
-	type ContextCacheConfig,
-	type ContextCacheStats,
-	type EmbeddingCache,
-} from "./context-cache";
 
 export {
 	createSmartQuery,
 	type SmartQuery,
 	type SmartQueryOptions,
 } from "./smart-query";
-
 export {
-	createTemplateHyDEGenerator,
-	createLLMHyDEGenerator,
-	type HyDEGenerator,
-	type HyDEOptions,
-	type LLMProvider,
-} from "./hyde";
+	createVoyageReranker,
+	isVoyageRerankerAvailable,
+	type VoyageRerankerOptions,
+} from "./voyage-reranker";

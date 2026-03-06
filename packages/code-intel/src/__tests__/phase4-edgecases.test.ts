@@ -8,16 +8,25 @@
  * - BUG 4: Pure-JS vector search path filtering (verified in Phase 1)
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import {
+	applyWordBoundaryBoost,
+	type RankedItem,
+} from "../query/multi-granular-search";
 import { buildContextWithinBudget } from "../query/smart-query";
-import { applyWordBoundaryBoost, type RankedItem } from "../query/multi-granular-search";
-import type { SymbolNode, SymbolEdge } from "../types";
+import type { SymbolEdge, SymbolNode } from "../types";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-function makeSymbol(overrides: Partial<SymbolNode> & { id: string; name: string; content: string }): SymbolNode {
+function makeSymbol(
+	overrides: Partial<SymbolNode> & {
+		id: string;
+		name: string;
+		content: string;
+	},
+): SymbolNode {
 	return {
 		qualified_name: overrides.qualified_name ?? `src/${overrides.name}`,
 		type: "FUNCTION",
@@ -34,7 +43,9 @@ function makeSymbol(overrides: Partial<SymbolNode> & { id: string; name: string;
 	};
 }
 
-function makeRankedItem(overrides: Partial<RankedItem> & { id: string; content: string }): RankedItem {
+function makeRankedItem(
+	overrides: Partial<RankedItem> & { id: string; content: string },
+): RankedItem {
 	return {
 		granularity: "symbol",
 		score: 0.5,
@@ -55,14 +66,16 @@ describe("BUG 6: Worktree dedup via content_hash", () => {
 			makeSymbol({
 				id: "sym-worktree-1",
 				name: "calculateTax",
-				content: "function calculateTax(amount: number) { return amount * 0.1; }",
+				content:
+					"function calculateTax(amount: number) { return amount * 0.1; }",
 				file_path: "worktree-a/src/tax.ts",
 				content_hash: sharedHash,
 			}),
 			makeSymbol({
 				id: "sym-worktree-2",
 				name: "calculateTax",
-				content: "function calculateTax(amount: number) { return amount * 0.1; }",
+				content:
+					"function calculateTax(amount: number) { return amount * 0.1; }",
 				file_path: "worktree-b/src/tax.ts",
 				content_hash: sharedHash,
 			}),
@@ -140,8 +153,16 @@ describe("BUG 6: Worktree dedup via content_hash", () => {
 describe("BUG 10: Word-boundary boost for short tokens", () => {
 	test("'COP' as whole word gets 1.5x boost", () => {
 		const items: RankedItem[] = [
-			makeRankedItem({ id: "cop-status", content: "const status = COP;", score: 0.4 }),
-			makeRankedItem({ id: "small-copy", content: "class SmallCopyInput { ... }", score: 0.5 }),
+			makeRankedItem({
+				id: "cop-status",
+				content: "const status = COP;",
+				score: 0.4,
+			}),
+			makeRankedItem({
+				id: "small-copy",
+				content: "class SmallCopyInput { ... }",
+				score: 0.5,
+			}),
 		];
 
 		const boosted = applyWordBoundaryBoost(items, "COP");
@@ -157,8 +178,16 @@ describe("BUG 10: Word-boundary boost for short tokens", () => {
 
 	test("tokens >= 4 chars are NOT boosted", () => {
 		const items: RankedItem[] = [
-			makeRankedItem({ id: "copy-func", content: "function copyFile() {}", score: 0.5 }),
-			makeRankedItem({ id: "backup-func", content: "function backup() {}", score: 0.4 }),
+			makeRankedItem({
+				id: "copy-func",
+				content: "function copyFile() {}",
+				score: 0.5,
+			}),
+			makeRankedItem({
+				id: "backup-func",
+				content: "function backup() {}",
+				score: 0.4,
+			}),
 		];
 
 		const boosted = applyWordBoundaryBoost(items, "copy");
@@ -170,8 +199,16 @@ describe("BUG 10: Word-boundary boost for short tokens", () => {
 
 	test("no short tokens in query — no change", () => {
 		const items: RankedItem[] = [
-			makeRankedItem({ id: "func-a", content: "function something() {}", score: 0.6 }),
-			makeRankedItem({ id: "func-b", content: "function another() {}", score: 0.3 }),
+			makeRankedItem({
+				id: "func-a",
+				content: "function something() {}",
+				score: 0.6,
+			}),
+			makeRankedItem({
+				id: "func-b",
+				content: "function another() {}",
+				score: 0.3,
+			}),
 		];
 
 		const boosted = applyWordBoundaryBoost(items, "something another");
@@ -183,8 +220,16 @@ describe("BUG 10: Word-boundary boost for short tokens", () => {
 
 	test("multiple short tokens — any word-boundary match triggers boost", () => {
 		const items: RankedItem[] = [
-			makeRankedItem({ id: "x-y-item", content: "let X = getY();", score: 0.3 }),
-			makeRankedItem({ id: "no-match", content: "function noXYInside() {}", score: 0.5 }),
+			makeRankedItem({
+				id: "x-y-item",
+				content: "let X = getY();",
+				score: 0.3,
+			}),
+			makeRankedItem({
+				id: "no-match",
+				content: "function noXYInside() {}",
+				score: 0.5,
+			}),
 		];
 
 		const boosted = applyWordBoundaryBoost(items, "X Y");
@@ -199,8 +244,16 @@ describe("BUG 10: Word-boundary boost for short tokens", () => {
 
 	test("boosted results are re-sorted by score", () => {
 		const items: RankedItem[] = [
-			makeRankedItem({ id: "low-score-match", content: "const OK = true;", score: 0.3 }),
-			makeRankedItem({ id: "high-score-nomatch", content: "function unrelated() {}", score: 0.4 }),
+			makeRankedItem({
+				id: "low-score-match",
+				content: "const OK = true;",
+				score: 0.3,
+			}),
+			makeRankedItem({
+				id: "high-score-nomatch",
+				content: "function unrelated() {}",
+				score: 0.4,
+			}),
 		];
 
 		const boosted = applyWordBoundaryBoost(items, "OK");

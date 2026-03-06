@@ -9,7 +9,7 @@
  * the *algorithms* in isolation rather than importing private functions.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // 1. Worktree Exclusion
@@ -116,10 +116,7 @@ HEAD def456
 branch refs/heads/feature
 `;
 		// Root with trailing slash — should still work identically
-		const result = parseWorktreePorcelain(
-			porcelainOutput,
-			"/workspace/main/",
-		);
+		const result = parseWorktreePorcelain(porcelainOutput, "/workspace/main/");
 
 		expect(result).toEqual(["feature"]);
 	});
@@ -589,10 +586,6 @@ describe("Embedding buffer accumulation", () => {
 		}
 
 		expect(buffer).toHaveLength(3);
-		expect(buffer.map((c) => c.id)).toEqual([
-			"chunk_1",
-			"chunk_2",
-			"chunk_3",
-		]);
+		expect(buffer.map((c) => c.id)).toEqual(["chunk_1", "chunk_2", "chunk_3"]);
 	});
 });

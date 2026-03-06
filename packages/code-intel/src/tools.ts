@@ -12,13 +12,16 @@
  * - code_intel_refresh: Incremental update
  */
 
-import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool";
-import type { IndexManager } from "./indexing/index-manager";
-import type { SmartQuery } from "./query/smart-query";
-import type { ImpactAnalyzer } from "./query/impact-analysis";
-import type { GraphExpander, GraphExpansionResult } from "./query/graph-expander";
-import type { SymbolNode, SymbolType, RiskLevel, RepoMapEntry } from "./types";
+import { type ToolDefinition, tool } from "@opencode-ai/plugin/tool";
 import type { Embedder } from "./embeddings";
+import type { IndexManager } from "./indexing/index-manager";
+import type {
+	GraphExpander,
+	GraphExpansionResult,
+} from "./query/graph-expander";
+import type { ImpactAnalyzer } from "./query/impact-analysis";
+import type { SmartQuery } from "./query/smart-query";
+import type { RepoMapEntry, RiskLevel, SymbolNode, SymbolType } from "./types";
 
 // ============================================================================
 // Singleton State (initialized by plugin)
@@ -58,7 +61,9 @@ export function setEmbedder(embedderInstance: Embedder | null): void {
 async function ensureInitialized(): Promise<void> {
 	if (indexManager) return;
 	if (!ensureIndexFn) {
-		throw new Error("Code intelligence not initialized. Ensure @op1/code-intel plugin is configured.");
+		throw new Error(
+			"Code intelligence not initialized. Ensure @op1/code-intel plugin is configured.",
+		);
 	}
 	await ensureIndexFn();
 }
@@ -86,18 +91,27 @@ function formatRiskBadge(risk: RiskLevel): string {
 	return badges[risk];
 }
 
-function formatGraphResult(result: GraphExpansionResult, direction: "callers" | "callees"): string {
+function formatGraphResult(
+	result: GraphExpansionResult,
+	direction: "callers" | "callees",
+): string {
 	const lines: string[] = [];
 	const { root, nodes, stats } = result;
 
-	lines.push(`## ${direction === "callers" ? "Callers of" : "Callees from"} \`${root.qualified_name}\``);
+	lines.push(
+		`## ${direction === "callers" ? "Callers of" : "Callees from"} \`${root.qualified_name}\``,
+	);
 	lines.push("");
 	lines.push(`**Root:** ${root.type} in ${root.file_path}:${root.start_line}`);
-	lines.push(`**Found:** ${stats.totalNodes - 1} ${direction}, ${stats.totalEdges} edges`);
+	lines.push(
+		`**Found:** ${stats.totalNodes - 1} ${direction}, ${stats.totalEdges} edges`,
+	);
 	lines.push(`**Max depth reached:** ${stats.maxDepthReached}`);
 
 	if (stats.truncatedNodes > 0) {
-		lines.push(`**Note:** ${stats.truncatedNodes} nodes had edges truncated due to fan-out limit`);
+		lines.push(
+			`**Note:** ${stats.truncatedNodes} nodes had edges truncated due to fan-out limit`,
+		);
 	}
 
 	lines.push("");
@@ -111,10 +125,14 @@ function formatGraphResult(result: GraphExpansionResult, direction: "callers" | 
 		byDepth.set(node.depth, existing);
 	}
 
-	for (const [depth, symbols] of Array.from(byDepth.entries()).sort((a, b) => a[0] - b[0])) {
+	for (const [depth, symbols] of Array.from(byDepth.entries()).sort(
+		(a, b) => a[0] - b[0],
+	)) {
 		lines.push(`### Depth ${depth}`);
 		for (const symbol of symbols.slice(0, 20)) {
-			lines.push(`- \`${symbol.qualified_name}\` (${symbol.type}) - ${symbol.file_path}:${symbol.start_line}`);
+			lines.push(
+				`- \`${symbol.qualified_name}\` (${symbol.type}) - ${symbol.file_path}:${symbol.start_line}`,
+			);
 		}
 		if (symbols.length > 20) {
 			lines.push(`- ... and ${symbols.length - 20} more`);
@@ -180,33 +198,57 @@ export const smart_query: ToolDefinition = tool({
 	description:
 		"Natural language code search with hybrid vector + BM25 retrieval and graph expansion. Token-budget aware context building.",
 	args: {
-		query: tool.schema.string().describe("Natural language query (e.g., 'function that validates email addresses')"),
-		maxTokens: tool.schema.number().optional().describe("Max tokens in response context (default: 8000)"),
-		graphDepth: tool.schema.number().optional().describe("Graph traversal depth for callers/callees (default: 2, max: 3)"),
+		query: tool.schema
+			.string()
+			.describe(
+				"Natural language query (e.g., 'function that validates email addresses')",
+			),
+		maxTokens: tool.schema
+			.number()
+			.optional()
+			.describe("Max tokens in response context (default: 8000)"),
+		graphDepth: tool.schema
+			.number()
+			.optional()
+			.describe(
+				"Graph traversal depth for callers/callees (default: 2, max: 3)",
+			),
 		symbolTypes: tool.schema
 			.array(tool.schema.string())
 			.optional()
-			.describe("Filter by symbol types: FUNCTION, CLASS, METHOD, INTERFACE, etc."),
+			.describe(
+				"Filter by symbol types: FUNCTION, CLASS, METHOD, INTERFACE, etc.",
+			),
 		granularity: tool.schema
 			.enum(["auto", "symbol", "chunk", "file"])
 			.optional()
-			.describe("Search granularity: 'auto' searches all levels, 'symbol' for functions/classes, 'chunk' for code blocks, 'file' for full files"),
+			.describe(
+				"Search granularity: 'auto' searches all levels, 'symbol' for functions/classes, 'chunk' for code blocks, 'file' for full files",
+			),
 		rerank: tool.schema
 			.boolean()
 			.optional()
-			.describe("Enable reranking for improved precision (adds ~50-100ms latency)"),
+			.describe(
+				"Enable reranking for improved precision (adds ~50-100ms latency)",
+			),
 		rerankMode: tool.schema
 			.enum(["none", "heuristic", "llm", "hybrid"])
 			.optional()
-			.describe("Rerank mode: 'none' disables, 'heuristic' uses BM25, 'llm' uses Voyage AI, 'hybrid' uses Voyage with BM25 fallback. Takes priority over boolean rerank."),
+			.describe(
+				"Rerank mode: 'none' disables, 'heuristic' uses BM25, 'llm' uses Voyage AI, 'hybrid' uses Voyage with BM25 fallback. Takes priority over boolean rerank.",
+			),
 		pathPrefix: tool.schema
 			.string()
 			.optional()
-			.describe("Path prefix for scoping search to a subdirectory (e.g. 'packages/core/' or 'src/')"),
+			.describe(
+				"Path prefix for scoping search to a subdirectory (e.g. 'packages/core/' or 'src/')",
+			),
 		filePatterns: tool.schema
 			.array(tool.schema.string())
 			.optional()
-			.describe("File patterns to filter results (glob-style, e.g. ['*.ts', 'src/**/*.tsx'])"),
+			.describe(
+				"File patterns to filter results (glob-style, e.g. ['*.ts', 'src/**/*.tsx'])",
+			),
 	},
 	execute: async (args: SmartQueryArgs) => {
 		try {
@@ -216,10 +258,12 @@ export const smart_query: ToolDefinition = tool({
 			}
 
 			const branch = indexManager.getCurrentBranch();
-			
+
 			// Generate embedding for vector search (if embedder available)
-			const queryEmbedding = embedder ? await embedder.embed(args.query, { inputType: 'query' }) : undefined;
-			
+			const queryEmbedding = embedder
+				? await embedder.embed(args.query, { inputType: "query" })
+				: undefined;
+
 			const result = await smartQuery.search({
 				queryText: args.query,
 				embedding: queryEmbedding,
@@ -228,8 +272,13 @@ export const smart_query: ToolDefinition = tool({
 				graphDepth: args.graphDepth ?? 2,
 				symbolTypes: args.symbolTypes as SymbolType[] | undefined,
 				granularity: args.granularity,
-				rerank: args.rerankMode
-					?? (args.rerank === true ? "heuristic" : args.rerank === false ? "none" : undefined),
+				rerank:
+					args.rerankMode ??
+					(args.rerank === true
+						? "heuristic"
+						: args.rerank === false
+							? "none"
+							: undefined),
 				pathPrefix: args.pathPrefix,
 				filePatterns: args.filePatterns,
 			});
@@ -247,9 +296,13 @@ export const smart_query: ToolDefinition = tool({
 			lines.push(
 				`**Retrieval:** ${result.metadata.vectorHits} vector hits, ${result.metadata.keywordHits} keyword hits`,
 			);
-			lines.push(`**Graph expansions:** ${result.metadata.graphExpansions} | **Confidence:** ${result.metadata.confidence}`);
+			lines.push(
+				`**Graph expansions:** ${result.metadata.graphExpansions} | **Confidence:** ${result.metadata.confidence}`,
+			);
 			if (result.metadata.rerankMode) {
-				lines.push(`**Rerank:** mode=${result.metadata.rerankMode}, time=${result.metadata.rerankTime ?? 0}ms`);
+				lines.push(
+					`**Rerank:** mode=${result.metadata.rerankMode}, time=${result.metadata.rerankTime ?? 0}ms`,
+				);
 			}
 			lines.push("");
 			lines.push("---");
@@ -270,8 +323,13 @@ export const symbol_impact: ToolDefinition = tool({
 	description:
 		"Analyze the impact of changing a symbol. Shows risk assessment, affected symbols list, and confidence indicators.",
 	args: {
-		symbolName: tool.schema.string().describe("Symbol name or qualified name to analyze"),
-		maxDepth: tool.schema.number().optional().describe("Max traversal depth for dependents (default: 10)"),
+		symbolName: tool.schema
+			.string()
+			.describe("Symbol name or qualified name to analyze"),
+		maxDepth: tool.schema
+			.number()
+			.optional()
+			.describe("Max traversal depth for dependents (default: 10)"),
 	},
 	execute: async (args: SymbolImpactArgs) => {
 		try {
@@ -320,11 +378,15 @@ export const symbol_impact: ToolDefinition = tool({
 					byDepth.set(entry.depth, existing);
 				}
 
-				for (const [depth, entries] of Array.from(byDepth.entries()).sort((a, b) => a[0] - b[0])) {
+				for (const [depth, entries] of Array.from(byDepth.entries()).sort(
+					(a, b) => a[0] - b[0],
+				)) {
 					lines.push(`#### Depth ${depth} (${entries.length} symbols)`);
 					for (const entry of entries.slice(0, 15)) {
 						const pathStr = entry.path.slice(-2).join(" -> ");
-						lines.push(`- \`${entry.symbol.qualified_name}\` - ${entry.symbol.file_path}:${entry.symbol.start_line}`);
+						lines.push(
+							`- \`${entry.symbol.qualified_name}\` - ${entry.symbol.file_path}:${entry.symbol.start_line}`,
+						);
 						if (entry.path.length > 2) {
 							lines.push(`  Path: ...${pathStr}`);
 						}
@@ -335,7 +397,9 @@ export const symbol_impact: ToolDefinition = tool({
 					lines.push("");
 				}
 			} else {
-				lines.push("No dependents found. This symbol appears to be a leaf node.");
+				lines.push(
+					"No dependents found. This symbol appears to be a leaf node.",
+				);
 			}
 
 			return lines.join("\n");
@@ -349,15 +413,22 @@ export const symbol_impact: ToolDefinition = tool({
  * Call Graph - Visualize callers/callees
  */
 export const call_graph: ToolDefinition = tool({
-	description: "Visualize caller/callee relationships for a symbol. Depth-limited traversal with filtering.",
+	description:
+		"Visualize caller/callee relationships for a symbol. Depth-limited traversal with filtering.",
 	args: {
 		symbolName: tool.schema.string().describe("Symbol name or qualified name"),
 		direction: tool.schema
 			.enum(["callers", "callees", "both"])
 			.optional()
 			.describe("Direction to traverse (default: both)"),
-		depth: tool.schema.number().optional().describe("Traversal depth (default: 2, max: 3)"),
-		maxFanOut: tool.schema.number().optional().describe("Max edges per node (default: 10)"),
+		depth: tool.schema
+			.number()
+			.optional()
+			.describe("Traversal depth (default: 2, max: 3)"),
+		maxFanOut: tool.schema
+			.number()
+			.optional()
+			.describe("Max edges per node (default: 10)"),
 	},
 	execute: async (args: CallGraphArgs) => {
 		try {
@@ -419,12 +490,28 @@ export const call_graph: ToolDefinition = tool({
  * Symbol Search - Find symbols by name pattern using BM25
  */
 export const symbol_search: ToolDefinition = tool({
-	description: "Find symbols by name pattern using BM25 keyword matching. Filter by symbol type.",
+	description:
+		"Find symbols by name pattern using BM25 keyword matching. Filter by symbol type.",
 	args: {
-		query: tool.schema.string().describe("Symbol name or pattern to search for"),
-		limit: tool.schema.number().optional().describe("Max results (default: 20)"),
+		query: tool.schema
+			.string()
+			.describe("Symbol name or pattern to search for"),
+		limit: tool.schema
+			.number()
+			.optional()
+			.describe("Max results (default: 20)"),
 		symbolType: tool.schema
-			.enum(["FUNCTION", "CLASS", "METHOD", "INTERFACE", "MODULE", "ENUM", "VARIABLE", "TYPE_ALIAS", "PROPERTY"])
+			.enum([
+				"FUNCTION",
+				"CLASS",
+				"METHOD",
+				"INTERFACE",
+				"MODULE",
+				"ENUM",
+				"VARIABLE",
+				"TYPE_ALIAS",
+				"PROPERTY",
+			])
 			.optional()
 			.describe("Filter by symbol type"),
 	},
@@ -482,10 +569,17 @@ export const symbol_search: ToolDefinition = tool({
  * Repo Map - Show file importance rankings
  */
 export const repo_map: ToolDefinition = tool({
-	description: "Show file importance rankings based on PageRank. Top N files by connectivity and centrality.",
+	description:
+		"Show file importance rankings based on PageRank. Top N files by connectivity and centrality.",
 	args: {
-		limit: tool.schema.number().optional().describe("Number of files to show (default: 20)"),
-		directory: tool.schema.string().optional().describe("Filter to specific directory"),
+		limit: tool.schema
+			.number()
+			.optional()
+			.describe("Number of files to show (default: 20)"),
+		directory: tool.schema
+			.string()
+			.optional()
+			.describe("Filter to specific directory"),
 	},
 	execute: async (args: RepoMapArgs) => {
 		try {
@@ -502,8 +596,12 @@ export const repo_map: ToolDefinition = tool({
 
 			// Filter by directory if specified
 			if (args.directory) {
-				const dir = args.directory.endsWith("/") ? args.directory : `${args.directory}/`;
-				entries = entries.filter((e: RepoMapEntry) => e.file_path.startsWith(dir));
+				const dir = args.directory.endsWith("/")
+					? args.directory
+					: `${args.directory}/`;
+				entries = entries.filter((e: RepoMapEntry) =>
+					e.file_path.startsWith(dir),
+				);
 			}
 
 			entries = entries.slice(0, limit);
@@ -523,8 +621,12 @@ export const repo_map: ToolDefinition = tool({
 			entries.forEach((entry: RepoMapEntry, idx: number) => {
 				const score = entry.importance_score.toFixed(4);
 				const degree = `${entry.in_degree}/${entry.out_degree}`;
-				const symbols = entry.symbol_summary.slice(0, 50) + (entry.symbol_summary.length > 50 ? "..." : "");
-				lines.push(`| ${idx + 1} | \`${entry.file_path}\` | ${score} | ${degree} | ${symbols} |`);
+				const symbols =
+					entry.symbol_summary.slice(0, 50) +
+					(entry.symbol_summary.length > 50 ? "..." : "");
+				lines.push(
+					`| ${idx + 1} | \`${entry.file_path}\` | ${score} | ${degree} | ${symbols} |`,
+				);
 			});
 
 			return lines.join("\n");
@@ -570,7 +672,9 @@ export const code_intel_status: ToolDefinition = tool({
 			lines.push(`- Total chunks: ${status.total_chunks ?? 0}`);
 			lines.push(`- Total embeddings: ${status.total_embeddings ?? 0}`);
 			if (status.embedding_counts) {
-				lines.push(`- Symbol embeddings: ${status.embedding_counts.symbol ?? 0}`);
+				lines.push(
+					`- Symbol embeddings: ${status.embedding_counts.symbol ?? 0}`,
+				);
 				lines.push(`- Chunk embeddings: ${status.embedding_counts.chunk ?? 0}`);
 				lines.push(`- File embeddings: ${status.embedding_counts.file ?? 0}`);
 			}
@@ -579,7 +683,9 @@ export const code_intel_status: ToolDefinition = tool({
 			lines.push(`- Embedding model: ${status.embedding_model_id}`);
 			lines.push(`- Schema version: ${status.schema_version}`);
 			if (status.last_full_index) {
-				lines.push(`- Last full index: ${new Date(status.last_full_index).toISOString()}`);
+				lines.push(
+					`- Last full index: ${new Date(status.last_full_index).toISOString()}`,
+				);
 			}
 
 			return lines.join("\n");
@@ -593,7 +699,8 @@ export const code_intel_status: ToolDefinition = tool({
  * Code Intel Rebuild - Force full reindex
  */
 export const code_intel_rebuild: ToolDefinition = tool({
-	description: "Force a full reindex of the codebase. Clears existing data and rebuilds from scratch.",
+	description:
+		"Force a full reindex of the codebase. Clears existing data and rebuilds from scratch.",
 	args: {},
 	execute: async () => {
 		try {
@@ -619,7 +726,8 @@ export const code_intel_rebuild: ToolDefinition = tool({
  * Code Intel Refresh - Incremental update
  */
 export const code_intel_refresh: ToolDefinition = tool({
-	description: "Incrementally update the index with changed files. Faster than full rebuild.",
+	description:
+		"Incrementally update the index with changed files. Faster than full rebuild.",
 	args: {},
 	execute: async () => {
 		try {

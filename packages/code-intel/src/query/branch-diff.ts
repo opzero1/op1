@@ -3,7 +3,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { SymbolNode, SymbolEdge, SymbolType, EdgeType } from "../types";
+import type { EdgeType, SymbolEdge, SymbolNode, SymbolType } from "../types";
 
 export type DiffStatus = "added" | "removed" | "modified" | "unchanged";
 
@@ -429,10 +429,11 @@ export function createBranchDiffer(db: Database): BranchDiffer {
 			targetBranch: string,
 			limit = 100,
 		): SymbolNode[] {
-			const rows = addedSymbolsStmt.all(sourceBranch, targetBranch, limit) as Record<
-				string,
-				unknown
-			>[];
+			const rows = addedSymbolsStmt.all(
+				sourceBranch,
+				targetBranch,
+				limit,
+			) as Record<string, unknown>[];
 			return rows.map(simpleRowToSymbol);
 		},
 
@@ -441,10 +442,11 @@ export function createBranchDiffer(db: Database): BranchDiffer {
 			targetBranch: string,
 			limit = 100,
 		): SymbolNode[] {
-			const rows = removedSymbolsStmt.all(targetBranch, sourceBranch, limit) as Record<
-				string,
-				unknown
-			>[];
+			const rows = removedSymbolsStmt.all(
+				targetBranch,
+				sourceBranch,
+				limit,
+			) as Record<string, unknown>[];
 			return rows.map(simpleRowToSymbol);
 		},
 

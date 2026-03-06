@@ -1,9 +1,9 @@
 /**
  * Pure JavaScript Vector Store
- * 
+ *
  * A fallback vector store that uses SQLite for persistence and pure JS for similarity search.
  * No native extensions required - works everywhere Bun/Node runs.
- * 
+ *
  * Uses cosine similarity for vector matching with HNSW-like indexing for speed.
  */
 
@@ -96,7 +96,11 @@ function serializeEmbedding(embedding: number[]): string {
  */
 function deserializeEmbedding(base64: string): number[] {
 	const bytes = Buffer.from(base64, "base64");
-	const float32 = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
+	const float32 = new Float32Array(
+		bytes.buffer,
+		bytes.byteOffset,
+		bytes.length / 4,
+	);
 	return Array.from(float32);
 }
 
@@ -115,7 +119,9 @@ export function createPureVectorStore(db: Database): PureVectorStore {
 	`);
 
 	// Create index for faster lookups
-	db.run(`CREATE INDEX IF NOT EXISTS idx_js_vectors_updated ON js_vectors(updated_at)`);
+	db.run(
+		`CREATE INDEX IF NOT EXISTS idx_js_vectors_updated ON js_vectors(updated_at)`,
+	);
 
 	// Prepared statements
 	const upsertStmt = db.prepare(`
@@ -123,7 +129,9 @@ export function createPureVectorStore(db: Database): PureVectorStore {
 		VALUES (?, ?, ?)
 	`);
 
-	const getStmt = db.prepare(`SELECT embedding FROM js_vectors WHERE symbol_id = ?`);
+	const getStmt = db.prepare(
+		`SELECT embedding FROM js_vectors WHERE symbol_id = ?`,
+	);
 	const deleteStmt = db.prepare(`DELETE FROM js_vectors WHERE symbol_id = ?`);
 	const countStmt = db.prepare(`SELECT COUNT(*) as count FROM js_vectors`);
 	const getAllStmt = db.prepare(`SELECT symbol_id, embedding FROM js_vectors`);
@@ -139,7 +147,10 @@ export function createPureVectorStore(db: Database): PureVectorStore {
 		}
 
 		vectorCache = new Map();
-		const rows = getAllStmt.all() as Array<{ symbol_id: string; embedding: string }>;
+		const rows = getAllStmt.all() as Array<{
+			symbol_id: string;
+			embedding: string;
+		}>;
 
 		for (const row of rows) {
 			try {
@@ -259,7 +270,9 @@ export interface HybridVectorStore extends PureVectorStore {
 	getBackend(): "sqlite-vec" | "pure-js";
 }
 
-export async function createHybridVectorStore(db: Database): Promise<HybridVectorStore> {
+export async function createHybridVectorStore(
+	db: Database,
+): Promise<HybridVectorStore> {
 	// Try to load sqlite-vec first
 	let usingSqliteVec = false;
 
@@ -276,8 +289,7 @@ export async function createHybridVectorStore(db: Database): Promise<HybridVecto
 		`);
 
 		usingSqliteVec = true;
-	} catch {
-	}
+	} catch {}
 
 	// Create pure JS store as fallback or primary
 	const pureStore = createPureVectorStore(db);
@@ -300,7 +312,9 @@ export async function createHybridVectorStore(db: Database): Promise<HybridVecto
 		VALUES (?, ?)
 	`);
 
-	const vecDeleteStmt = db.prepare(`DELETE FROM vec_symbols WHERE symbol_id = ?`);
+	const vecDeleteStmt = db.prepare(
+		`DELETE FROM vec_symbols WHERE symbol_id = ?`,
+	);
 	const vecCountStmt = db.prepare(`SELECT COUNT(*) as count FROM vec_symbols`);
 
 	return {
@@ -390,10 +404,15 @@ export interface GranularVectorStore {
 	upsert(id: string, embedding: number[], granularity: Granularity): void;
 
 	/** Store multiple embeddings in a transaction */
-	upsertMany(items: Array<{ id: string; embedding: number[]; granularity: Granularity }>): void;
+	upsertMany(
+		items: Array<{ id: string; embedding: number[]; granularity: Granularity }>,
+	): void;
 
 	/** Search for similar items by embedding, optionally filtered by granularity */
-	search(embedding: number[], options?: { limit?: number; granularity?: Granularity }): GranularVectorSearchResult[];
+	search(
+		embedding: number[],
+		options?: { limit?: number; granularity?: Granularity },
+	): GranularVectorSearchResult[];
 
 	/** Delete embedding by ID */
 	delete(id: string): void;
@@ -418,26 +437,46 @@ export function createGranularVectorStore(db: Database): GranularVectorStore {
 		VALUES (?, ?, ?, ?)
 	`);
 
-	const getStmt = db.prepare(`SELECT embedding, granularity FROM js_vectors WHERE symbol_id = ?`);
+	const getStmt = db.prepare(
+		`SELECT embedding, granularity FROM js_vectors WHERE symbol_id = ?`,
+	);
 	const deleteStmt = db.prepare(`DELETE FROM js_vectors WHERE symbol_id = ?`);
-	const deleteByGranularityStmt = db.prepare(`DELETE FROM js_vectors WHERE granularity = ?`);
+	const deleteByGranularityStmt = db.prepare(
+		`DELETE FROM js_vectors WHERE granularity = ?`,
+	);
 	const countStmt = db.prepare(`SELECT COUNT(*) as count FROM js_vectors`);
-	const countByGranularityStmt = db.prepare(`SELECT COUNT(*) as count FROM js_vectors WHERE granularity = ?`);
-	const getAllStmt = db.prepare(`SELECT symbol_id, embedding, granularity FROM js_vectors`);
-	const getAllByGranularityStmt = db.prepare(`SELECT symbol_id, embedding, granularity FROM js_vectors WHERE granularity = ?`);
+	const countByGranularityStmt = db.prepare(
+		`SELECT COUNT(*) as count FROM js_vectors WHERE granularity = ?`,
+	);
+	const getAllStmt = db.prepare(
+		`SELECT symbol_id, embedding, granularity FROM js_vectors`,
+	);
+	const getAllByGranularityStmt = db.prepare(
+		`SELECT symbol_id, embedding, granularity FROM js_vectors WHERE granularity = ?`,
+	);
 	const clearStmt = db.prepare(`DELETE FROM js_vectors`);
 
 	// In-memory cache for fast search (loaded lazily)
-	let vectorCache: Map<string, { embedding: number[]; granularity: Granularity }> | null = null;
+	let vectorCache: Map<
+		string,
+		{ embedding: number[]; granularity: Granularity }
+	> | null = null;
 	let cacheValid = false;
 
-	function loadCache(): Map<string, { embedding: number[]; granularity: Granularity }> {
+	function loadCache(): Map<
+		string,
+		{ embedding: number[]; granularity: Granularity }
+	> {
 		if (vectorCache && cacheValid) {
 			return vectorCache;
 		}
 
 		vectorCache = new Map();
-		const rows = getAllStmt.all() as Array<{ symbol_id: string; embedding: string; granularity: string }>;
+		const rows = getAllStmt.all() as Array<{
+			symbol_id: string;
+			embedding: string;
+			granularity: string;
+		}>;
 
 		for (const row of rows) {
 			try {
@@ -466,9 +505,21 @@ export function createGranularVectorStore(db: Database): GranularVectorStore {
 			invalidateCache();
 		},
 
-		upsertMany(items: Array<{ id: string; embedding: number[]; granularity: Granularity }>): void {
+		upsertMany(
+			items: Array<{
+				id: string;
+				embedding: number[];
+				granularity: Granularity;
+			}>,
+		): void {
 			const transaction = db.transaction(
-				(batch: Array<{ id: string; embedding: number[]; granularity: Granularity }>) => {
+				(
+					batch: Array<{
+						id: string;
+						embedding: number[];
+						granularity: Granularity;
+					}>,
+				) => {
 					for (const item of batch) {
 						const serialized = serializeEmbedding(item.embedding);
 						upsertStmt.run(item.id, serialized, item.granularity, Date.now());
@@ -479,7 +530,10 @@ export function createGranularVectorStore(db: Database): GranularVectorStore {
 			invalidateCache();
 		},
 
-		search(queryEmbedding: number[], options: { limit?: number; granularity?: Granularity } = {}): GranularVectorSearchResult[] {
+		search(
+			queryEmbedding: number[],
+			options: { limit?: number; granularity?: Granularity } = {},
+		): GranularVectorSearchResult[] {
 			const { limit = 20, granularity } = options;
 			const cache = loadCache();
 
@@ -531,7 +585,9 @@ export function createGranularVectorStore(db: Database): GranularVectorStore {
 
 		count(granularity?: Granularity): number {
 			if (granularity) {
-				const result = countByGranularityStmt.get(granularity) as { count: number };
+				const result = countByGranularityStmt.get(granularity) as {
+					count: number;
+				};
 				return result.count;
 			}
 			const result = countStmt.get() as { count: number };
@@ -544,7 +600,10 @@ export function createGranularVectorStore(db: Database): GranularVectorStore {
 		},
 
 		get(id: string): { embedding: number[]; granularity: Granularity } | null {
-			const row = getStmt.get(id) as { embedding: string; granularity: string } | null;
+			const row = getStmt.get(id) as {
+				embedding: string;
+				granularity: string;
+			} | null;
 			if (!row) return null;
 
 			try {

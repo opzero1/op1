@@ -2,36 +2,38 @@
  * Extraction Layer exports
  */
 
-export { generateCanonicalId, generateContentHash, generateEdgeId } from "./canonical-id";
-
-export { createQualifiedName } from "./language-adapter";
-export type { LanguageAdapter, RawSymbol } from "./language-adapter";
-
-export { createTypeScriptAdapter } from "./typescript-adapter";
-export { createPythonAdapter } from "./python-adapter";
-
-export { createSymbolExtractor } from "./symbol-extractor";
-export type { SymbolExtractor } from "./symbol-extractor";
-
-export { createLspExtractor } from "./lsp-extractor";
-export type {
-	LspExtractor,
-	LspExtractorConfig,
-	LspClient,
-	LspLocation,
-	ExtractionResult,
-	ExtractionError,
-} from "./lsp-extractor";
-
-export { createAstInference } from "./ast-inference";
 export type {
 	AstInference,
 	AstInferenceConfig,
-	InferenceResult,
-	ImportInfo,
 	CallReference,
+	ImportInfo,
+	InferenceResult,
 } from "./ast-inference";
-
-export { createChunker, generateChunkId, generateContentHash as generateChunkContentHash } from "./chunker";
+export { createAstInference } from "./ast-inference";
+export {
+	generateCanonicalId,
+	generateContentHash,
+	generateEdgeId,
+} from "./canonical-id";
 export type { Chunker, ChunkerConfig } from "./chunker";
-export { DEFAULT_CHUNKER_CONFIG } from "./chunker";
+export {
+	createChunker,
+	DEFAULT_CHUNKER_CONFIG,
+	generateChunkId,
+	generateContentHash as generateChunkContentHash,
+} from "./chunker";
+export type { LanguageAdapter, RawSymbol } from "./language-adapter";
+export { createQualifiedName } from "./language-adapter";
+export type {
+	ExtractionError,
+	ExtractionResult,
+	LspClient,
+	LspExtractor,
+	LspExtractorConfig,
+	LspLocation,
+} from "./lsp-extractor";
+export { createLspExtractor } from "./lsp-extractor";
+export { createPythonAdapter } from "./python-adapter";
+export type { SymbolExtractor } from "./symbol-extractor";
+export { createSymbolExtractor } from "./symbol-extractor";
+export { createTypeScriptAdapter } from "./typescript-adapter";

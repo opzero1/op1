@@ -16,7 +16,7 @@ export interface EmbedOptions {
 	 * - 'query': Use when embedding search queries for retrieval
 	 * Providers that don't support asymmetric embeddings should ignore this.
 	 */
-	inputType?: 'query' | 'document';
+	inputType?: "query" | "document";
 }
 
 export interface Embedder {
@@ -46,6 +46,11 @@ export interface Embedder {
 	 * Model identifier (e.g., "microsoft/unixcoder-base").
 	 */
 	readonly modelId: string;
+
+	/**
+	 * Optional resource cleanup for embedders that own native/model state.
+	 */
+	dispose?(): Promise<void>;
 }
 
 /**

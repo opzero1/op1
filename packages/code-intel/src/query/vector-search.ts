@@ -6,7 +6,11 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { globToLike, LIKE_ESCAPE_CLAUSE, matchesPathFilters } from "./path-filter";
+import {
+	globToLike,
+	LIKE_ESCAPE_CLAUSE,
+	matchesPathFilters,
+} from "./path-filter";
 
 // ============================================================================
 // Types
@@ -32,7 +36,10 @@ export interface VectorSearchOptions {
 }
 
 export interface VectorSearcher {
-	search(embedding: number[], options?: VectorSearchOptions): VectorSearchMatch[];
+	search(
+		embedding: number[],
+		options?: VectorSearchOptions,
+	): VectorSearchMatch[];
 }
 
 // ============================================================================
@@ -75,7 +82,11 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 function deserializeEmbedding(base64: string): number[] {
 	const bytes = Buffer.from(base64, "base64");
-	const float32 = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
+	const float32 = new Float32Array(
+		bytes.buffer,
+		bytes.byteOffset,
+		bytes.length / 4,
+	);
 	return Array.from(float32);
 }
 
@@ -89,21 +100,32 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 	let useSqliteVec = false;
 
 	try {
-		const jsCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='js_vectors'").get();
+		const jsCheck = db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='table' AND name='js_vectors'",
+			)
+			.get();
 		useJsVectors = !!jsCheck;
 	} catch {
 		// Table doesn't exist
 	}
 
 	try {
-		const vecCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_symbols'").get();
+		const vecCheck = db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='table' AND name='vec_symbols'",
+			)
+			.get();
 		useSqliteVec = !!vecCheck;
 	} catch {
 		// Table doesn't exist
 	}
 
 	return {
-		search(embedding: number[], options?: VectorSearchOptions): VectorSearchMatch[] {
+		search(
+			embedding: number[],
+			options?: VectorSearchOptions,
+		): VectorSearchMatch[] {
 			const limit = options?.limit ?? DEFAULT_LIMIT;
 			const branch = options?.branch;
 			const pathPrefix = options?.pathPrefix;
@@ -115,7 +137,14 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 			// Try sqlite-vec first
 			if (useSqliteVec) {
 				try {
-					return searchWithSqliteVec(db, embedding, limit, branch, pathPrefix, filePatterns);
+					return searchWithSqliteVec(
+						db,
+						embedding,
+						limit,
+						branch,
+						pathPrefix,
+						filePatterns,
+					);
 				} catch {
 					// Fall through to JS search
 				}
@@ -123,7 +152,14 @@ export function createVectorSearcher(db: Database): VectorSearcher {
 
 			// Use pure JS vector search
 			if (useJsVectors) {
-				return searchWithPureJs(db, embedding, limit, branch, pathPrefix, filePatterns);
+				return searchWithPureJs(
+					db,
+					embedding,
+					limit,
+					branch,
+					pathPrefix,
+					filePatterns,
+				);
 			}
 
 			// No vector store available
@@ -172,11 +208,16 @@ function searchWithSqliteVec(
 		}
 		if (pathPrefix) {
 			sql += ` AND s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
-			const escapedPrefix = pathPrefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+			const escapedPrefix = pathPrefix
+				.replace(/\\/g, "\\\\")
+				.replace(/%/g, "\\%")
+				.replace(/_/g, "\\_");
 			params.push(`${escapedPrefix}%`);
 		}
 		if (filePatterns && filePatterns.length > 0) {
-			const conditions = filePatterns.map(() => `s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`).join(" OR ");
+			const conditions = filePatterns
+				.map(() => `s.file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`)
+				.join(" OR ");
 			sql += ` AND (${conditions})`;
 			for (const pattern of filePatterns) {
 				params.push(globToLike(pattern));
@@ -197,12 +238,15 @@ function searchWithSqliteVec(
 	}
 
 	const stmt = db.prepare(sql);
-	const rows = stmt.all(...params) as Array<{ symbol_id: string; distance: number }>;
+	const rows = stmt.all(...params) as Array<{
+		symbol_id: string;
+		distance: number;
+	}>;
 
 	// Apply actual limit after filtering and drop low-similarity garbage
 	return rows
 		.slice(0, limit)
-		.filter((row) => (1 - row.distance) >= MIN_SIMILARITY)
+		.filter((row) => 1 - row.distance >= MIN_SIMILARITY)
 		.map((row) => ({
 			symbolId: row.symbol_id,
 			distance: row.distance,
@@ -255,13 +299,17 @@ function searchWithPureJs(
 	// Compute similarities and map to symbols
 	const results: VectorSearchMatch[] = [];
 	const seenSymbols = new Set<string>();
-	const hasPathFilter = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+	const hasPathFilter = !!(
+		pathPrefix ||
+		(filePatterns && filePatterns.length > 0)
+	);
 
 	for (const row of rows) {
 		try {
 			// Skip chunks that don't match path filters early (before deserialization)
 			if (hasPathFilter && row.granularity === "chunk" && row.chunk_file_path) {
-				if (!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns)) continue;
+				if (!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns))
+					continue;
 			}
 
 			const storedEmbedding = deserializeEmbedding(row.embedding);
@@ -277,8 +325,17 @@ function searchWithPureJs(
 			if (row.granularity === "symbol") {
 				// Direct symbol embedding — look up file_path for path filtering
 				if (hasPathFilter) {
-					const symRow = db.prepare("SELECT file_path FROM symbols WHERE id = ?").get(row.vector_id) as { file_path: string } | null;
-					if (!matchesPathFilters(symRow?.file_path ?? null, pathPrefix, filePatterns)) continue;
+					const symRow = db
+						.prepare("SELECT file_path FROM symbols WHERE id = ?")
+						.get(row.vector_id) as { file_path: string } | null;
+					if (
+						!matchesPathFilters(
+							symRow?.file_path ?? null,
+							pathPrefix,
+							filePatterns,
+						)
+					)
+						continue;
 				}
 				symbolId = row.vector_id;
 			} else if (row.granularity === "chunk" && row.chunk_parent_symbol_id) {
@@ -291,7 +348,10 @@ function searchWithPureJs(
 			} else if (row.granularity === "file") {
 				// File-level embedding — resolve to vector_id (chunk ID in chunks table)
 				if (hasPathFilter && row.chunk_file_path) {
-					if (!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns)) continue;
+					if (
+						!matchesPathFilters(row.chunk_file_path, pathPrefix, filePatterns)
+					)
+						continue;
 				}
 				symbolId = row.vector_id; // Will be resolved in hydration via chunkStore
 			}

@@ -1,6 +1,6 @@
 /**
  * FastSyncCache - Efficient file change detection
- * 
+ *
  * Uses a tiered approach:
  * 1. mtime + size check (no I/O, ~1ms)
  * 2. SHA256 hash (if mtime/size changed, ~50ms)
@@ -179,7 +179,11 @@ export async function createFastSyncCache(
 			if (!stats) return null;
 
 			// Fast path
-			if (cached && cached.mtime === stats.mtime && cached.size === stats.size) {
+			if (
+				cached &&
+				cached.mtime === stats.mtime &&
+				cached.size === stats.size
+			) {
 				hits++;
 				return cached.hash;
 			}

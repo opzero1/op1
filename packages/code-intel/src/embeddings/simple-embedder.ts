@@ -1,6 +1,6 @@
 /**
  * Simple Embedder - Fallback embedder using TF-IDF-like hashing
- * 
+ *
  * When HuggingFace models are unavailable, this provides a deterministic
  * embedding based on token hashing. Not as semantically rich, but works
  * offline and is fast.
@@ -18,7 +18,7 @@ function hashString(str: string): number {
 	let hash = 0;
 	for (let i = 0; i < str.length; i++) {
 		const char = str.charCodeAt(i);
-		hash = ((hash << 5) - hash) + char;
+		hash = (hash << 5) - hash + char;
 		hash = hash & hash; // Convert to 32-bit integer
 	}
 	return hash;
@@ -34,7 +34,7 @@ function tokenize(text: string): string[] {
 		.replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2") // ACRONYMWord
 		.toLowerCase()
 		.split(/[\s\W_]+/)
-		.filter(t => t.length > 1);
+		.filter((t) => t.length > 1);
 }
 
 /**
@@ -101,8 +101,11 @@ export class SimpleEmbedder implements Embedder {
 		return createHashEmbedding(text);
 	}
 
-	async embedBatch(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
-		return texts.map(text => {
+	async embedBatch(
+		texts: string[],
+		_options?: EmbedOptions,
+	): Promise<number[][]> {
+		return texts.map((text) => {
 			if (!text.trim()) {
 				return new Array(this.dimension).fill(0);
 			}
@@ -125,11 +128,13 @@ export function createSimpleEmbedder(): SimpleEmbedder {
 export async function createAutoEmbedder(): Promise<Embedder> {
 	// Priority 1: Voyage AI (best quality, requires API key)
 	try {
-		const { createVoyageEmbedder, isVoyageAvailable } = await import("./voyage-embedder");
-		
+		const { createVoyageEmbedder, isVoyageAvailable } = await import(
+			"./voyage-embedder"
+		);
+
 		if (isVoyageAvailable()) {
 			const embedder = createVoyageEmbedder();
-			
+
 			// Test connectivity
 			if (await embedder.testConnectivity()) {
 				return embedder;
@@ -141,11 +146,13 @@ export async function createAutoEmbedder(): Promise<Embedder> {
 
 	// Priority 2: UniXcoder (local, no API key needed)
 	try {
-		const { createUniXcoderEmbedder, isTransformersAvailable } = await import("./unixcoder");
-		
+		const { createUniXcoderEmbedder, isTransformersAvailable } = await import(
+			"./unixcoder"
+		);
+
 		if (await isTransformersAvailable()) {
 			const embedder = createUniXcoderEmbedder();
-			
+
 			// Test that it actually works
 			try {
 				await embedder.embed("test");

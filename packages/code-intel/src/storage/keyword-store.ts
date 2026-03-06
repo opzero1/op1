@@ -52,9 +52,7 @@ export function createKeywordStore(db: Database): KeywordStore {
 		VALUES (?, ?, ?, ?, ?)
 	`);
 
-	const deleteStmt = db.prepare(
-		"DELETE FROM fts_symbols WHERE symbol_id = ?",
-	);
+	const deleteStmt = db.prepare("DELETE FROM fts_symbols WHERE symbol_id = ?");
 
 	const deleteByFilePathStmt = db.prepare(
 		"DELETE FROM fts_symbols WHERE file_path = ?",

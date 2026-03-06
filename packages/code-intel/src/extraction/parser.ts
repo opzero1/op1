@@ -5,8 +5,8 @@
  */
 
 import Parser, { type Language } from "tree-sitter";
-import TypeScript from "tree-sitter-typescript";
 import Python from "tree-sitter-python";
+import TypeScript from "tree-sitter-typescript";
 
 // Language grammars
 const GRAMMARS = {

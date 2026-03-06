@@ -1,6 +1,6 @@
 /**
  * TypeScript Language Adapter
- * 
+ *
  * Extracts symbols from TypeScript/JavaScript files using regex-based parsing.
  * This is a simpler approach that doesn't require tree-sitter bindings.
  */
@@ -59,7 +59,11 @@ export function createTypeScriptAdapter(): LanguageAdapter {
 							}
 							break;
 						}
-						if (prevLine && !prevLine.startsWith("//") && !prevLine.startsWith("*")) {
+						if (
+							prevLine &&
+							!prevLine.startsWith("//") &&
+							!prevLine.startsWith("*")
+						) {
 							break;
 						}
 					}
@@ -116,7 +120,9 @@ export function createTypeScriptAdapter(): LanguageAdapter {
 				}
 
 				// Type alias detection
-				const typeMatch = line.match(/^(?:export\s+)?type\s+(\w+)(?:<[^>]+>)?\s*=/);
+				const typeMatch = line.match(
+					/^(?:export\s+)?type\s+(\w+)(?:<[^>]+>)?\s*=/,
+				);
 				if (typeMatch) {
 					const name = typeMatch[1];
 					const endLine = findTypeEnd(lines, i);
@@ -135,7 +141,9 @@ export function createTypeScriptAdapter(): LanguageAdapter {
 				}
 
 				// Enum detection
-				const enumMatch = line.match(/^(?:export\s+)?(?:const\s+)?enum\s+(\w+)/);
+				const enumMatch = line.match(
+					/^(?:export\s+)?(?:const\s+)?enum\s+(\w+)/,
+				);
 				if (enumMatch) {
 					const name = enumMatch[1];
 					const endLine = findBlockEnd(lines, i);
@@ -207,13 +215,22 @@ export function createTypeScriptAdapter(): LanguageAdapter {
 					);
 					if (methodMatch && !line.includes("constructor")) {
 						const name = methodMatch[1];
-						if (name !== "if" && name !== "for" && name !== "while" && name !== "switch") {
+						if (
+							name !== "if" &&
+							name !== "for" &&
+							name !== "while" &&
+							name !== "switch"
+						) {
 							const endLine = findBlockEnd(lines, i);
 							const content = lines.slice(i, endLine).join("\n");
 
 							symbols.push({
 								name,
-								qualified_name: this.getQualifiedName(filePath, name, currentClass.name),
+								qualified_name: this.getQualifiedName(
+									filePath,
+									name,
+									currentClass.name,
+								),
 								type: "METHOD",
 								start_line: lineNum,
 								end_line: endLine,
@@ -254,7 +271,11 @@ export function createTypeScriptAdapter(): LanguageAdapter {
 			return symbols;
 		},
 
-		getQualifiedName(filePath: string, symbolName: string, parentName?: string): string {
+		getQualifiedName(
+			filePath: string,
+			symbolName: string,
+			parentName?: string,
+		): string {
 			return createQualifiedName(filePath, symbolName, parentName);
 		},
 	};
@@ -379,6 +400,8 @@ function extractMethodSignature(lines: string[], startIndex: number): string {
 
 function extractArrowSignature(lines: string[], startIndex: number): string {
 	const line = lines[startIndex];
-	const match = line.match(/(?:const|let)\s+\w+\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?\([^)]*\)(?:\s*:\s*[^=]+)?(?:\s*=>)?/);
+	const match = line.match(
+		/(?:const|let)\s+\w+\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?\([^)]*\)(?:\s*:\s*[^=]+)?(?:\s*=>)?/,
+	);
 	return match ? match[0].trim() : "";
 }

@@ -6,27 +6,36 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
-import { createIndexManager, type IndexManager } from "./indexing/index-manager";
-import { createSmartQuery, type SmartQuery } from "./query/smart-query";
-import { createImpactAnalyzer, type ImpactAnalyzer } from "./query/impact-analysis";
-import { createGraphExpander, type GraphExpander } from "./query/graph-expander";
+import { createAutoEmbedder, type Embedder } from "./embeddings";
 import {
-	smart_query,
-	symbol_impact,
+	createIndexManager,
+	type IndexManager,
+} from "./indexing/index-manager";
+import {
+	createGraphExpander,
+	type GraphExpander,
+} from "./query/graph-expander";
+import {
+	createImpactAnalyzer,
+	type ImpactAnalyzer,
+} from "./query/impact-analysis";
+import { createSmartQuery, type SmartQuery } from "./query/smart-query";
+import {
 	call_graph,
-	symbol_search,
-	repo_map,
-	code_intel_status,
 	code_intel_rebuild,
 	code_intel_refresh,
+	code_intel_status,
+	repo_map,
+	setEmbedder,
+	setEnsureIndex,
+	setGraphExpander,
+	setImpactAnalyzer,
 	setIndexManager,
 	setSmartQuery,
-	setImpactAnalyzer,
-	setGraphExpander,
-	setEnsureIndex,
-	setEmbedder,
+	smart_query,
+	symbol_impact,
+	symbol_search,
 } from "./tools";
-import { createAutoEmbedder, type Embedder } from "./embeddings";
 
 /**
  * Code Intelligence Plugin for OpenCode
@@ -49,20 +58,40 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 
 	// Toast helper — throttled to prevent spam
 	const client = ctx.client as unknown as {
-		tui?: { showToast?: (opts: { body: { title?: string; message: string; variant: string; duration?: number } }) => Promise<unknown> };
+		tui?: {
+			showToast?: (opts: {
+				body: {
+					title?: string;
+					message: string;
+					variant: string;
+					duration?: number;
+				};
+			}) => Promise<unknown>;
+		};
 	};
 	let lastToastTime = 0;
 	const TOAST_THROTTLE_MS = 2500;
 
-	function showToast(title: string, message: string, variant: "info" | "success" | "warning" | "error" = "info", duration?: number) {
+	function showToast(
+		title: string,
+		message: string,
+		variant: "info" | "success" | "warning" | "error" = "info",
+		duration?: number,
+	) {
 		try {
-			client.tui?.showToast?.({ body: { title, message, variant, duration } })?.catch(() => {});
+			client.tui
+				?.showToast?.({ body: { title, message, variant, duration } })
+				?.catch(() => {});
 		} catch {
 			// TUI not available — ignore
 		}
 	}
 
-	function showThrottledToast(title: string, message: string, variant: "info" | "success" | "warning" | "error" = "info") {
+	function showThrottledToast(
+		title: string,
+		message: string,
+		variant: "info" | "success" | "warning" | "error" = "info",
+	) {
 		const now = Date.now();
 		if (now - lastToastTime < TOAST_THROTTLE_MS) return;
 		lastToastTime = now;
@@ -75,7 +104,8 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 		if (current === 0) {
 			// Always show start
 			lastToastTime = 0;
-			const label = phase === "refreshing" ? "Refreshing index" : "Building index";
+			const label =
+				phase === "refreshing" ? "Refreshing index" : "Building index";
 			showToast("Code Intel", `${label}... (${total} files)`, "info");
 			return;
 		}
@@ -87,7 +117,11 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 		}
 		// Throttled progress updates
 		const pct = Math.round((current / total) * 100);
-		showThrottledToast("Code Intel", `${phase === "refreshing" ? "Refreshing" : "Indexing"}... ${pct}% (${current}/${total})`, "info");
+		showThrottledToast(
+			"Code Intel",
+			`${phase === "refreshing" ? "Refreshing" : "Indexing"}... ${pct}% (${current}/${total})`,
+			"info",
+		);
 	};
 
 	// Lazy initialization - only initialize when first tool is used
@@ -123,19 +157,14 @@ export const CodeIntelPlugin: Plugin = async (ctx) => {
 
 			// SmartQuery needs the database, symbol store, edge store, embedder,
 			// and multi-granular stores for enhanced search pipeline
-			smartQuery = createSmartQuery(
-				db,
-				stores.symbols,
-				stores.edges,
-				{
-					embedder: queryEmbedder,
-					multiGranular: {
-						chunkStore: stores.chunks,
-						contentFTS: stores.contentFTS,
-						granularVectors: stores.granularVectors,
-					},
+			smartQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+				embedder: queryEmbedder,
+				multiGranular: {
+					chunkStore: stores.chunks,
+					contentFTS: stores.contentFTS,
+					granularVectors: stores.granularVectors,
 				},
-			);
+			});
 
 			impactAnalyzer = createImpactAnalyzer(stores.symbols, stores.edges);
 			graphExpander = createGraphExpander(stores.symbols, stores.edges);

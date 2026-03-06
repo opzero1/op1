@@ -13,7 +13,12 @@
  */
 
 import { VoyageAIClient } from "voyageai";
-import type { AsyncReranker, RerankItem, RerankOptions, RerankResult } from "./reranker";
+import type {
+	AsyncReranker,
+	RerankItem,
+	RerankOptions,
+	RerankResult,
+} from "./reranker";
 
 // ============================================================================
 // Types
@@ -72,7 +77,9 @@ export function isVoyageRerankerAvailable(apiKey?: string): boolean {
  * relevance_score to finalScore on each result. Items are capped at maxCandidates
  * before sending to the API; overflow items receive a finalScore of 0.
  */
-export function createVoyageReranker(options: VoyageRerankerOptions = {}): AsyncReranker {
+export function createVoyageReranker(
+	options: VoyageRerankerOptions = {},
+): AsyncReranker {
 	const apiKey = options.apiKey ?? process.env.VOYAGE_AI_API_KEY;
 	if (!apiKey) {
 		throw new Error(
@@ -86,7 +93,10 @@ export function createVoyageReranker(options: VoyageRerankerOptions = {}): Async
 	const client = new VoyageAIClient({ apiKey });
 
 	return {
-		async rerank(items: RerankItem[], rerankOptions: RerankOptions): Promise<RerankResult[]> {
+		async rerank(
+			items: RerankItem[],
+			rerankOptions: RerankOptions,
+		): Promise<RerankResult[]> {
 			if (items.length === 0) {
 				return [];
 			}
@@ -124,7 +134,11 @@ export function createVoyageReranker(options: VoyageRerankerOptions = {}): Async
 
 			for (const entry of response.data) {
 				const sourceIndex = entry.index;
-				if (sourceIndex === undefined || sourceIndex < 0 || sourceIndex >= candidates.length) {
+				if (
+					sourceIndex === undefined ||
+					sourceIndex < 0 ||
+					sourceIndex >= candidates.length
+				) {
 					continue;
 				}
 

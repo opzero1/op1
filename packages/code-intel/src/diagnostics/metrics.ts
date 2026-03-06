@@ -324,7 +324,10 @@ export function createCodeIntelMetrics(): CodeIntelMetrics {
 			"symbols_extracted",
 			"Total symbols extracted",
 		),
-		edgesExtracted: registry.counter("edges_extracted", "Total edges extracted"),
+		edgesExtracted: registry.counter(
+			"edges_extracted",
+			"Total edges extracted",
+		),
 		indexingErrors: registry.counter(
 			"indexing_errors",
 			"Total indexing errors",
@@ -339,7 +342,10 @@ export function createCodeIntelMetrics(): CodeIntelMetrics {
 			"queries_executed",
 			"Total queries executed",
 		),
-		queryDuration: registry.timer("query_duration_ms", "Time to execute queries"),
+		queryDuration: registry.timer(
+			"query_duration_ms",
+			"Time to execute queries",
+		),
 		vectorSearches: registry.counter(
 			"vector_searches",
 			"Total vector searches",

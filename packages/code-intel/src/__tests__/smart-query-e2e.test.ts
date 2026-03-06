@@ -11,16 +11,18 @@
  * 7. Context building
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
-
-import { createIndexManager, type IndexManager } from "../indexing/index-manager";
-import { createSmartQuery, type SmartQuery } from "../query/smart-query";
+import * as path from "node:path";
 import { createAutoEmbedder, type Embedder } from "../embeddings";
+import {
+	createIndexManager,
+	type IndexManager,
+} from "../indexing/index-manager";
 import { createTemplateHyDEGenerator } from "../query/hyde";
+import { createSmartQuery, type SmartQuery } from "../query/smart-query";
 
 describe("SmartQuery E2E Pipeline", () => {
 	let tempDir: string;
@@ -152,13 +154,14 @@ export class AuthController {
 		// Index the test files
 		await indexManager.indexAll();
 
-		// Create embedder
 		embedder = await createAutoEmbedder();
 
 		// Create SmartQuery with embedder
 		const stores = indexManager.getStores();
 		const db = indexManager.getDatabase();
-		smartQuery = createSmartQuery(db, stores.symbols, stores.edges, { embedder });
+		smartQuery = createSmartQuery(db, stores.symbols, stores.edges, {
+			embedder,
+		});
 	});
 
 	afterAll(async () => {
@@ -310,7 +313,9 @@ export class AuthController {
 		});
 
 		expect(smallBudget.tokenCount).toBeLessThanOrEqual(500);
-		expect(largeBudget.tokenCount).toBeGreaterThanOrEqual(smallBudget.tokenCount);
+		expect(largeBudget.tokenCount).toBeGreaterThanOrEqual(
+			smallBudget.tokenCount,
+		);
 	});
 
 	test("HyDE generator creates hypothetical code", async () => {
@@ -413,7 +418,9 @@ export class AuthController {
 			expect(symbol.file_path.startsWith("user")).toBe(true);
 		}
 		// Verify excluded files are NOT present
-		const hasAuthSymbols = result.symbols.some((s) => s.file_path.startsWith("auth-"));
+		const hasAuthSymbols = result.symbols.some((s) =>
+			s.file_path.startsWith("auth-"),
+		);
 		expect(hasAuthSymbols).toBe(false);
 	});
 
@@ -439,7 +446,9 @@ export class AuthController {
 			expect(symbol.file_path.startsWith("auth-")).toBe(true);
 		}
 		// Verify user-service symbols are NOT present
-		const hasUserSymbols = result.symbols.some((s) => s.file_path.startsWith("user-"));
+		const hasUserSymbols = result.symbols.some((s) =>
+			s.file_path.startsWith("user-"),
+		);
 		expect(hasUserSymbols).toBe(false);
 	});
 
@@ -726,7 +735,8 @@ export class AuthController {
 		});
 
 		const longResult = await smartQuery.search({
-			queryText: "how does the authentication controller validate email addresses and create sessions",
+			queryText:
+				"how does the authentication controller validate email addresses and create sessions",
 			maxTokens: 4000,
 		});
 
@@ -824,8 +834,10 @@ export class AuthController {
 		});
 
 		if (result.symbols.length > 0) {
-			const actualUniqueFiles = new Set(result.symbols.map((s) => s.file_path)).size;
-			const diagUniqueFiles = result.metadata.confidenceDiagnostics?.uniqueFiles ?? 0;
+			const actualUniqueFiles = new Set(result.symbols.map((s) => s.file_path))
+				.size;
+			const diagUniqueFiles =
+				result.metadata.confidenceDiagnostics?.uniqueFiles ?? 0;
 			// The diagnostics count is based on pre-context-budget symbols, so it should be >= what's in the final result
 			expect(diagUniqueFiles).toBeGreaterThanOrEqual(1);
 		}
@@ -848,9 +860,11 @@ export class AuthController {
 			pathPrefix: "user",
 		});
 
-		// Scoped results should be a subset of (or equal to) all results  
-		expect(scopedResults.symbols.length).toBeLessThanOrEqual(allResults.symbols.length);
-		
+		// Scoped results should be a subset of (or equal to) all results
+		expect(scopedResults.symbols.length).toBeLessThanOrEqual(
+			allResults.symbols.length,
+		);
+
 		// All scoped results should match the path prefix
 		for (const sym of scopedResults.symbols) {
 			expect(sym.file_path.startsWith("user")).toBe(true);
@@ -884,7 +898,8 @@ export class AuthController {
 	test("candidate expansion is bounded by MAX_RETRIEVAL_LIMIT", async () => {
 		// Even with a very complex query and large budget, candidate limit should be bounded
 		const result = await smartQuery.search({
-			queryText: "how does the authentication controller validate email addresses and create user sessions with JWT tokens in the middleware pipeline",
+			queryText:
+				"how does the authentication controller validate email addresses and create user sessions with JWT tokens in the middleware pipeline",
 			maxTokens: 64000,
 			pathPrefix: "user",
 		});
@@ -915,11 +930,11 @@ export class AuthController {
 		// Phase 4 additions
 		expect(result.metadata.candidateLimit).toBeDefined();
 		expect(result.metadata.confidenceDiagnostics).toBeDefined();
-		
-		// Phase 2 additions  
+
+		// Phase 2 additions
 		expect(result.metadata.scope).toBeDefined();
 		expect(result.metadata.scope?.branch).toBeDefined();
-		
+
 		// Original fields
 		expect(typeof result.metadata.queryTime).toBe("number");
 		expect(typeof result.metadata.vectorHits).toBe("number");

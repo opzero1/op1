@@ -7,8 +7,8 @@
  * - Gitignore + custom ignore patterns
  */
 
-import { join, relative, dirname } from "node:path";
 import { readFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 
 // ============================================================================
 // Types
@@ -121,7 +121,16 @@ function matchesGitignore(filePath: string, rules: GitignoreRules): boolean {
 // File Watcher Implementation
 // ============================================================================
 
-const DEFAULT_EXTENSIONS = ["ts", "tsx", "js", "jsx", "mts", "cts", "py", "pyw"];
+const DEFAULT_EXTENSIONS = [
+	"ts",
+	"tsx",
+	"js",
+	"jsx",
+	"mts",
+	"cts",
+	"py",
+	"pyw",
+];
 
 const DEFAULT_IGNORE_PATTERNS = [
 	"**/node_modules/**",
@@ -161,7 +170,9 @@ export function createFileWatcher(config: FileWatcherConfig): FileWatcher {
 	);
 
 	// Extension set for fast lookup
-	const extensionSet = new Set(extensions.map((e) => (e.startsWith(".") ? e : `.${e}`)));
+	const extensionSet = new Set(
+		extensions.map((e) => (e.startsWith(".") ? e : `.${e}`)),
+	);
 
 	function shouldIgnore(filePath: string): boolean {
 		// Check extension

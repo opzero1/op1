@@ -18,7 +18,11 @@ export interface Logger {
 	debug(message: string, context?: Record<string, unknown>): void;
 	info(message: string, context?: Record<string, unknown>): void;
 	warn(message: string, context?: Record<string, unknown>): void;
-	error(message: string, error?: Error, context?: Record<string, unknown>): void;
+	error(
+		message: string,
+		error?: Error,
+		context?: Record<string, unknown>,
+	): void;
 
 	/** Create a child logger with additional context */
 	child(context: Record<string, unknown>): Logger;
@@ -98,7 +102,8 @@ export function createLogger(options: LoggerOptions = {}): Logger {
 			level,
 			message,
 			timestamp: Date.now(),
-			context: Object.keys(mergedContext).length > 0 ? mergedContext : undefined,
+			context:
+				Object.keys(mergedContext).length > 0 ? mergedContext : undefined,
 			error,
 		};
 

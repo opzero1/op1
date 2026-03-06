@@ -134,7 +134,10 @@ export class EmbeddingCache {
 	 * @param entries - Array of content/embedding pairs
 	 * @param inputType - Optional input type for asymmetric embedding cache separation
 	 */
-	setMany(entries: Array<{ content: string; embedding: number[] }>, inputType?: string): void {
+	setMany(
+		entries: Array<{ content: string; embedding: number[] }>,
+		inputType?: string,
+	): void {
 		for (const { content, embedding } of entries) {
 			this.set(content, embedding, inputType);
 		}

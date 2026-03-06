@@ -175,11 +175,7 @@ export function createRepoMapInjector(
 			return isOrientation;
 		},
 
-		inject(
-			branch: string,
-			query: string,
-			limit?: number,
-		): InjectionResult {
+		inject(branch: string, query: string, limit?: number): InjectionResult {
 			const { isOrientation, matchedPattern } = detectOrientationQuery(query);
 
 			if (!isOrientation) {

@@ -62,7 +62,10 @@ function determineConfidence(
 // ============================================================================
 
 export interface ImpactAnalyzer {
-	analyzeImpact(symbolId: string, options: ImpactAnalysisOptions): ImpactAnalysis | null;
+	analyzeImpact(
+		symbolId: string,
+		options: ImpactAnalysisOptions,
+	): ImpactAnalysis | null;
 }
 
 export function createImpactAnalyzer(
@@ -76,7 +79,8 @@ export function createImpactAnalyzer(
 	} {
 		return {
 			branch: options.branch,
-			confidenceThreshold: options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
+			confidenceThreshold:
+				options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
 			maxDepth: options.maxDepth ?? DEFAULT_MAX_DEPTH,
 		};
 	}
@@ -114,7 +118,10 @@ export function createImpactAnalyzer(
 			}
 
 			// Get all callers of this symbol
-			const callerEdges = edgeStore.getCallers(current.symbolId, options.branch);
+			const callerEdges = edgeStore.getCallers(
+				current.symbolId,
+				options.branch,
+			);
 
 			// Filter by confidence
 			const validEdges = callerEdges.filter(
@@ -151,7 +158,11 @@ export function createImpactAnalyzer(
 				});
 
 				symbolPaths.set(callerSymbol.id, nextPath);
-				queue.push({ symbolId: callerSymbol.id, depth: nextDepth, path: nextPath });
+				queue.push({
+					symbolId: callerSymbol.id,
+					depth: nextDepth,
+					path: nextPath,
+				});
 			}
 		}
 
@@ -164,13 +175,20 @@ export function createImpactAnalyzer(
 	}
 
 	return {
-		analyzeImpact(symbolId: string, options: ImpactAnalysisOptions): ImpactAnalysis | null {
+		analyzeImpact(
+			symbolId: string,
+			options: ImpactAnalysisOptions,
+		): ImpactAnalysis | null {
 			const rootSymbol = symbolStore.getById(symbolId);
 			if (!rootSymbol) return null;
 
 			const parsedOptions = parseOptions(options);
-			const { directDependents, affectedSymbols, hasPartialData, hasStaleData } =
-				findTransitiveDependents(rootSymbol, parsedOptions);
+			const {
+				directDependents,
+				affectedSymbols,
+				hasPartialData,
+				hasStaleData,
+			} = findTransitiveDependents(rootSymbol, parsedOptions);
 
 			const transitiveDependents = affectedSymbols.length;
 			const riskLevel = calculateRiskLevel(transitiveDependents);

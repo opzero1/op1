@@ -2,8 +2,51 @@
  * Index Manager - Orchestrates the indexing pipeline
  */
 
-import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import {
+	type BatchProcessor,
+	chunksToEmbeddingItems,
+	createAutoEmbedder,
+	createBatchProcessor,
+	type Embedder,
+	type EmbeddingItem,
+	symbolsToEmbeddingItems,
+} from "../embeddings";
+import {
+	type AstInference,
+	type Chunker,
+	createAstInference,
+	createChunker,
+	createSymbolExtractor,
+	type SymbolExtractor,
+} from "../extraction";
+import {
+	type ChunkStore,
+	type ContentFTSStore,
+	createChunkStore,
+	createContentFTSStore,
+	createEdgeStore,
+	createFileContentStore,
+	createFileStore,
+	createGranularVectorStore,
+	createKeywordStore,
+	createPureVectorStore,
+	createRepoMapStore,
+	createSchemaManager,
+	createSymbolStore,
+	DEFAULT_EMBEDDING_MODEL_ID,
+	type EdgeStore,
+	type FileContentStore,
+	type FileStore,
+	type GranularVectorStore,
+	type KeywordStore,
+	type PureVectorStore,
+	type RepoMapStore,
+	SCHEMA_VERSION,
+	type SchemaManager,
+	type SymbolStore,
+} from "../storage";
 import type {
 	CodeIntelConfig,
 	DEFAULT_CONFIG,
@@ -12,51 +55,8 @@ import type {
 	IndexStatus,
 	SymbolNode,
 } from "../types";
-import {
-	createSchemaManager,
-	createSymbolStore,
-	createEdgeStore,
-	createFileStore,
-	createKeywordStore,
-	createPureVectorStore,
-	createRepoMapStore,
-	createChunkStore,
-	createFileContentStore,
-	createContentFTSStore,
-	createGranularVectorStore,
-	DEFAULT_EMBEDDING_MODEL_ID,
-	SCHEMA_VERSION,
-	type SchemaManager,
-	type SymbolStore,
-	type EdgeStore,
-	type FileStore,
-	type KeywordStore,
-	type PureVectorStore,
-	type RepoMapStore,
-	type ChunkStore,
-	type FileContentStore,
-	type ContentFTSStore,
-	type GranularVectorStore,
-} from "../storage";
-import {
-	createSymbolExtractor,
-	createAstInference,
-	createChunker,
-	type SymbolExtractor,
-	type AstInference,
-	type Chunker,
-} from "../extraction";
+import { type BranchManager, createBranchManager } from "./branch-manager";
 import { createFastSyncCache, type FastSyncCache } from "./fast-sync-cache";
-import { createBranchManager, type BranchManager } from "./branch-manager";
-import {
-	createBatchProcessor,
-	chunksToEmbeddingItems,
-	symbolsToEmbeddingItems,
-	createAutoEmbedder,
-	type BatchProcessor,
-	type EmbeddingItem,
-	type Embedder,
-} from "../embeddings";
 import { createFileWatcher, type FileWatcher } from "./file-watcher";
 
 export interface IndexManager {
@@ -202,7 +202,10 @@ export async function createIndexManager(
 				const wtPath = line.slice("worktree ".length).trim();
 
 				// Skip the main worktree (which IS workspaceRoot)
-				if (wtPath === workspaceRoot || wtPath === workspaceRoot.replace(/\/$/, "")) {
+				if (
+					wtPath === workspaceRoot ||
+					wtPath === workspaceRoot.replace(/\/$/, "")
+				) {
 					continue;
 				}
 
@@ -287,8 +290,20 @@ export async function createIndexManager(
 		return files;
 	}
 
-	async function indexFileInternal(filePath: string, sharedSymbolMap?: Map<string, SymbolNode>): Promise<SymbolNode[]> {
-		if (!symbolExtractor || !symbolStore || !fileStore || !keywordStore || !edgeStore || !chunkStore || !contentFTSStore || !chunker) {
+	async function indexFileInternal(
+		filePath: string,
+		sharedSymbolMap?: Map<string, SymbolNode>,
+	): Promise<SymbolNode[]> {
+		if (
+			!symbolExtractor ||
+			!symbolStore ||
+			!fileStore ||
+			!keywordStore ||
+			!edgeStore ||
+			!chunkStore ||
+			!contentFTSStore ||
+			!chunker
+		) {
 			return [];
 		}
 
@@ -302,8 +317,7 @@ export async function createIndexManager(
 
 			// Check if external
 			const isExternal =
-				filePath.includes("node_modules") ||
-				filePath.includes("site-packages");
+				filePath.includes("node_modules") || filePath.includes("site-packages");
 
 			// Extract symbols
 			const symbols = await symbolExtractor.extractFromFile(
@@ -313,118 +327,127 @@ export async function createIndexManager(
 				isExternal,
 			);
 
-		// Get old symbol IDs for edge cleanup
-		const oldSymbols = symbolStore.getByFilePath(filePath, currentBranch);
-		const oldSymbolIds = oldSymbols.map((s) => s.id);
+			// Get old symbol IDs for edge cleanup
+			const oldSymbols = symbolStore.getByFilePath(filePath, currentBranch);
+			const oldSymbolIds = oldSymbols.map((s) => s.id);
 
-		// Remove old symbols from shared map (if provided)
-		if (sharedSymbolMap) {
-			for (const id of oldSymbolIds) {
-				sharedSymbolMap.delete(id);
-			}
-		}
-
-		// Snapshot old chunk embeddings before deletion (for skip-embedding optimization)
-		const oldChunkEmbeddingsByHash = new Map<string, { embedding: number[]; granularity: import("../types").Granularity }>();
-		if (granularVectorStore) {
-			const oldChunks = chunkStore.getByFilePath(filePath, currentBranch);
-			for (const oldChunk of oldChunks) {
-				if (!oldChunkEmbeddingsByHash.has(oldChunk.content_hash)) {
-					const vec = granularVectorStore.get(oldChunk.id);
-					if (vec) {
-						oldChunkEmbeddingsByHash.set(oldChunk.content_hash, vec);
-					}
-				}
-			}
-		}
-
-		// Delete old symbols, edges, and chunks for this file
-		symbolStore.deleteByFilePath(filePath, currentBranch);
-		keywordStore.deleteByFilePath(filePath);
-		chunkStore.deleteByFilePath(filePath, currentBranch);
-		contentFTSStore.deleteByFilePath(filePath);
-		
-		// Clean up edges where these symbols were source or target
-		if (oldSymbolIds.length > 0) {
-			edgeStore.deleteStaleEdges(oldSymbolIds, currentBranch);
-		}
-
-		// Determine language
-		const language = symbolExtractor.getLanguage(filePath) ?? "unknown";
-
-		// Store symbols
-		if (symbols.length > 0) {
-			symbolStore.upsertMany(symbols);
-
-			// Update shared symbol map with new symbols
+			// Remove old symbols from shared map (if provided)
 			if (sharedSymbolMap) {
-				for (const sym of symbols) {
-					sharedSymbolMap.set(sym.id, sym);
+				for (const id of oldSymbolIds) {
+					sharedSymbolMap.delete(id);
 				}
 			}
 
-			// Index symbols in FTS (legacy)
-			keywordStore.indexMany(
-				symbols.map((s) => ({
-					symbolId: s.id,
-					name: s.name,
-					qualifiedName: s.qualified_name,
-					content: s.content,
-					filePath: s.file_path,
-				})),
-			);
+			// Snapshot old chunk embeddings before deletion (for skip-embedding optimization)
+			const oldChunkEmbeddingsByHash = new Map<
+				string,
+				{ embedding: number[]; granularity: import("../types").Granularity }
+			>();
+			if (granularVectorStore) {
+				const oldChunks = chunkStore.getByFilePath(filePath, currentBranch);
+				for (const oldChunk of oldChunks) {
+					if (!oldChunkEmbeddingsByHash.has(oldChunk.content_hash)) {
+						const vec = granularVectorStore.get(oldChunk.id);
+						if (vec) {
+							oldChunkEmbeddingsByHash.set(oldChunk.content_hash, vec);
+						}
+					}
+				}
+			}
 
-			// Index symbols in unified FTS
-			contentFTSStore.indexMany(
-				symbols.map((s) => ({
-					content_id: s.id,
-					content_type: "symbol" as const,
-					file_path: s.file_path,
-					name: s.name,
-					content: s.content,
-				})),
-			);
+			// Delete old symbols, edges, and chunks for this file
+			symbolStore.deleteByFilePath(filePath, currentBranch);
+			keywordStore.deleteByFilePath(filePath);
+			chunkStore.deleteByFilePath(filePath, currentBranch);
+			contentFTSStore.deleteByFilePath(filePath);
 
-			// Extract edges using AST inference (no external deps required)
-			if (astInference && !isExternal) {
-				// Use shared symbol map if provided, otherwise build locally
-				let allSymbols: Map<string, SymbolNode>;
+			// Clean up edges where these symbols were source or target
+			if (oldSymbolIds.length > 0) {
+				edgeStore.deleteStaleEdges(oldSymbolIds, currentBranch);
+			}
+
+			// Determine language
+			const language = symbolExtractor.getLanguage(filePath) ?? "unknown";
+
+			// Store symbols
+			if (symbols.length > 0) {
+				symbolStore.upsertMany(symbols);
+
+				// Update shared symbol map with new symbols
 				if (sharedSymbolMap) {
-					allSymbols = sharedSymbolMap;
-				} else {
-					allSymbols = new Map<string, SymbolNode>();
-					for (const sym of symbolStore.getAll(currentBranch, 50000)) {
-						allSymbols.set(sym.id, sym);
+					for (const sym of symbols) {
+						sharedSymbolMap.set(sym.id, sym);
 					}
 				}
 
-				// Extract import edges from file content
-				const importResult = astInference.inferImportEdges(
-					filePath,
-					content,
-					allSymbols,
-					currentBranch,
+				// Index symbols in FTS (legacy)
+				keywordStore.indexMany(
+					symbols.map((s) => ({
+						symbolId: s.id,
+						name: s.name,
+						qualifiedName: s.qualified_name,
+						content: s.content,
+						filePath: s.file_path,
+					})),
 				);
-				if (importResult.edges.length > 0) {
-					edgeStore.upsertMany(importResult.edges);
-				}
 
-				// Extract call edges for each symbol
-				for (const symbol of symbols) {
-					const callResult = await astInference.inferEdgesForSymbol(
-						symbol,
+				// Index symbols in unified FTS
+				contentFTSStore.indexMany(
+					symbols.map((s) => ({
+						content_id: s.id,
+						content_type: "symbol" as const,
+						file_path: s.file_path,
+						name: s.name,
+						content: s.content,
+					})),
+				);
+
+				// Extract edges using AST inference (no external deps required)
+				if (astInference && !isExternal) {
+					// Use shared symbol map if provided, otherwise build locally
+					let allSymbols: Map<string, SymbolNode>;
+					if (sharedSymbolMap) {
+						allSymbols = sharedSymbolMap;
+					} else {
+						allSymbols = new Map<string, SymbolNode>();
+						for (const sym of symbolStore.getAll(currentBranch, 50000)) {
+							allSymbols.set(sym.id, sym);
+						}
+					}
+
+					// Extract import edges from file content
+					const importResult = astInference.inferImportEdges(
+						filePath,
+						content,
 						allSymbols,
 						currentBranch,
 					);
-					if (callResult.edges.length > 0) {
-						edgeStore.upsertMany(callResult.edges);
+					if (importResult.edges.length > 0) {
+						edgeStore.upsertMany(importResult.edges);
+					}
+
+					// Extract call edges for each symbol
+					for (const symbol of symbols) {
+						const callResult = await astInference.inferEdgesForSymbol(
+							symbol,
+							allSymbols,
+							currentBranch,
+						);
+						if (callResult.edges.length > 0) {
+							edgeStore.upsertMany(callResult.edges);
+						}
 					}
 				}
 			}
-		}
 
 			// Extract and store chunks (multi-granularity indexing)
-			const chunks = chunker.chunk(filePath, content, symbols, language, currentBranch);
+			const chunks = chunker.chunk(
+				filePath,
+				content,
+				symbols,
+				language,
+				currentBranch,
+			);
 			if (chunks.length > 0) {
 				chunkStore.upsertMany(chunks);
 
@@ -432,9 +455,12 @@ export async function createIndexManager(
 				contentFTSStore.indexMany(
 					chunks.map((c) => ({
 						content_id: c.id,
-						content_type: c.chunk_type === "file" ? "file" as const : "chunk" as const,
+						content_type:
+							c.chunk_type === "file" ? ("file" as const) : ("chunk" as const),
 						file_path: c.file_path,
-						name: c.parent_symbol_id ? `chunk:${c.start_line}-${c.end_line}` : filePath,
+						name: c.parent_symbol_id
+							? `chunk:${c.start_line}-${c.end_line}`
+							: filePath,
 						content: c.content,
 					})),
 				);
@@ -443,15 +469,21 @@ export async function createIndexManager(
 				if (batchProcessor && granularVectorStore) {
 					// Partition chunks: reuse cached embeddings for unchanged content
 					const chunksNeedingEmbedding: typeof chunks = [];
-					const cachedEmbeddingEntries: Array<{ id: string; embedding: number[]; granularity: import("../types").Granularity }> = [];
+					const cachedEmbeddingEntries: Array<{
+						id: string;
+						embedding: number[];
+						granularity: import("../types").Granularity;
+					}> = [];
 
 					for (const chunk of chunks) {
 						const cached = oldChunkEmbeddingsByHash.get(chunk.content_hash);
-					if (cached) {
+						if (cached) {
 							cachedEmbeddingEntries.push({
 								id: chunk.id,
 								embedding: cached.embedding,
-								granularity: (chunk.chunk_type === "file" ? "file" : "chunk") as import("../types").Granularity,
+								granularity: (chunk.chunk_type === "file"
+									? "file"
+									: "chunk") as import("../types").Granularity,
 							});
 						} else {
 							chunksNeedingEmbedding.push(chunk);
@@ -465,9 +497,12 @@ export async function createIndexManager(
 
 					// Only embed truly changed/new chunks
 					if (chunksNeedingEmbedding.length > 0) {
-						const embeddingItems = chunksToEmbeddingItems(chunksNeedingEmbedding);
+						const embeddingItems = chunksToEmbeddingItems(
+							chunksNeedingEmbedding,
+						);
 						try {
-							const embeddingResults = await batchProcessor.process(embeddingItems);
+							const embeddingResults =
+								await batchProcessor.process(embeddingItems);
 							granularVectorStore.upsertMany(
 								embeddingResults.map((r) => ({
 									id: r.id,
@@ -484,7 +519,10 @@ export async function createIndexManager(
 
 			// Store file content for file-level search
 			if (fileContentStore && content.length > 0) {
-				const contentHash = new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 16);
+				const contentHash = new Bun.CryptoHasher("sha256")
+					.update(content)
+					.digest("hex")
+					.slice(0, 16);
 				fileContentStore.upsert({
 					file_path: filePath,
 					branch: currentBranch,
@@ -566,8 +604,7 @@ export async function createIndexManager(
 
 			// Check if external
 			const isExternal =
-				filePath.includes("node_modules") ||
-				filePath.includes("site-packages");
+				filePath.includes("node_modules") || filePath.includes("site-packages");
 
 			// Extract symbols
 			const symbols = await symbolExtractor.extractFromFile(
@@ -663,10 +700,7 @@ export async function createIndexManager(
 						allSymbols = sharedSymbolMap;
 					} else {
 						allSymbols = new Map<string, SymbolNode>();
-						for (const sym of symbolStore.getAll(
-							currentBranch,
-							50000,
-						)) {
+						for (const sym of symbolStore.getAll(currentBranch, 50000)) {
 							allSymbols.set(sym.id, sym);
 						}
 					}
@@ -684,12 +718,11 @@ export async function createIndexManager(
 
 					// Extract call edges for each symbol
 					for (const symbol of symbols) {
-						const callResult =
-							await astInference.inferEdgesForSymbol(
-								symbol,
-								allSymbols,
-								currentBranch,
-							);
+						const callResult = await astInference.inferEdgesForSymbol(
+							symbol,
+							allSymbols,
+							currentBranch,
+						);
 						if (callResult.edges.length > 0) {
 							edgeStore.upsertMany(callResult.edges);
 						}
@@ -720,9 +753,7 @@ export async function createIndexManager(
 					chunks.map((c) => ({
 						content_id: c.id,
 						content_type:
-							c.chunk_type === "file"
-								? ("file" as const)
-								: ("chunk" as const),
+							c.chunk_type === "file" ? ("file" as const) : ("chunk" as const),
 						file_path: c.file_path,
 						name: c.parent_symbol_id
 							? `chunk:${c.start_line}-${c.end_line}`
@@ -740,17 +771,17 @@ export async function createIndexManager(
 					}> = [];
 
 					for (const chunk of chunks) {
-						const cached = oldChunkEmbeddingsByHash.get(
-							chunk.content_hash,
-						);
+						const cached = oldChunkEmbeddingsByHash.get(chunk.content_hash);
 						if (cached) {
 							cachedEmbeddingEntries.push({
 								id: chunk.id,
 								embedding: cached.embedding,
-					granularity: (chunk.chunk_type === "file" ? "file" : "chunk") as import("../types").Granularity,
-						});
-					} else {
-						chunksNeedingEmbedding.push(chunk);
+								granularity: (chunk.chunk_type === "file"
+									? "file"
+									: "chunk") as import("../types").Granularity,
+							});
+						} else {
+							chunksNeedingEmbedding.push(chunk);
 						}
 					}
 
@@ -832,7 +863,10 @@ export async function createIndexManager(
 			const filePromises = files.map(async (filePath) => {
 				await semaphore.acquire();
 				try {
-					return { filePath, result: await processFileInternal(filePath, allSymbols) };
+					return {
+						filePath,
+						result: await processFileInternal(filePath, allSymbols),
+					};
 				} finally {
 					semaphore.release();
 				}
@@ -870,8 +904,7 @@ export async function createIndexManager(
 			) {
 				onProgress?.(indexed, total, "embedding");
 				try {
-					const results =
-						await batchProcessor.process(pendingEmbeddingChunks);
+					const results = await batchProcessor.process(pendingEmbeddingChunks);
 					granularVectorStore.upsertMany(
 						results.map((r) => ({
 							id: r.id,
@@ -980,7 +1013,10 @@ export async function createIndexManager(
 					for (const change of batch.changes) {
 						if (change.type === "unlink") {
 							// Handle file deletion
-							const oldSymbols = symbolStore!.getByFilePath(change.path, currentBranch);
+							const oldSymbols = symbolStore!.getByFilePath(
+								change.path,
+								currentBranch,
+							);
 							const oldSymbolIds = oldSymbols.map((s) => s.id);
 							symbolStore!.deleteByFilePath(change.path, currentBranch);
 							keywordStore!.deleteByFilePath(change.path);
@@ -1017,10 +1053,13 @@ export async function createIndexManager(
 
 			// Chunk counts by type
 			const totalChunks = chunkStore!.count(currentBranch);
-			const symbolChunks = chunkStore!.countByChunkType("symbol", currentBranch);
+			const symbolChunks = chunkStore!.countByChunkType(
+				"symbol",
+				currentBranch,
+			);
 			const blockChunks = chunkStore!.countByChunkType("block", currentBranch);
 			const fileChunks = chunkStore!.countByChunkType("file", currentBranch);
-			
+
 			// Embedding counts by granularity
 			const symbolEmbeddings = granularVectorStore!.count("symbol");
 			const chunkEmbeddings = granularVectorStore!.count("chunk");
@@ -1028,7 +1067,13 @@ export async function createIndexManager(
 			const totalEmbeddings = granularVectorStore!.count();
 
 			// Watcher status
-			let watcherStatus: { active: boolean; pending_changes: number; last_update: number | null } | undefined;
+			let watcherStatus:
+				| {
+						active: boolean;
+						pending_changes: number;
+						last_update: number | null;
+				  }
+				| undefined;
 			if (fileWatcher !== null) {
 				watcherStatus = {
 					active: fileWatcher.isActive(),
@@ -1076,13 +1121,18 @@ export async function createIndexManager(
 			await indexAllInternal();
 		},
 
-		async refresh(): Promise<{ added: number; modified: number; removed: number }> {
+		async refresh(): Promise<{
+			added: number;
+			modified: number;
+			removed: number;
+		}> {
 			ensureInitialized();
 
 			const files = await collectFiles();
 			const changes = await syncCache!.findChangedFiles(files);
-			
-			const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
+
+			const totalChanges =
+				changes.added.length + changes.modified.length + changes.removed.length;
 			let processed = 0;
 
 			onProgress?.(0, totalChanges, "analyzing");
@@ -1099,17 +1149,17 @@ export async function createIndexManager(
 			for (const filePath of changes.removed) {
 				const oldSymbols = symbolStore!.getByFilePath(filePath, currentBranch);
 				const oldSymbolIds = oldSymbols.map((s) => s.id);
-				
+
 				// Remove from shared symbol map
 				for (const id of oldSymbolIds) {
 					allSymbols.delete(id);
 				}
-				
+
 				symbolStore!.deleteByFilePath(filePath, currentBranch);
 				keywordStore!.deleteByFilePath(filePath);
 				fileStore!.deleteByPath(filePath, currentBranch);
 				syncCache!.clearFile(filePath);
-				
+
 				if (oldSymbolIds.length > 0) {
 					edgeStore!.deleteStaleEdges(oldSymbolIds, currentBranch);
 				}
@@ -1127,7 +1177,10 @@ export async function createIndexManager(
 			const filePromises = filesToProcess.map(async (filePath) => {
 				await semaphore.acquire();
 				try {
-					return { filePath, result: await processFileInternal(filePath, allSymbols) };
+					return {
+						filePath,
+						result: await processFileInternal(filePath, allSymbols),
+					};
 				} finally {
 					semaphore.release();
 				}
@@ -1165,8 +1218,7 @@ export async function createIndexManager(
 			) {
 				onProgress?.(processed, totalChanges, "embedding");
 				try {
-					const results =
-						await batchProcessor.process(pendingEmbeddingChunks);
+					const results = await batchProcessor.process(pendingEmbeddingChunks);
 					granularVectorStore.upsertMany(
 						results.map((r) => ({
 							id: r.id,

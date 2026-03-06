@@ -1,6 +1,6 @@
 /**
  * Integration tests for @op1/code-intel
- * 
+ *
  * Tests core functionality end-to-end:
  * 1. Module exports
  * 2. Storage layer (SQLite)
@@ -9,51 +9,44 @@
  * 5. Diagnostics
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-
-// Import all modules to verify exports
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-	// Types
-	type SymbolNode,
-	type SymbolEdge,
-	type FileRecord,
-	DEFAULT_CONFIG,
-} from "../types";
+	createCodeIntelMetrics,
+	createLogger,
+	createMetricsRegistry,
+	nullLogger,
+} from "../diagnostics";
+import {
+	createPythonAdapter,
+	createTypeScriptAdapter,
+	generateCanonicalId,
+} from "../extraction";
+import { createBranchManager } from "../indexing";
 
 import {
-	createSymbolStore,
+	createBranchDiffer,
+	createGraphExpander,
+	createImpactAnalyzer,
+} from "../query";
+import {
 	createEdgeStore,
 	createFileStore,
 	createKeywordStore,
 	createRepoMapStore,
-	type SymbolStore,
+	createSymbolStore,
 	type EdgeStore,
 	type FileStore,
+	type SymbolStore,
 } from "../storage";
-
+// Import all modules to verify exports
 import {
-	generateCanonicalId,
-	createTypeScriptAdapter,
-	createPythonAdapter,
-} from "../extraction";
-
-import {
-	createGraphExpander,
-	createImpactAnalyzer,
-	createBranchDiffer,
-} from "../query";
-
-import {
-	createLogger,
-	createMetricsRegistry,
-	createCodeIntelMetrics,
-	nullLogger,
-} from "../diagnostics";
-
-import {
-	createBranchManager,
-} from "../indexing";
+	DEFAULT_CONFIG,
+	type FileRecord,
+	type SymbolEdge,
+	// Types
+	type SymbolNode,
+} from "../types";
 
 describe("Module Exports", () => {
 	test("types are exported correctly", () => {
@@ -96,14 +89,30 @@ describe("Module Exports", () => {
 
 describe("Canonical ID Generation", () => {
 	test("generates consistent IDs for same input", () => {
-		const id1 = generateCanonicalId("src/utils.ts:calculateTax", "function(amount: number): number", "typescript");
-		const id2 = generateCanonicalId("src/utils.ts:calculateTax", "function(amount: number): number", "typescript");
+		const id1 = generateCanonicalId(
+			"src/utils.ts:calculateTax",
+			"function(amount: number): number",
+			"typescript",
+		);
+		const id2 = generateCanonicalId(
+			"src/utils.ts:calculateTax",
+			"function(amount: number): number",
+			"typescript",
+		);
 		expect(id1).toBe(id2);
 	});
 
 	test("generates different IDs for different inputs", () => {
-		const id1 = generateCanonicalId("src/utils.ts:calculateTax", undefined, "typescript");
-		const id2 = generateCanonicalId("src/utils.ts:calculateTotal", undefined, "typescript");
+		const id1 = generateCanonicalId(
+			"src/utils.ts:calculateTax",
+			undefined,
+			"typescript",
+		);
+		const id2 = generateCanonicalId(
+			"src/utils.ts:calculateTotal",
+			undefined,
+			"typescript",
+		);
 		expect(id1).not.toBe(id2);
 	});
 
@@ -121,7 +130,7 @@ describe("Storage Layer", () => {
 
 	beforeAll(() => {
 		db = new Database(":memory:");
-		
+
 		// Create tables
 		db.run(`
 			CREATE TABLE IF NOT EXISTS symbols (
@@ -273,7 +282,9 @@ export function calculateTax(amount: number): number {
 		const symbols = await adapter.extractSymbols(code, "tax.ts");
 
 		expect(symbols.length).toBeGreaterThanOrEqual(1);
-		const func = symbols.find((s: { name: string }) => s.name === "calculateTax");
+		const func = symbols.find(
+			(s: { name: string }) => s.name === "calculateTax",
+		);
 		expect(func).toBeDefined();
 		expect(func!.type).toBe("FUNCTION");
 	});
@@ -322,7 +333,9 @@ def calculate_tax(amount: float) -> float:
 `;
 		const symbols = await adapter.extractSymbols(code, "tax.py");
 
-		const func = symbols.find((s: { name: string }) => s.name === "calculate_tax");
+		const func = symbols.find(
+			(s: { name: string }) => s.name === "calculate_tax",
+		);
 		expect(func).toBeDefined();
 		expect(func!.type).toBe("FUNCTION");
 		expect(func!.docstring).toContain("Calculate tax");
@@ -402,7 +415,7 @@ describe("Diagnostics", () => {
 		const timer = registry.timer("test_timer");
 
 		await timer.time(async () => {
-			await new Promise(r => setTimeout(r, 10));
+			await new Promise((r) => setTimeout(r, 10));
 		});
 
 		const stats = timer.getHistogram().getStats();
@@ -424,7 +437,7 @@ describe("Branch Manager", () => {
 	test("detects git repository", async () => {
 		const manager = createBranchManager(process.cwd());
 		const isGit = await manager.isGitRepo();
-		
+
 		// We're running from a git repo
 		expect(typeof isGit).toBe("boolean");
 	});
@@ -432,7 +445,7 @@ describe("Branch Manager", () => {
 	test("gets current branch", async () => {
 		const manager = createBranchManager(process.cwd());
 		const branch = await manager.getCurrentBranch();
-		
+
 		expect(typeof branch).toBe("string");
 		expect(branch.length).toBeGreaterThan(0);
 	});
@@ -443,7 +456,7 @@ describe("Branch Diff", () => {
 
 	beforeAll(() => {
 		db = new Database(":memory:");
-		
+
 		db.run(`
 			CREATE TABLE IF NOT EXISTS symbols (
 				id TEXT PRIMARY KEY,

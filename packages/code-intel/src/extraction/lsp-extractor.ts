@@ -7,8 +7,8 @@
  */
 
 import type { EdgeOrigin, EdgeType, SymbolEdge, SymbolNode } from "../types";
-import { generateEdgeId } from "./canonical-id";
 import type { AstInference } from "./ast-inference";
+import { generateEdgeId } from "./canonical-id";
 
 // ============================================================================
 // Types
@@ -292,19 +292,14 @@ export function createLspExtractor(
 			parentNames.push(extendsMatch[1]);
 		}
 		if (implementsMatch) {
-			parentNames.push(
-				...implementsMatch[1].split(",").map((s) => s.trim()),
-			);
+			parentNames.push(...implementsMatch[1].split(",").map((s) => s.trim()));
 		}
 
 		// Find parent symbols by name
 		for (const parentName of parentNames) {
 			for (const candidate of allSymbols.values()) {
 				if (candidate.name !== parentName) continue;
-				if (
-					candidate.type !== "CLASS" &&
-					candidate.type !== "INTERFACE"
-				)
+				if (candidate.type !== "CLASS" && candidate.type !== "INTERFACE")
 					continue;
 
 				const edgeType: EdgeType =

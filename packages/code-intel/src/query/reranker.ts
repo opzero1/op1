@@ -225,8 +225,7 @@ export function createCompositeReranker(
 	weights?: number[],
 ): Reranker {
 	const normalizedWeights =
-		weights ??
-		rerankers.map(() => 1 / rerankers.length);
+		weights ?? rerankers.map(() => 1 / rerankers.length);
 
 	return {
 		rerank(items: RerankItem[], options: RerankOptions): RerankResult[] {
@@ -234,7 +233,10 @@ export function createCompositeReranker(
 			const allResults = rerankers.map((r) => r.rerank(items, options));
 
 			// Combine scores
-			const combinedScores = new Map<string, { item: RerankResult; score: number }>();
+			const combinedScores = new Map<
+				string,
+				{ item: RerankResult; score: number }
+			>();
 
 			for (let i = 0; i < allResults.length; i++) {
 				const results = allResults[i];

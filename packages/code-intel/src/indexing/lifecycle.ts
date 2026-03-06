@@ -62,7 +62,10 @@ export interface LifecycleManager {
 
 	/** Subscribe to state changes */
 	onStateChange(
-		handler: (state: IndexLifecycleState, transition: LifecycleTransition) => void,
+		handler: (
+			state: IndexLifecycleState,
+			transition: LifecycleTransition,
+		) => void,
 	): () => void;
 }
 

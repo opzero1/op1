@@ -15,8 +15,8 @@ save = true
 # Global test setup (mocks, environment variables)
 preload = ["./test-setup.ts"]
 
-# Timeout for slow integration tests (10 seconds)
-timeout = 10000
+# Timeout for slow integration tests and long setup hooks (60 seconds)
+timeout = 60000
 
 # Coverage configuration
 coverage = true

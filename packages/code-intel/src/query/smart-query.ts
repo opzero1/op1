@@ -9,19 +9,32 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { EdgeStore } from "../storage/edge-store";
-import type { SymbolStore } from "../storage/symbol-store";
-import type { ConfidenceDiagnostics, Granularity, QueryOptions, QueryResult, RerankMode, SymbolEdge, SymbolNode, SymbolType } from "../types";
 import type { Embedder } from "../embeddings";
-import { createGraphExpander, type GraphExpander } from "./graph-expander";
-import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
-import { fuseWithRrf, type FusedResult } from "./rrf-fusion";
-import { createVectorSearcher, type VectorSearcher } from "./vector-search";
-import { createBM25Reranker, type Reranker, type RerankItem } from "./reranker";
 import type { ChunkStore } from "../storage/chunk-store";
 import type { ContentFTSStore } from "../storage/content-fts-store";
+import type { EdgeStore } from "../storage/edge-store";
 import type { GranularVectorStore } from "../storage/pure-vector-store";
-import { createEnhancedMultiGranularSearch, type EnhancedMultiGranularSearch, type EnhancedSearchResult } from "./multi-granular-search";
+import type { SymbolStore } from "../storage/symbol-store";
+import type {
+	ConfidenceDiagnostics,
+	Granularity,
+	QueryOptions,
+	QueryResult,
+	RerankMode,
+	SymbolEdge,
+	SymbolNode,
+	SymbolType,
+} from "../types";
+import { createGraphExpander, type GraphExpander } from "./graph-expander";
+import { createKeywordSearcher, type KeywordSearcher } from "./keyword-search";
+import {
+	createEnhancedMultiGranularSearch,
+	type EnhancedMultiGranularSearch,
+	type EnhancedSearchResult,
+} from "./multi-granular-search";
+import { createBM25Reranker, type Reranker, type RerankItem } from "./reranker";
+import { type FusedResult, fuseWithRrf } from "./rrf-fusion";
+import { createVectorSearcher, type VectorSearcher } from "./vector-search";
 
 // ============================================================================
 // Types
@@ -103,7 +116,10 @@ export function createSmartQuery(
 
 			// Generate embedding if not provided but embedder available
 			if (!parsedOptions.embedding && parsedOptions.queryText && embedder) {
-				parsedOptions.embedding = await embedder.embed(parsedOptions.queryText, { inputType: 'query' });
+				parsedOptions.embedding = await embedder.embed(
+					parsedOptions.queryText,
+					{ inputType: "query" },
+				);
 			}
 
 			// Guard: need at least one search method
@@ -121,7 +137,8 @@ export function createSmartQuery(
 			let fusedResults: FusedResult[] = [];
 			let rerankTimeMs = 0;
 
-			let useSimplePath = !enhancedSearch || !parsedOptions.embedding || !parsedOptions.queryText;
+			let useSimplePath =
+				!enhancedSearch || !parsedOptions.embedding || !parsedOptions.queryText;
 
 			if (!useSimplePath) {
 				try {
@@ -136,7 +153,9 @@ export function createSmartQuery(
 							pathPrefix: parsedOptions.pathPrefix ?? undefined,
 							filePatterns: parsedOptions.filePatterns ?? undefined,
 							enableRewriting: true,
-							enableReranking: parsedOptions.rerankMode !== null && parsedOptions.rerankMode !== "none",
+							enableReranking:
+								parsedOptions.rerankMode !== null &&
+								parsedOptions.rerankMode !== "none",
 							rerankerType: mapRerankModeToType(parsedOptions.rerankMode),
 							enableCaching: true,
 						},
@@ -149,12 +168,18 @@ export function createSmartQuery(
 					rerankTimeMs = enhancedResult.metadata.rerankTime ?? 0;
 
 					// If enhanced didn't produce symbols but has ranked items, hydrate from ranked
-					if (hydratedSymbols.length === 0 && enhancedResult.ranked.length > 0) {
+					if (
+						hydratedSymbols.length === 0 &&
+						enhancedResult.ranked.length > 0
+					) {
 						for (const ranked of enhancedResult.ranked) {
 							if (ranked.granularity === "symbol") {
 								const sym = symbolStore.getById(ranked.id);
 								if (sym) hydratedSymbols.push(sym);
-							} else if (ranked.granularity === "file" || ranked.granularity === "chunk") {
+							} else if (
+								ranked.granularity === "file" ||
+								ranked.granularity === "chunk"
+							) {
 								// Create lightweight SymbolNode wrapper for file/chunk results
 								hydratedSymbols.push({
 									id: ranked.id,
@@ -216,7 +241,11 @@ export function createSmartQuery(
 				hydratedSymbols = hydrateSymbols(fusedResults, symbolStore);
 
 				// Apply reranking if enabled
-				if (parsedOptions.rerankMode && parsedOptions.rerankMode !== "none" && parsedOptions.queryText) {
+				if (
+					parsedOptions.rerankMode &&
+					parsedOptions.rerankMode !== "none" &&
+					parsedOptions.queryText
+				) {
 					hydratedSymbols = applyReranking(
 						hydratedSymbols,
 						fusedResults,
@@ -231,16 +260,16 @@ export function createSmartQuery(
 				return createEmptyResult(startTime, parsedOptions);
 			}
 
-		// Step 4: Graph expansion for top results (shared by both paths)
-		// Skip for file-granularity results — they're pseudo-symbols with no graph edges
-		const isFileGranularity = parsedOptions.granularity === "file";
-		const expansionResult = isFileGranularity
-			? { symbols: hydratedSymbols, edges: [], expansionCount: 0 }
-			: expandGraphForTopSymbols(
-					hydratedSymbols,
-					graphExpander,
-					parsedOptions,
-				);
+			// Step 4: Graph expansion for top results (shared by both paths)
+			// Skip for file-granularity results — they're pseudo-symbols with no graph edges
+			const isFileGranularity = parsedOptions.granularity === "file";
+			const expansionResult = isFileGranularity
+				? { symbols: hydratedSymbols, edges: [], expansionCount: 0 }
+				: expandGraphForTopSymbols(
+						hydratedSymbols,
+						graphExpander,
+						parsedOptions,
+					);
 
 			// Step 5: Token-budget aware context building
 			const contextResult = buildContextWithinBudget(
@@ -313,13 +342,17 @@ interface ParsedQueryOptions {
 
 function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
 	return {
-		embedding: options.embedding && options.embedding.length > 0 ? options.embedding : null,
+		embedding:
+			options.embedding && options.embedding.length > 0
+				? options.embedding
+				: null,
 		queryText: options.queryText?.trim() || null,
 		branch: options.branch ?? "main",
 		maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
 		graphDepth: Math.min(options.graphDepth ?? DEFAULT_GRAPH_DEPTH, 3),
 		maxFanOut: options.maxFanOut ?? DEFAULT_MAX_FAN_OUT,
-		confidenceThreshold: options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
+		confidenceThreshold:
+			options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
 		symbolTypes: options.symbolTypes ?? null,
 		rerankMode: options.rerank ?? null,
 		granularity: options.granularity ?? null,
@@ -341,7 +374,9 @@ function parseQueryOptions(options: SmartQueryOptions): ParsedQueryOptions {
  * - "hybrid"    → "voyage" (same as llm — fallback handled inside applyVoyageReranking)
  * - null        → "bm25" (default)
  */
-function mapRerankModeToType(mode: RerankMode | null): "bm25" | "simple" | "voyage" {
+function mapRerankModeToType(
+	mode: RerankMode | null,
+): "bm25" | "simple" | "voyage" {
 	if (mode === "llm" || mode === "hybrid") return "voyage";
 	if (mode === "heuristic") return "simple";
 	return "bm25";
@@ -378,7 +413,10 @@ async function runParallelRetrieval(
 			)
 		: Promise.resolve([]);
 
-	const [vectorResults, keywordResults] = await Promise.all([vectorPromise, keywordPromise]);
+	const [vectorResults, keywordResults] = await Promise.all([
+		vectorPromise,
+		keywordPromise,
+	]);
 
 	return [vectorResults, keywordResults];
 }
@@ -570,7 +608,10 @@ export function buildContextWithinBudget(
 			// Try to add truncated version if we have room
 			const remainingTokens = maxTokens - currentTokens;
 			if (remainingTokens > 100) {
-				const truncatedContext = truncateToTokens(symbolContext, remainingTokens);
+				const truncatedContext = truncateToTokens(
+					symbolContext,
+					remainingTokens,
+				);
 				contextParts.push(truncatedContext);
 				currentTokens += estimateTokens(truncatedContext);
 				includedSymbols.push(symbol);
@@ -594,14 +635,17 @@ function formatSymbolContext(symbol: SymbolNode): string {
 	const parts: string[] = [];
 
 	// File-level results: use file-oriented header
-	const isFileResult = symbol.type === "MODULE" && symbol.qualified_name.includes("/");
+	const isFileResult =
+		symbol.type === "MODULE" && symbol.qualified_name.includes("/");
 	if (isFileResult) {
 		parts.push(`## FILE: ${symbol.qualified_name}`);
 		parts.push(`Lines: ${symbol.start_line}-${symbol.end_line}`);
 	} else {
 		// Symbol-level results
 		parts.push(`## ${symbol.type}: ${symbol.qualified_name}`);
-		parts.push(`File: ${symbol.file_path}:${symbol.start_line}-${symbol.end_line}`);
+		parts.push(
+			`File: ${symbol.file_path}:${symbol.start_line}-${symbol.end_line}`,
+		);
 
 		if (symbol.signature) {
 			parts.push(`Signature: ${symbol.signature}`);
@@ -613,7 +657,9 @@ function formatSymbolContext(symbol: SymbolNode): string {
 	}
 
 	// Detect language from file path for file results
-	const lang = isFileResult ? inferLangFromPath(symbol.qualified_name) : symbol.language;
+	const lang = isFileResult
+		? inferLangFromPath(symbol.qualified_name)
+		: symbol.language;
 	parts.push(`\nSource:\n\`\`\`${lang}\n${symbol.content}\n\`\`\``);
 
 	return parts.join("\n");
@@ -661,7 +707,10 @@ function inferLanguageType(filePath: string): "typescript" | "python" {
 // Result Helpers
 // ============================================================================
 
-function createEmptyResult(startTime: number, options?: ParsedQueryOptions): QueryResult {
+function createEmptyResult(
+	startTime: number,
+	options?: ParsedQueryOptions,
+): QueryResult {
 	return {
 		symbols: [],
 		edges: [],
@@ -681,12 +730,16 @@ function createEmptyResult(startTime: number, options?: ParsedQueryOptions): Que
 				totalCandidates: 0,
 				tierReason: "Empty result — no candidates found",
 			},
-			candidateLimit: options ? computeAdaptiveLimit(options) : BASE_RETRIEVAL_LIMIT,
-			scope: options ? {
-				branch: options.branch,
-				pathPrefix: options.pathPrefix ?? undefined,
-				filePatterns: options.filePatterns ?? undefined,
-			} : undefined,
+			candidateLimit: options
+				? computeAdaptiveLimit(options)
+				: BASE_RETRIEVAL_LIMIT,
+			scope: options
+				? {
+						branch: options.branch,
+						pathPrefix: options.pathPrefix ?? undefined,
+						filePatterns: options.filePatterns ?? undefined,
+					}
+				: undefined,
 		},
 	};
 }
@@ -721,13 +774,19 @@ function computeAdaptiveLimit(options: ParsedQueryOptions): number {
 	}
 
 	// Scoped queries can afford more candidates (smaller search space = faster)
-	if (options.pathPrefix || (options.filePatterns && options.filePatterns.length > 0)) {
+	if (
+		options.pathPrefix ||
+		(options.filePatterns && options.filePatterns.length > 0)
+	) {
 		limit = Math.round(limit * 1.25);
 	}
 
 	// Higher token budgets can benefit from more candidates
 	if (options.maxTokens > DEFAULT_MAX_TOKENS) {
-		const budgetMultiplier = Math.min(options.maxTokens / DEFAULT_MAX_TOKENS, 3);
+		const budgetMultiplier = Math.min(
+			options.maxTokens / DEFAULT_MAX_TOKENS,
+			3,
+		);
 		limit = Math.round(limit * (0.5 + 0.5 * budgetMultiplier));
 	}
 
@@ -755,13 +814,17 @@ interface ConfidenceResult {
  *   - Only one channel present → minimal agreement (0.1)
  *   - No channels → zero agreement
  */
-export function computeEnhancedAgreement(vectorHits: number, keywordHits: number): number {
+export function computeEnhancedAgreement(
+	vectorHits: number,
+	keywordHits: number,
+): number {
 	if (vectorHits <= 0 && keywordHits <= 0) return 0;
 	if (vectorHits <= 0 || keywordHits <= 0) return 0.1;
 
 	// Both channels contributing is a strong positive signal.
 	// Use a log-dampened ratio so large imbalances don't crush the score.
-	const ratio = Math.min(vectorHits, keywordHits) / Math.max(vectorHits, keywordHits);
+	const ratio =
+		Math.min(vectorHits, keywordHits) / Math.max(vectorHits, keywordHits);
 	// Boost: having both channels active is inherently valuable (floor at 0.5)
 	return 0.5 + 0.5 * ratio;
 }
@@ -817,7 +880,9 @@ export function computeMultiSignalConfidence(
 		agreementRatio = agreementOverride;
 	} else if (fusedResults.length > 0) {
 		const bothChannels = fusedResults.filter(
-			(r) => r.sourceRanks.vector !== undefined && r.sourceRanks.keyword !== undefined,
+			(r) =>
+				r.sourceRanks.vector !== undefined &&
+				r.sourceRanks.keyword !== undefined,
 		).length;
 		agreementRatio = bothChannels / Math.max(fusedResults.length, 1);
 	} else if (vectorHits > 0 && keywordHits > 0) {
@@ -874,7 +939,11 @@ export function computeMultiSignalConfidence(
 	}
 
 	// Fast-path: single-result exact match with both channels → high confidence
-	if (symbols.length === 1 && agreementRatio >= 0.5 && scopeConcentration >= 1.0) {
+	if (
+		symbols.length === 1 &&
+		agreementRatio >= 0.5 &&
+		scopeConcentration >= 1.0
+	) {
 		return {
 			tier: "high",
 			diagnostics: {
@@ -892,9 +961,10 @@ export function computeMultiSignalConfidence(
 	// File-granularity results naturally span multiple directories, so
 	// scopeConcentration (directory clustering) is a misleading signal —
 	// reduce its weight to avoid penalising valid file-level searches.
-	const compositeScore = granularity === "file"
-		? agreementRatio * 0.60 + scoreSpread * 0.30 + scopeConcentration * 0.10
-		: agreementRatio * 0.45 + scoreSpread * 0.25 + scopeConcentration * 0.30;
+	const compositeScore =
+		granularity === "file"
+			? agreementRatio * 0.6 + scoreSpread * 0.3 + scopeConcentration * 0.1
+			: agreementRatio * 0.45 + scoreSpread * 0.25 + scopeConcentration * 0.3;
 
 	// Determine tier from composite
 	let tier: "high" | "medium" | "low" | "degraded";

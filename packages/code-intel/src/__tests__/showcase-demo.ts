@@ -1,37 +1,35 @@
 #!/usr/bin/env bun
 /**
  * @op1/code-intel - SEMANTIC SEARCH SHOWCASE
- * 
+ *
  * Demonstrates meaningful semantic code search use cases:
- * 
+ *
  * 1. 🔍 "How does embedding work?" - Find embedding-related code
- * 2. 🔍 "Where is error handling?" - Find error/logging patterns  
+ * 2. 🔍 "Where is error handling?" - Find error/logging patterns
  * 3. 🔍 "How do I add a new language?" - Find adapter patterns
  * 4. 🔍 "What stores data?" - Find storage implementations
- * 
+ *
  * Run: bun run src/__tests__/showcase-demo.ts
  */
 
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { createAutoEmbedder } from "../embeddings";
 
+import {
+	createTypeScriptAdapter,
+	generateCanonicalId,
+	generateContentHash,
+} from "../extraction";
+import { createSmartQuery } from "../query/smart-query";
 // Imports from the package
 import {
-	createSymbolStore,
 	createEdgeStore,
 	createKeywordStore,
 	createPureVectorStore,
+	createSymbolStore,
 } from "../storage";
-
-import {
-	generateCanonicalId,
-	generateContentHash,
-	createTypeScriptAdapter,
-} from "../extraction";
-
-import { createAutoEmbedder } from "../embeddings";
-import { createSmartQuery } from "../query/smart-query";
 
 import type { SymbolNode, SymbolType } from "../types";
 
@@ -67,13 +65,29 @@ function query(text: string) {
 	console.log("\n" + C.bgGreen + C.bright + ` 🔍 QUERY: "${text}" ` + C.reset);
 }
 
-function result(rank: number, name: string, type: string, file: string, line: number, similarity?: number) {
-	const simStr = similarity !== undefined ? ` (sim: ${similarity.toFixed(3)})` : "";
+function result(
+	rank: number,
+	name: string,
+	type: string,
+	file: string,
+	line: number,
+	similarity?: number,
+) {
+	const simStr =
+		similarity !== undefined ? ` (sim: ${similarity.toFixed(3)})` : "";
 	console.log(
-		C.yellow + `  ${rank}. ` + C.reset +
-		C.bright + name + C.reset +
-		C.dim + ` [${type}]` + C.reset +
-		C.cyan + simStr + C.reset
+		C.yellow +
+			`  ${rank}. ` +
+			C.reset +
+			C.bright +
+			name +
+			C.reset +
+			C.dim +
+			` [${type}]` +
+			C.reset +
+			C.cyan +
+			simStr +
+			C.reset,
 	);
 	console.log(C.dim + `     ${file}:${line}` + C.reset);
 }
@@ -86,7 +100,13 @@ function code(content: string, maxLines = 6) {
 		console.log(C.dim + "     │ " + C.reset + truncated);
 	}
 	if (content.split("\n").length > maxLines) {
-		console.log(C.dim + "     │ " + C.yellow + `... ${content.split("\n").length - maxLines} more lines` + C.reset);
+		console.log(
+			C.dim +
+				"     │ " +
+				C.yellow +
+				`... ${content.split("\n").length - maxLines} more lines` +
+				C.reset,
+		);
 	}
 	console.log(C.dim + "     └" + "─".repeat(60) + C.reset);
 }
@@ -105,18 +125,20 @@ function success(text: string) {
 
 async function main() {
 	banner("@op1/code-intel - SEMANTIC SEARCH SHOWCASE");
-	console.log(C.dim + "  Demonstrating meaningful code search use cases\n" + C.reset);
+	console.log(
+		C.dim + "  Demonstrating meaningful code search use cases\n" + C.reset,
+	);
 
 	const WORKSPACE_ROOT = process.cwd();
-	
+
 	// ========================================================================
 	// SETUP
 	// ========================================================================
-	
+
 	header("📦 SETUP: Indexing code-intel source");
 
 	const db = new Database(":memory:");
-	
+
 	// Create tables
 	db.run(`
 		CREATE TABLE IF NOT EXISTS symbols (
@@ -139,7 +161,7 @@ async function main() {
 			revision_id INTEGER NOT NULL DEFAULT 0
 		)
 	`);
-	
+
 	db.run(`
 		CREATE TABLE IF NOT EXISTS edges (
 			id TEXT PRIMARY KEY,
@@ -157,7 +179,7 @@ async function main() {
 			metadata TEXT
 		)
 	`);
-	
+
 	db.run(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(
 			symbol_id,
@@ -180,13 +202,23 @@ async function main() {
 			for (const entry of readdirSync(dir)) {
 				const fullPath = join(dir, entry);
 				const stat = statSync(fullPath);
-				if (stat.isDirectory() && !entry.startsWith(".") && entry !== "node_modules") {
+				if (
+					stat.isDirectory() &&
+					!entry.startsWith(".") &&
+					entry !== "node_modules"
+				) {
 					findTsFiles(fullPath, files);
-				} else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts") && !entry.includes("showcase")) {
+				} else if (
+					entry.endsWith(".ts") &&
+					!entry.endsWith(".test.ts") &&
+					!entry.includes("showcase")
+				) {
 					files.push(fullPath);
 				}
 			}
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		return files;
 	}
 
@@ -203,10 +235,14 @@ async function main() {
 		try {
 			const content = await Bun.file(fullPath).text();
 			const rawSymbols = await adapter.extractSymbols(content, filePath);
-			
+
 			for (const raw of rawSymbols) {
 				const symbol: SymbolNode = {
-					id: generateCanonicalId(raw.qualified_name, raw.signature, "typescript"),
+					id: generateCanonicalId(
+						raw.qualified_name,
+						raw.signature,
+						"typescript",
+					),
 					name: raw.name,
 					qualified_name: raw.qualified_name,
 					type: raw.type as SymbolType,
@@ -225,9 +261,17 @@ async function main() {
 				};
 				allSymbols.push(symbol);
 				symbolStore.upsert(symbol);
-				keywordStore.index(symbol.id, symbol.name, symbol.qualified_name, symbol.content, symbol.file_path);
+				keywordStore.index(
+					symbol.id,
+					symbol.name,
+					symbol.qualified_name,
+					symbol.content,
+					symbol.file_path,
+				);
 			}
-		} catch { /* skip */ }
+		} catch {
+			/* skip */
+		}
 	}
 
 	success(`Indexed ${allSymbols.length} symbols`);
@@ -241,7 +285,9 @@ async function main() {
 		const embedding = await embedder.embed(symbol.content);
 		vectorStore.upsert(symbol.id, embedding);
 	}
-	success(`Generated ${allSymbols.length} embeddings in ${Date.now() - embeddingStart}ms`);
+	success(
+		`Generated ${allSymbols.length} embeddings in ${Date.now() - embeddingStart}ms`,
+	);
 
 	const smartQuery = createSmartQuery(db, symbolStore, edgeStore);
 
@@ -250,7 +296,7 @@ async function main() {
 	// ========================================================================
 
 	header("🧠 SEMANTIC SEARCH DEMONSTRATIONS");
-	
+
 	info("These queries show semantic understanding - finding relevant code");
 	info("even when the exact keywords don't match.\n");
 
@@ -283,7 +329,7 @@ async function main() {
 		info(q.description);
 
 		const queryEmbedding = await embedder.embed(q.text);
-		
+
 		const searchResult = await smartQuery.search({
 			embedding: queryEmbedding,
 			queryText: q.text.split(" ").slice(0, 3).join(" "), // First 3 words for keyword
@@ -292,8 +338,12 @@ async function main() {
 		});
 
 		console.log(
-			C.dim + `  Found ${searchResult.symbols.length} results in ${searchResult.metadata.queryTime}ms` + C.reset +
-			C.cyan + ` (confidence: ${searchResult.metadata.confidence})` + C.reset
+			C.dim +
+				`  Found ${searchResult.symbols.length} results in ${searchResult.metadata.queryTime}ms` +
+				C.reset +
+				C.cyan +
+				` (confidence: ${searchResult.metadata.confidence})` +
+				C.reset,
 		);
 
 		// Show top 3 results with code snippets
@@ -311,7 +361,7 @@ async function main() {
 	header("⚖️ SEMANTIC vs KEYWORD SEARCH COMPARISON");
 
 	const comparisonQuery = "vector similarity calculation";
-	
+
 	query(comparisonQuery);
 	info("Comparing semantic search vs pure keyword search\n");
 
@@ -325,23 +375,31 @@ async function main() {
 			const r = keywordResults[i];
 			const sym = symbolStore.getById(r.symbol_id);
 			if (sym) {
-				console.log(C.dim + `    ${i + 1}. ${sym.name} - ${sym.file_path}` + C.reset);
+				console.log(
+					C.dim + `    ${i + 1}. ${sym.name} - ${sym.file_path}` + C.reset,
+				);
 			}
 		}
 	}
 
 	// Semantic (vector) search
-	console.log("\n" + C.cyan + "  SEMANTIC SEARCH (Vector Similarity):" + C.reset);
+	console.log(
+		"\n" + C.cyan + "  SEMANTIC SEARCH (Vector Similarity):" + C.reset,
+	);
 	const semanticEmbedding = await embedder.embed(comparisonQuery);
 	const vectorResults = vectorStore.search(semanticEmbedding, 5);
-	
+
 	for (let i = 0; i < Math.min(3, vectorResults.length); i++) {
 		const r = vectorResults[i];
 		const sym = symbolStore.getById(r.symbol_id);
 		if (sym) {
 			console.log(
-				C.green + `    ${i + 1}. ${sym.name}` + C.reset +
-				C.dim + ` (similarity: ${r.similarity.toFixed(3)}) - ${sym.file_path}` + C.reset
+				C.green +
+					`    ${i + 1}. ${sym.name}` +
+					C.reset +
+					C.dim +
+					` (similarity: ${r.similarity.toFixed(3)}) - ${sym.file_path}` +
+					C.reset,
 			);
 		}
 	}
@@ -358,8 +416,12 @@ async function main() {
 	for (let i = 0; i < Math.min(3, hybridResult.symbols.length); i++) {
 		const s = hybridResult.symbols[i];
 		console.log(
-			C.bright + `    ${i + 1}. ${s.name}` + C.reset +
-			C.dim + ` [${s.type}] - ${s.file_path}:${s.start_line}` + C.reset
+			C.bright +
+				`    ${i + 1}. ${s.name}` +
+				C.reset +
+				C.dim +
+				` [${s.type}] - ${s.file_path}:${s.start_line}` +
+				C.reset,
 		);
 	}
 

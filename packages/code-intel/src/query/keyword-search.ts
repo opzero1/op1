@@ -50,9 +50,13 @@ const DEFAULT_EXACT_NAME_BOOST = 2.0;
 
 export function createKeywordSearcher(db: Database): KeywordSearcher {
 	return {
-		search(query: string, options?: KeywordSearchOptions): KeywordSearchMatch[] {
+		search(
+			query: string,
+			options?: KeywordSearchOptions,
+		): KeywordSearchMatch[] {
 			const limit = options?.limit ?? DEFAULT_LIMIT;
-			const exactNameBoost = options?.exactNameBoost ?? DEFAULT_EXACT_NAME_BOOST;
+			const exactNameBoost =
+				options?.exactNameBoost ?? DEFAULT_EXACT_NAME_BOOST;
 
 			// Guard: empty query returns empty results
 			const escapedQuery = escapeQueryForFts5(query);
@@ -67,7 +71,11 @@ export function createKeywordSearcher(db: Database): KeywordSearcher {
 			);
 			if (rawResults.length === 0) return [];
 
-			const boostedResults = applyExactNameBoost(rawResults, query, exactNameBoost);
+			const boostedResults = applyExactNameBoost(
+				rawResults,
+				query,
+				exactNameBoost,
+			);
 			const sortedResults = sortByScoreDescending(boostedResults);
 
 			return sortedResults.slice(0, limit);
@@ -113,12 +121,17 @@ function executeKeywordSearch(
 
 	if (pathPrefix) {
 		sql += ` AND file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`;
-		const escapedPrefix = pathPrefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+		const escapedPrefix = pathPrefix
+			.replace(/\\/g, "\\\\")
+			.replace(/%/g, "\\%")
+			.replace(/_/g, "\\_");
 		params.push(`${escapedPrefix}%`);
 	}
 
 	if (filePatterns && filePatterns.length > 0) {
-		const likeConditions = filePatterns.map(() => `file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`).join(" OR ");
+		const likeConditions = filePatterns
+			.map(() => `file_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`)
+			.join(" OR ");
 		sql += ` AND (${likeConditions})`;
 		for (const pattern of filePatterns) {
 			params.push(globToLike(pattern));
@@ -165,6 +178,8 @@ function applyExactNameBoost(
 	});
 }
 
-function sortByScoreDescending(results: KeywordSearchMatch[]): KeywordSearchMatch[] {
+function sortByScoreDescending(
+	results: KeywordSearchMatch[],
+): KeywordSearchMatch[] {
 	return [...results].sort((a, b) => b.score - a.score);
 }

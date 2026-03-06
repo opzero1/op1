@@ -12,8 +12,8 @@
  * - Per-batch failure isolation
  */
 
-import type { Embedder, EmbedOptions } from "./embedder";
 import type { Granularity } from "../types";
+import type { Embedder, EmbedOptions } from "./embedder";
 
 // ============================================================================
 // Types
@@ -83,7 +83,8 @@ export interface BatchProcessor {
 // Implementation
 // ============================================================================
 
-const DEFAULT_CONFIG: Required<Omit<BatchProcessorConfig, 'embedOptions'>> & Pick<BatchProcessorConfig, 'embedOptions'> = {
+const DEFAULT_CONFIG: Required<Omit<BatchProcessorConfig, "embedOptions">> &
+	Pick<BatchProcessorConfig, "embedOptions"> = {
 	batchSize: 32,
 	concurrency: 2,
 	maxRetries: 3,
@@ -166,7 +167,7 @@ export function createBatchProcessor(
 				}
 
 				// Exponential backoff
-				const delay = cfg.retryDelayMs * Math.pow(2, attempt);
+				const delay = cfg.retryDelayMs * 2 ** attempt;
 				await sleep(delay);
 			}
 		}
@@ -256,8 +257,7 @@ export function createBatchProcessor(
 				return results;
 			} catch (error) {
 				progress.status = "error";
-				progress.error =
-					error instanceof Error ? error.message : String(error);
+				progress.error = error instanceof Error ? error.message : String(error);
 				onProgress(progress);
 				throw error;
 			}

@@ -65,7 +65,10 @@ export function createTemplateHyDEGenerator(): HyDEGenerator {
 			return generateTypeScriptHypothetical(functionName, docstring, terms);
 		},
 
-		async generateHyDEEmbedding(query: string, embedder: Embedder): Promise<number[]> {
+		async generateHyDEEmbedding(
+			query: string,
+			embedder: Embedder,
+		): Promise<number[]> {
 			const hypothetical = await this.generateHypothetical(query);
 			return embedder.embed(hypothetical);
 		},
@@ -79,17 +82,101 @@ export function createTemplateHyDEGenerator(): HyDEGenerator {
 function extractKeyTerms(query: string): string[] {
 	// Remove common stop words and extract meaningful terms
 	const stopWords = new Set([
-		"a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-		"have", "has", "had", "do", "does", "did", "will", "would", "could",
-		"should", "may", "might", "must", "shall", "can", "need", "dare",
-		"ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
-		"from", "as", "into", "through", "during", "before", "after", "above",
-		"below", "between", "under", "again", "further", "then", "once", "here",
-		"there", "when", "where", "why", "how", "all", "each", "few", "more",
-		"most", "other", "some", "such", "no", "nor", "not", "only", "own",
-		"same", "so", "than", "too", "very", "just", "that", "this", "these",
-		"those", "what", "which", "who", "whom", "find", "get", "make", "create",
-		"function", "method", "class", "code", "implement", "write",
+		"a",
+		"an",
+		"the",
+		"is",
+		"are",
+		"was",
+		"were",
+		"be",
+		"been",
+		"being",
+		"have",
+		"has",
+		"had",
+		"do",
+		"does",
+		"did",
+		"will",
+		"would",
+		"could",
+		"should",
+		"may",
+		"might",
+		"must",
+		"shall",
+		"can",
+		"need",
+		"dare",
+		"ought",
+		"used",
+		"to",
+		"of",
+		"in",
+		"for",
+		"on",
+		"with",
+		"at",
+		"by",
+		"from",
+		"as",
+		"into",
+		"through",
+		"during",
+		"before",
+		"after",
+		"above",
+		"below",
+		"between",
+		"under",
+		"again",
+		"further",
+		"then",
+		"once",
+		"here",
+		"there",
+		"when",
+		"where",
+		"why",
+		"how",
+		"all",
+		"each",
+		"few",
+		"more",
+		"most",
+		"other",
+		"some",
+		"such",
+		"no",
+		"nor",
+		"not",
+		"only",
+		"own",
+		"same",
+		"so",
+		"than",
+		"too",
+		"very",
+		"just",
+		"that",
+		"this",
+		"these",
+		"those",
+		"what",
+		"which",
+		"who",
+		"whom",
+		"find",
+		"get",
+		"make",
+		"create",
+		"function",
+		"method",
+		"class",
+		"code",
+		"implement",
+		"write",
 	]);
 
 	return query
@@ -104,7 +191,9 @@ function generateFunctionName(terms: string[]): string {
 	// Convert terms to camelCase function name
 	const name = terms
 		.slice(0, 3)
-		.map((term, i) => (i === 0 ? term : term.charAt(0).toUpperCase() + term.slice(1)))
+		.map((term, i) =>
+			i === 0 ? term : term.charAt(0).toUpperCase() + term.slice(1),
+		)
 		.join("");
 
 	return name || "processData";
@@ -116,8 +205,24 @@ function generateDocstring(query: string): string {
 }
 
 function detectLanguage(query: string): "typescript" | "python" {
-	const pythonIndicators = ["python", "django", "flask", "pandas", "numpy", "def ", "pip"];
-	const tsIndicators = ["typescript", "javascript", "react", "node", "npm", "async", "await"];
+	const pythonIndicators = [
+		"python",
+		"django",
+		"flask",
+		"pandas",
+		"numpy",
+		"def ",
+		"pip",
+	];
+	const tsIndicators = [
+		"typescript",
+		"javascript",
+		"react",
+		"node",
+		"npm",
+		"async",
+		"await",
+	];
 
 	const pyScore = pythonIndicators.filter((ind) => query.includes(ind)).length;
 	const tsScore = tsIndicators.filter((ind) => query.includes(ind)).length;
@@ -130,10 +235,14 @@ function generateTypeScriptHypothetical(
 	docstring: string,
 	terms: string[],
 ): string {
-	const params = terms.slice(0, 2).map((t) => `${t}: string`).join(", ");
-	const body = terms.length > 0
-		? `// ${docstring}\n\treturn ${terms[0]};`
-		: `// ${docstring}\n\treturn result;`;
+	const params = terms
+		.slice(0, 2)
+		.map((t) => `${t}: string`)
+		.join(", ");
+	const body =
+		terms.length > 0
+			? `// ${docstring}\n\treturn ${terms[0]};`
+			: `// ${docstring}\n\treturn result;`;
 
 	return `/**
  * ${docstring}
@@ -169,7 +278,9 @@ export interface LLMProvider {
  * Creates an LLM-based HyDE generator for higher quality hypothetical documents.
  * Requires an LLM provider (e.g., OpenAI, Anthropic, local model).
  */
-export function createLLMHyDEGenerator(llmProvider: LLMProvider): HyDEGenerator {
+export function createLLMHyDEGenerator(
+	llmProvider: LLMProvider,
+): HyDEGenerator {
 	const HYDE_PROMPT = `You are a code generation assistant. Given a natural language query about code, generate a hypothetical code snippet that would match this query. The code should be realistic, well-structured, and directly relevant to the query.
 
 Query: {query}
@@ -182,7 +293,10 @@ Generate a concise, relevant code snippet (function, class, or code block) that 
 			return llmProvider.generate(prompt);
 		},
 
-		async generateHyDEEmbedding(query: string, embedder: Embedder): Promise<number[]> {
+		async generateHyDEEmbedding(
+			query: string,
+			embedder: Embedder,
+		): Promise<number[]> {
 			const hypothetical = await this.generateHypothetical(query);
 			return embedder.embed(hypothetical);
 		},

@@ -12,7 +12,11 @@ export interface ChunkStore {
 	getById(id: string): ChunkNode | null;
 	getByFilePath(filePath: string, branch: string): ChunkNode[];
 	getByParentSymbol(parentSymbolId: string, branch: string): ChunkNode[];
-	getByChunkType(chunkType: ChunkType, branch: string, limit?: number): ChunkNode[];
+	getByChunkType(
+		chunkType: ChunkType,
+		branch: string,
+		limit?: number,
+	): ChunkNode[];
 	deleteById(id: string): boolean;
 	deleteByFilePath(filePath: string, branch: string): number;
 	deleteByBranch(branch: string): number;
@@ -140,7 +144,11 @@ export function createChunkStore(db: Database): ChunkStore {
 			return rows.map(rowToChunk);
 		},
 
-		getByChunkType(chunkType: ChunkType, branch: string, limit = 1000): ChunkNode[] {
+		getByChunkType(
+			chunkType: ChunkType,
+			branch: string,
+			limit = 1000,
+		): ChunkNode[] {
 			const rows = getByChunkTypeStmt.all(chunkType, branch, limit) as Record<
 				string,
 				unknown
@@ -178,12 +186,16 @@ export function createChunkStore(db: Database): ChunkStore {
 		},
 
 		countByChunkType(chunkType: ChunkType, branch: string): number {
-			const result = countByChunkTypeStmt.get(chunkType, branch) as { count: number };
+			const result = countByChunkTypeStmt.get(chunkType, branch) as {
+				count: number;
+			};
 			return result.count;
 		},
 
 		countByFilePath(filePath: string, branch: string): number {
-			const result = countByFilePathStmt.get(filePath, branch) as { count: number };
+			const result = countByFilePathStmt.get(filePath, branch) as {
+				count: number;
+			};
 			return result.count;
 		},
 

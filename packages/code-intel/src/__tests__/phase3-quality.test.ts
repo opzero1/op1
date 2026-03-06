@@ -10,15 +10,18 @@
  *   responsive via linear interpolation instead of sqrt.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createSymbolStore } from "../storage/symbol-store";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+	createMultiGranularSearch,
+	type MultiGranularSearch,
+} from "../query/multi-granular-search";
+import { MIN_SIMILARITY } from "../query/vector-search";
 import { createChunkStore } from "../storage/chunk-store";
 import { createContentFTSStore } from "../storage/content-fts-store";
 import { createGranularVectorStore } from "../storage/pure-vector-store";
-import { createMultiGranularSearch, type MultiGranularSearch } from "../query/multi-granular-search";
-import { MIN_SIMILARITY } from "../query/vector-search";
-import type { SymbolNode, ChunkNode } from "../types";
+import { createSymbolStore } from "../storage/symbol-store";
+import type { ChunkNode, SymbolNode } from "../types";
 
 // ============================================================================
 // Helpers
@@ -145,7 +148,11 @@ function basisVector(dims: number, index: number): number[] {
  * Perturbed basis vector — controlled cosine similarity to basisVector(dims, index).
  * Higher `noise` means lower similarity to the pure basis vector.
  */
-function noisyBasisVector(dims: number, index: number, noise: number): number[] {
+function noisyBasisVector(
+	dims: number,
+	index: number,
+	noise: number,
+): number[] {
 	const v = new Array(dims).fill(0);
 	v[index % dims] = 1;
 	// Spread noise evenly across other dimensions
@@ -311,7 +318,13 @@ describe("Phase 3 Quality Improvements", () => {
 			"INSERT INTO fts_symbols (symbol_id, name, qualified_name, content, file_path) VALUES (?, ?, ?, ?, ?)",
 		);
 		for (const sym of SYMBOLS) {
-			ftsInsert.run(sym.id, sym.name, sym.qualified_name, sym.content, sym.file_path);
+			ftsInsert.run(
+				sym.id,
+				sym.name,
+				sym.qualified_name,
+				sym.content,
+				sym.file_path,
+			);
 		}
 
 		// Seed vector embeddings:
@@ -321,14 +334,31 @@ describe("Phase 3 Quality Improvements", () => {
 		granularVectors.upsert("sym-relevant", basisVector(DIMS, 0), "symbol");
 		granularVectors.upsert("sym-marginal", basisVector(DIMS, 1), "symbol");
 		// Garbage vector: nearly orthogonal to basis(0)
-		granularVectors.upsert("sym-garbage", basisVector(DIMS, DIMS - 1), "symbol");
+		granularVectors.upsert(
+			"sym-garbage",
+			basisVector(DIMS, DIMS - 1),
+			"symbol",
+		);
 
 		// Chunk embeddings
-		granularVectors.upsert("chunk-relevant", noisyBasisVector(DIMS, 0, 0.05), "chunk");
-		granularVectors.upsert("chunk-garbage", basisVector(DIMS, DIMS - 2), "chunk");
+		granularVectors.upsert(
+			"chunk-relevant",
+			noisyBasisVector(DIMS, 0, 0.05),
+			"chunk",
+		);
+		granularVectors.upsert(
+			"chunk-garbage",
+			basisVector(DIMS, DIMS - 2),
+			"chunk",
+		);
 
 		// Create search
-		baseSearch = createMultiGranularSearch({ contentFTS, granularVectors, chunkStore, symbolStore });
+		baseSearch = createMultiGranularSearch({
+			contentFTS,
+			granularVectors,
+			chunkStore,
+			symbolStore,
+		});
 	});
 
 	afterAll(() => {
@@ -405,7 +435,9 @@ describe("Phase 3 Quality Improvements", () => {
 			expect(relevant).toBeDefined();
 			expect(relevant!.similarity).toBeGreaterThanOrEqual(MIN_SIMILARITY);
 
-			const chunkRelevant = results.find((r) => r.symbol_id === "chunk-relevant");
+			const chunkRelevant = results.find(
+				(r) => r.symbol_id === "chunk-relevant",
+			);
 			expect(chunkRelevant).toBeDefined();
 			expect(chunkRelevant!.similarity).toBeGreaterThanOrEqual(MIN_SIMILARITY);
 		});
@@ -433,7 +465,8 @@ describe("Phase 3 Quality Improvements", () => {
 
 			// Extreme params: long query + high budget + path scope → should push to max
 			const result = await smartQuery.search({
-				queryText: "how does the authentication controller validate email addresses and create user sessions with JWT tokens in the middleware pipeline",
+				queryText:
+					"how does the authentication controller validate email addresses and create user sessions with JWT tokens in the middleware pipeline",
 				maxTokens: 64000,
 				pathPrefix: "src",
 			});
@@ -481,7 +514,8 @@ describe("Phase 3 Quality Improvements", () => {
 
 			// Even with maximum complexity: long query, huge budget, scoped
 			const result = await smartQuery.search({
-				queryText: "find all references to the database connection pooling system that handles transaction isolation levels and retry logic across microservices",
+				queryText:
+					"find all references to the database connection pooling system that handles transaction isolation levels and retry logic across microservices",
 				maxTokens: 100000,
 				pathPrefix: "src",
 				filePatterns: ["*.ts"],

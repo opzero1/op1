@@ -12,8 +12,8 @@
  * - No native dependencies (works with Bun)
  */
 
-import type { Embedder, EmbedOptions, ProgressCallback } from "./embedder";
 import { EmbeddingCache } from "./cache";
+import type { Embedder, EmbedOptions, ProgressCallback } from "./embedder";
 
 // Singleton state for lazy loading
 let extractorInstance: any = null;
@@ -103,11 +103,14 @@ export class UniXcoderEmbedder implements Embedder {
 	}
 
 	private async loadPipeline(): Promise<any> {
-		this.onProgress?.({ status: "loading", message: "Loading transformers..." });
+		this.onProgress?.({
+			status: "loading",
+			message: "Loading transformers...",
+		});
 
 		try {
 			// Using @huggingface/transformers (with sharp stubbed out for Bun compatibility)
-		const { pipeline } = await import("@huggingface/transformers");
+			const { pipeline } = await import("@huggingface/transformers");
 
 			this.onProgress?.({
 				status: "downloading",
@@ -187,7 +190,10 @@ export class UniXcoderEmbedder implements Embedder {
 	 * Generate embeddings for multiple texts.
 	 * Optimizes by batching uncached texts.
 	 */
-	async embedBatch(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
+	async embedBatch(
+		texts: string[],
+		_options?: EmbedOptions,
+	): Promise<number[][]> {
 		// Guard: empty input
 		if (texts.length === 0) {
 			return [];
@@ -286,6 +292,20 @@ export class UniXcoderEmbedder implements Embedder {
 			quantized: this.quantized,
 			loaded: this.isLoaded(),
 		};
+	}
+
+	async dispose(): Promise<void> {
+		const extractor = this.extractor;
+		this.extractor = null;
+
+		if (extractorInstance === extractor) {
+			extractorInstance = null;
+			extractorPromise = null;
+		}
+
+		if (extractor && typeof extractor.dispose === "function") {
+			await extractor.dispose();
+		}
 	}
 }
 

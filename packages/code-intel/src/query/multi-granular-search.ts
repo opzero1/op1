@@ -8,16 +8,39 @@
  * - Context caching (LRU with TTL)
  */
 
-import type { ChunkNode, Granularity, SymbolNode } from "../types";
-import type { ContentFTSStore, FTSSearchResult } from "../storage/content-fts-store";
-import type { GranularVectorStore, GranularVectorSearchResult } from "../storage/pure-vector-store";
 import type { ChunkStore } from "../storage/chunk-store";
+import type {
+	ContentFTSStore,
+	FTSSearchResult,
+} from "../storage/content-fts-store";
+import type {
+	GranularVectorSearchResult,
+	GranularVectorStore,
+} from "../storage/pure-vector-store";
 import type { SymbolStore } from "../storage/symbol-store";
-import { createQueryRewriter, type QueryRewriter, type RewrittenQuery } from "./query-rewriter";
-import { createBM25Reranker, createSimpleReranker, type Reranker, type RerankItem } from "./reranker";
-import { createVoyageReranker, isVoyageRerankerAvailable } from "./voyage-reranker";
-import { createContextCache, generateCacheKey, type ContextCache, type ContextCacheStats } from "./context-cache";
+import type { ChunkNode, Granularity, SymbolNode } from "../types";
+import {
+	type ContextCache,
+	type ContextCacheStats,
+	createContextCache,
+	generateCacheKey,
+} from "./context-cache";
 import { matchesPathFilters } from "./path-filter";
+import {
+	createQueryRewriter,
+	type QueryRewriter,
+	type RewrittenQuery,
+} from "./query-rewriter";
+import {
+	createBM25Reranker,
+	createSimpleReranker,
+	type Reranker,
+	type RerankItem,
+} from "./reranker";
+import {
+	createVoyageReranker,
+	isVoyageRerankerAvailable,
+} from "./voyage-reranker";
 
 // ============================================================================
 // Constants
@@ -84,13 +107,23 @@ export interface MultiGranularSearchOptions {
 
 export interface MultiGranularSearch {
 	/** Search across all granularities */
-	search(query: string, embedding: number[], options: MultiGranularSearchOptions): MultiGranularResult;
-	
+	search(
+		query: string,
+		embedding: number[],
+		options: MultiGranularSearchOptions,
+	): MultiGranularResult;
+
 	/** Search only with keywords (FTS) */
-	searchKeywords(query: string, options: MultiGranularSearchOptions): MultiGranularResult;
-	
+	searchKeywords(
+		query: string,
+		options: MultiGranularSearchOptions,
+	): MultiGranularResult;
+
 	/** Search only with vectors */
-	searchVectors(embedding: number[], options: MultiGranularSearchOptions): MultiGranularResult;
+	searchVectors(
+		embedding: number[],
+		options: MultiGranularSearchOptions,
+	): MultiGranularResult;
 }
 
 // ============================================================================
@@ -109,22 +142,27 @@ export interface RankedItem {
 
 /** Escape regex special chars for use in RegExp constructor */
 export function escapeRegExp(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Boost score for items where short query tokens appear as whole words */
-export function applyWordBoundaryBoost(ranked: RankedItem[], query: string): RankedItem[] {
-	const tokens = query.split(/\s+/).filter(t => t.length > 0 && t.length < 4);
+export function applyWordBoundaryBoost(
+	ranked: RankedItem[],
+	query: string,
+): RankedItem[] {
+	const tokens = query.split(/\s+/).filter((t) => t.length > 0 && t.length < 4);
 	if (tokens.length === 0) return ranked; // No short tokens to boost
 
-	const patterns = tokens.map(t => new RegExp(`\\b${escapeRegExp(t)}\\b`, 'i'));
+	const patterns = tokens.map(
+		(t) => new RegExp(`\\b${escapeRegExp(t)}\\b`, "i"),
+	);
 
-	return ranked.map(item => {
-		const hasWordBoundaryMatch = patterns.some(p => p.test(item.content));
-		return hasWordBoundaryMatch
-			? { ...item, score: item.score * 1.5 }
-			: item;
-	}).sort((a, b) => b.score - a.score);
+	return ranked
+		.map((item) => {
+			const hasWordBoundaryMatch = patterns.some((p) => p.test(item.content));
+			return hasWordBoundaryMatch ? { ...item, score: item.score * 1.5 } : item;
+		})
+		.sort((a, b) => b.score - a.score);
 }
 
 /**
@@ -147,8 +185,15 @@ function rrfFusion(
 			if (existing) {
 				existing.score += rrfScore;
 				// Merge metadata from later occurrences (e.g., vector results carry start_line/end_line but FTS doesn't)
-				if (item.start_line !== undefined && existing.item.start_line === undefined) {
-					existing.item = { ...existing.item, start_line: item.start_line, end_line: item.end_line };
+				if (
+					item.start_line !== undefined &&
+					existing.item.start_line === undefined
+				) {
+					existing.item = {
+						...existing.item,
+						start_line: item.start_line,
+						end_line: item.end_line,
+					};
 				}
 			} else {
 				scores.set(item.id, { item, score: rrfScore });
@@ -224,7 +269,8 @@ export interface EnhancedMultiGranularSearch extends MultiGranularSearch {
 	invalidateCacheForFile(filePath: string): number;
 }
 
-export interface EnhancedMultiGranularSearchDeps extends MultiGranularSearchDeps {
+export interface EnhancedMultiGranularSearchDeps
+	extends MultiGranularSearchDeps {
 	/** Optional query rewriter (created if not provided) */
 	queryRewriter?: QueryRewriter;
 	/** Optional reranker (created if not provided) */
@@ -240,18 +286,22 @@ export function createEnhancedMultiGranularSearch(
 	const queryRewriter = deps.queryRewriter ?? createQueryRewriter();
 	const bm25Reranker = createBM25Reranker();
 	const simpleReranker = createSimpleReranker();
-	const cache = deps.cache ?? createContextCache<MultiGranularResult>({
-		maxEntries: 100,
-		ttlMs: 5 * 60 * 1000, // 5 minutes
-	});
+	const cache =
+		deps.cache ??
+		createContextCache<MultiGranularResult>({
+			maxEntries: 100,
+			ttlMs: 5 * 60 * 1000, // 5 minutes
+		});
 
 	// Create base search
 	const baseSearch = createMultiGranularSearch(deps);
 
 	// Re-derive symbols/chunks/files from ranked items (shared between base and enhanced)
-	function extractResults(
-		ranked: RankedItem[],
-	): { symbols: SymbolNode[]; chunks: ChunkNode[]; files: Array<{ file_path: string; score: number }> } {
+	function extractResults(ranked: RankedItem[]): {
+		symbols: SymbolNode[];
+		chunks: ChunkNode[];
+		files: Array<{ file_path: string; score: number }>;
+	} {
 		const symbols: SymbolNode[] = [];
 		const chunks: ChunkNode[] = [];
 		const fileScores = new Map<string, number>();
@@ -284,7 +334,10 @@ export function createEnhancedMultiGranularSearch(
 		const reranker = rerankerType === "bm25" ? bm25Reranker : simpleReranker;
 
 		// Build metadata map to preserve start_line/end_line through reranking
-		const metadataMap = new Map<string, { start_line?: number; end_line?: number }>();
+		const metadataMap = new Map<
+			string,
+			{ start_line?: number; end_line?: number }
+		>();
 		for (const r of ranked) {
 			metadataMap.set(r.id, { start_line: r.start_line, end_line: r.end_line });
 		}
@@ -297,7 +350,10 @@ export function createEnhancedMultiGranularSearch(
 			granularity: r.granularity,
 		}));
 
-		const reranked = reranker.rerank(rerankItems, { query, limit: ranked.length });
+		const reranked = reranker.rerank(rerankItems, {
+			query,
+			limit: ranked.length,
+		});
 
 		return reranked.map((r) => ({
 			id: r.id,
@@ -314,7 +370,9 @@ export function createEnhancedMultiGranularSearch(
 		query: string,
 	): Promise<RankedItem[]> {
 		if (!isVoyageRerankerAvailable()) {
-			console.warn("[code-intel] Voyage AI reranker unavailable (VOYAGE_AI_API_KEY not set), falling back to BM25 reranking");
+			console.warn(
+				"[code-intel] Voyage AI reranker unavailable (VOYAGE_AI_API_KEY not set), falling back to BM25 reranking",
+			);
 			return applyReranking(ranked, query, "bm25");
 		}
 
@@ -322,9 +380,15 @@ export function createEnhancedMultiGranularSearch(
 			const voyageReranker = createVoyageReranker();
 
 			// Build metadata map to preserve start_line/end_line through reranking
-			const metadataMap = new Map<string, { start_line?: number; end_line?: number }>();
+			const metadataMap = new Map<
+				string,
+				{ start_line?: number; end_line?: number }
+			>();
 			for (const r of ranked) {
-				metadataMap.set(r.id, { start_line: r.start_line, end_line: r.end_line });
+				metadataMap.set(r.id, {
+					start_line: r.start_line,
+					end_line: r.end_line,
+				});
 			}
 
 			const rerankItems: RerankItem[] = ranked.map((r) => ({
@@ -335,7 +399,10 @@ export function createEnhancedMultiGranularSearch(
 				granularity: r.granularity,
 			}));
 
-			const reranked = await voyageReranker.rerank(rerankItems, { query, limit: ranked.length });
+			const reranked = await voyageReranker.rerank(rerankItems, {
+				query,
+				limit: ranked.length,
+			});
 
 			return reranked.map((r) => ({
 				id: r.id,
@@ -346,7 +413,10 @@ export function createEnhancedMultiGranularSearch(
 				...metadataMap.get(r.id),
 			}));
 		} catch (err) {
-			console.warn("[code-intel] Voyage AI reranker failed, falling back to BM25 reranking:", err instanceof Error ? err.message : String(err));
+			console.warn(
+				"[code-intel] Voyage AI reranker failed, falling back to BM25 reranking:",
+				err instanceof Error ? err.message : String(err),
+			);
 			return applyReranking(ranked, query, "bm25");
 		}
 	}
@@ -435,14 +505,19 @@ export function createEnhancedMultiGranularSearch(
 
 			if (enableReranking && baseResult.ranked.length > 0) {
 				const rerankStart = Date.now();
-				finalRanked = rerankerType === "voyage"
-					? await applyVoyageReranking(baseResult.ranked, query)
-					: applyReranking(baseResult.ranked, query, rerankerType);
+				finalRanked =
+					rerankerType === "voyage"
+						? await applyVoyageReranking(baseResult.ranked, query)
+						: applyReranking(baseResult.ranked, query, rerankerType);
 				rerankTime = Date.now() - rerankStart;
 			}
 
 			// Re-derive symbols/chunks/files from finalRanked to preserve reranked order
-			const { symbols: finalSymbols, chunks: finalChunks, files: finalFiles } = extractResults(finalRanked);
+			const {
+				symbols: finalSymbols,
+				chunks: finalChunks,
+				files: finalFiles,
+			} = extractResults(finalRanked);
 
 			// Build final result
 			const result: EnhancedSearchResult = {
@@ -493,7 +568,9 @@ export function createEnhancedMultiGranularSearch(
 	};
 }
 
-export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiGranularSearch {
+export function createMultiGranularSearch(
+	deps: MultiGranularSearchDeps,
+): MultiGranularSearch {
 	const { contentFTS, granularVectors, chunkStore, symbolStore } = deps;
 
 	function ftsResultsToRanked(results: FTSSearchResult[]): RankedItem[] {
@@ -508,7 +585,15 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 
 	function vectorResultsToRanked(
 		results: GranularVectorSearchResult[],
-		getContent: (id: string, granularity: Granularity) => { content: string; file_path: string; start_line?: number; end_line?: number } | null,
+		getContent: (
+			id: string,
+			granularity: Granularity,
+		) => {
+			content: string;
+			file_path: string;
+			start_line?: number;
+			end_line?: number;
+		} | null,
 	): RankedItem[] {
 		const ranked: RankedItem[] = [];
 		for (const r of results) {
@@ -533,7 +618,12 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 	function getContentById(
 		id: string,
 		granularity: Granularity,
-	): { content: string; file_path: string; start_line?: number; end_line?: number } | null {
+	): {
+		content: string;
+		file_path: string;
+		start_line?: number;
+		end_line?: number;
+	} | null {
 		if (granularity === "symbol") {
 			const symbol = symbolStore.getById(id);
 			if (symbol) {
@@ -570,9 +660,11 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 		return null;
 	}
 
-	function extractResults(
-		ranked: RankedItem[],
-	): { symbols: SymbolNode[]; chunks: ChunkNode[]; files: Array<{ file_path: string; score: number }> } {
+	function extractResults(ranked: RankedItem[]): {
+		symbols: SymbolNode[];
+		chunks: ChunkNode[];
+		files: Array<{ file_path: string; score: number }>;
+	} {
 		const symbols: SymbolNode[] = [];
 		const chunks: ChunkNode[] = [];
 		const fileScores = new Map<string, number>();
@@ -634,7 +726,10 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			});
 
 			// Vector search — over-fetch when path filters active, post-filter below
-			const hasPathFilters = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+			const hasPathFilters = !!(
+				pathPrefix ||
+				(filePatterns && filePatterns.length > 0)
+			);
 			const vectorFetchLimit = hasPathFilters ? limit * 3 : limit * 2;
 			const vectorResults = granularVectors.search(embedding, {
 				limit: vectorFetchLimit,
@@ -643,9 +738,8 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 
 			// Convert to ranked items
 			const ftsRanked = ftsResultsToRanked(ftsResults);
-			let vectorRanked = vectorResultsToRanked(
-				vectorResults,
-				(id, g) => getContentById(id, g),
+			let vectorRanked = vectorResultsToRanked(vectorResults, (id, g) =>
+				getContentById(id, g),
 			);
 
 			// Post-filter vector results by path (FTS is already filtered via filePatterns)
@@ -660,7 +754,9 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			const chunkFTS = ftsRanked.filter((r) => r.granularity === "chunk");
 			const fileFTS = ftsRanked.filter((r) => r.granularity === "file");
 
-			const symbolVector = vectorRanked.filter((r) => r.granularity === "symbol");
+			const symbolVector = vectorRanked.filter(
+				(r) => r.granularity === "symbol",
+			);
 			const chunkVector = vectorRanked.filter((r) => r.granularity === "chunk");
 			const fileVector = vectorRanked.filter((r) => r.granularity === "file");
 
@@ -699,7 +795,10 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			};
 		},
 
-		searchKeywords(query: string, options: MultiGranularSearchOptions): MultiGranularResult {
+		searchKeywords(
+			query: string,
+			options: MultiGranularSearchOptions,
+		): MultiGranularResult {
 			const startTime = Date.now();
 			const {
 				limit = 50,
@@ -762,7 +861,10 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			};
 		},
 
-		searchVectors(embedding: number[], options: MultiGranularSearchOptions): MultiGranularResult {
+		searchVectors(
+			embedding: number[],
+			options: MultiGranularSearchOptions,
+		): MultiGranularResult {
 			const startTime = Date.now();
 			const {
 				limit = 50,
@@ -775,10 +877,12 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				pathPrefix,
 			} = options;
 
-
 			// GranularVectorStore.search() only accepts limit + granularity,
 			// so we over-fetch and post-filter by path after resolving content.
-			const hasPathFilters = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+			const hasPathFilters = !!(
+				pathPrefix ||
+				(filePatterns && filePatterns.length > 0)
+			);
 			const fetchLimit = hasPathFilters ? limit * 3 : limit * 2;
 
 			const vectorResults = granularVectors.search(embedding, {
@@ -786,9 +890,8 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 				granularity: granularity === "auto" ? undefined : granularity,
 			});
 
-			let vectorRanked = vectorResultsToRanked(
-				vectorResults,
-				(id, g) => getContentById(id, g),
+			let vectorRanked = vectorResultsToRanked(vectorResults, (id, g) =>
+				getContentById(id, g),
 			);
 
 			// Post-filter by path when pathPrefix or filePatterns are active
@@ -799,7 +902,9 @@ export function createMultiGranularSearch(deps: MultiGranularSearchDeps): MultiG
 			}
 
 			// Separate by granularity
-			const symbolVector = vectorRanked.filter((r) => r.granularity === "symbol");
+			const symbolVector = vectorRanked.filter(
+				(r) => r.granularity === "symbol",
+			);
 			const chunkVector = vectorRanked.filter((r) => r.granularity === "chunk");
 			const fileVector = vectorRanked.filter((r) => r.granularity === "file");
 

@@ -8,11 +8,11 @@
  * the store's search path: search(query) → buildFTS5Query(query) → MATCH.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-	createContentFTSStore,
 	type ContentFTSStore,
+	createContentFTSStore,
 	type FTSEntry,
 } from "../storage/content-fts-store";
 

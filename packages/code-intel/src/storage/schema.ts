@@ -198,7 +198,8 @@ const MIGRATIONS: Migration[] = [
 	// Version 2: Multi-granularity indexing support
 	{
 		version: 2,
-		description: "Add multi-granularity indexing tables (chunks, file_contents, fts_content)",
+		description:
+			"Add multi-granularity indexing tables (chunks, file_contents, fts_content)",
 		sql: `
 			-- Add granularity column to js_vectors
 			ALTER TABLE js_vectors ADD COLUMN granularity TEXT NOT NULL DEFAULT 'symbol';
@@ -250,7 +251,8 @@ const MIGRATIONS: Migration[] = [
 	// Version 3: Voyage AI embedder support
 	{
 		version: 3,
-		description: "Voyage AI embedder support — wipe vectors for dimension change",
+		description:
+			"Voyage AI embedder support — wipe vectors for dimension change",
 		sql: `
 			-- Wipe all vectors since dimensions may have changed
 			DELETE FROM js_vectors;

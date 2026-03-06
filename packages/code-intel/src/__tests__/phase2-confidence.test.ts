@@ -11,21 +11,21 @@
  * 4. scoreSpread works correctly with Enhanced RRF scores
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createSymbolStore } from "../storage/symbol-store";
-import { createChunkStore } from "../storage/chunk-store";
-import { createContentFTSStore } from "../storage/content-fts-store";
-import { createGranularVectorStore } from "../storage/pure-vector-store";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
 	createEnhancedMultiGranularSearch,
 	type EnhancedMultiGranularSearch,
 } from "../query/multi-granular-search";
+import type { FusedResult } from "../query/rrf-fusion";
 import {
 	computeEnhancedAgreement,
 	computeMultiSignalConfidence,
 } from "../query/smart-query";
-import type { FusedResult } from "../query/rrf-fusion";
+import { createChunkStore } from "../storage/chunk-store";
+import { createContentFTSStore } from "../storage/content-fts-store";
+import { createGranularVectorStore } from "../storage/pure-vector-store";
+import { createSymbolStore } from "../storage/symbol-store";
 import type { SymbolNode } from "../types";
 
 // ============================================================================
@@ -146,7 +146,8 @@ const TEST_SYMBOLS: SymbolNode[] = [
 		file_path: "src/search.ts",
 		start_line: 25,
 		end_line: 40,
-		content: "export function buildQuery(text: string) { return text.toLowerCase(); }",
+		content:
+			"export function buildQuery(text: string) { return text.toLowerCase(); }",
 		content_hash: "hash-query",
 		is_external: false,
 		branch: "main",
@@ -162,7 +163,8 @@ const TEST_SYMBOLS: SymbolNode[] = [
 		file_path: "src/ranking.ts",
 		start_line: 1,
 		end_line: 15,
-		content: "export function rankResults(items: any[]) { return items.sort(); }",
+		content:
+			"export function rankResults(items: any[]) { return items.sort(); }",
 		content_hash: "hash-rank",
 		is_external: false,
 		branch: "main",
@@ -210,7 +212,13 @@ describe("Phase 2 — computeEnhancedAgreement", () => {
 
 	test("returns value in [0, 1] range for various inputs", () => {
 		const inputs = [
-			[0, 0], [1, 0], [0, 1], [1, 1], [5, 10], [100, 1], [50, 50],
+			[0, 0],
+			[1, 0],
+			[0, 1],
+			[1, 1],
+			[5, 10],
+			[100, 1],
+			[50, 50],
 		] as const;
 
 		for (const [v, k] of inputs) {
@@ -271,7 +279,13 @@ describe("Phase 2 — computeMultiSignalConfidence with agreementOverride", () =
 		const symbols = makeSymbolsInSameDir(5);
 
 		// Override with a moderate agreement value
-		const result = computeMultiSignalConfidence(10, 10, symbols, fusedResults, 0.6);
+		const result = computeMultiSignalConfidence(
+			10,
+			10,
+			symbols,
+			fusedResults,
+			0.6,
+		);
 
 		expect(result.diagnostics.retrievalAgreement).toBe(0.6);
 	});
@@ -280,7 +294,13 @@ describe("Phase 2 — computeMultiSignalConfidence with agreementOverride", () =
 		const fusedResults = makePseudoFusedResults(5);
 		const symbols = makeSymbolsInSameDir(5);
 
-		const result = computeMultiSignalConfidence(5, 0, symbols, fusedResults, 0.1);
+		const result = computeMultiSignalConfidence(
+			5,
+			0,
+			symbols,
+			fusedResults,
+			0.1,
+		);
 
 		expect(result.diagnostics.retrievalAgreement).toBe(0.1);
 	});
@@ -289,11 +309,24 @@ describe("Phase 2 — computeMultiSignalConfidence with agreementOverride", () =
 		const fusedResults = makePseudoFusedResults(5);
 		const symbols = makeSymbolsInSameDir(5);
 
-		const withOverride = computeMultiSignalConfidence(10, 10, symbols, fusedResults, 0.5);
-		const withoutOverride = computeMultiSignalConfidence(10, 10, symbols, fusedResults);
+		const withOverride = computeMultiSignalConfidence(
+			10,
+			10,
+			symbols,
+			fusedResults,
+			0.5,
+		);
+		const withoutOverride = computeMultiSignalConfidence(
+			10,
+			10,
+			symbols,
+			fusedResults,
+		);
 
 		// scoreSpread depends only on fusedResults' rrfScore values — same input, same output
-		expect(withOverride.diagnostics.scoreSpread).toBe(withoutOverride.diagnostics.scoreSpread);
+		expect(withOverride.diagnostics.scoreSpread).toBe(
+			withoutOverride.diagnostics.scoreSpread,
+		);
 
 		// scopeConcentration depends only on symbols' file_path — same input, same output
 		expect(withOverride.diagnostics.scopeConcentration).toBe(
@@ -306,21 +339,32 @@ describe("Phase 2 — computeMultiSignalConfidence with agreementOverride", () =
 		const symbols = makeSymbolsInSameDir(3);
 
 		// Without override: agreement=1.0, which with scope concentration pushes toward "high"
-		const withoutOverride = computeMultiSignalConfidence(10, 10, symbols, fusedResults);
+		const withoutOverride = computeMultiSignalConfidence(
+			10,
+			10,
+			symbols,
+			fusedResults,
+		);
 
 		// With very low override: agreement=0.05
-		const withLowOverride = computeMultiSignalConfidence(10, 10, symbols, fusedResults, 0.05);
+		const withLowOverride = computeMultiSignalConfidence(
+			10,
+			10,
+			symbols,
+			fusedResults,
+			0.05,
+		);
 
 		// The tier should be lower (or at minimum the composite score is lower)
 		const withoutComposite =
 			withoutOverride.diagnostics.retrievalAgreement * 0.45 +
 			withoutOverride.diagnostics.scoreSpread * 0.25 +
-			withoutOverride.diagnostics.scopeConcentration * 0.30;
+			withoutOverride.diagnostics.scopeConcentration * 0.3;
 
 		const withComposite =
 			withLowOverride.diagnostics.retrievalAgreement * 0.45 +
 			withLowOverride.diagnostics.scoreSpread * 0.25 +
-			withLowOverride.diagnostics.scopeConcentration * 0.30;
+			withLowOverride.diagnostics.scopeConcentration * 0.3;
 
 		expect(withComposite).toBeLessThan(withoutComposite);
 	});
@@ -342,14 +386,28 @@ describe("Phase 2 — scoreSpread with Enhanced path scores", () => {
 	test("scoreSpread is non-zero when Enhanced results have score variance", () => {
 		// Simulate Enhanced RRF scores with clear top result
 		const fusedResults: FusedResult[] = [
-			{ symbolId: "a", rrfScore: 0.0328, sourceRanks: { vector: 0, keyword: 0 } },
-			{ symbolId: "b", rrfScore: 0.0164, sourceRanks: { vector: 1, keyword: 1 } },
-			{ symbolId: "c", rrfScore: 0.0100, sourceRanks: { vector: 2, keyword: 2 } },
+			{
+				symbolId: "a",
+				rrfScore: 0.0328,
+				sourceRanks: { vector: 0, keyword: 0 },
+			},
+			{
+				symbolId: "b",
+				rrfScore: 0.0164,
+				sourceRanks: { vector: 1, keyword: 1 },
+			},
+			{ symbolId: "c", rrfScore: 0.01, sourceRanks: { vector: 2, keyword: 2 } },
 		];
 
 		const symbols: SymbolNode[] = TEST_SYMBOLS.slice(0, 3);
 
-		const result = computeMultiSignalConfidence(5, 5, symbols, fusedResults, 0.5);
+		const result = computeMultiSignalConfidence(
+			5,
+			5,
+			symbols,
+			fusedResults,
+			0.5,
+		);
 
 		// With log-amplified spread + dominance bonus (0.0328/0.0164 = 2.0 > 1.2),
 		// the spread should be significantly > 0
@@ -366,13 +424,25 @@ describe("Phase 2 — scoreSpread with Enhanced path scores", () => {
 
 		const symbols: SymbolNode[] = TEST_SYMBOLS.slice(0, 3);
 
-		const result = computeMultiSignalConfidence(5, 5, symbols, fusedResults, 0.5);
+		const result = computeMultiSignalConfidence(
+			5,
+			5,
+			symbols,
+			fusedResults,
+			0.5,
+		);
 
 		expect(result.diagnostics.scoreSpread).toBe(0);
 	});
 
 	test("scoreSpread is 0.5 for a single result with no fusedResults", () => {
-		const result = computeMultiSignalConfidence(1, 0, [TEST_SYMBOLS[0]], [], 0.1);
+		const result = computeMultiSignalConfidence(
+			1,
+			0,
+			[TEST_SYMBOLS[0]],
+			[],
+			0.1,
+		);
 
 		expect(result.diagnostics.scoreSpread).toBe(0.5);
 	});
@@ -380,12 +450,22 @@ describe("Phase 2 — scoreSpread with Enhanced path scores", () => {
 	test("scoreSpread clamped to 1.0 even with large gap", () => {
 		const fusedResults: FusedResult[] = [
 			{ symbolId: "a", rrfScore: 1.0, sourceRanks: { vector: 0, keyword: 0 } },
-			{ symbolId: "b", rrfScore: 0.001, sourceRanks: { vector: 1, keyword: 1 } },
+			{
+				symbolId: "b",
+				rrfScore: 0.001,
+				sourceRanks: { vector: 1, keyword: 1 },
+			},
 		];
 
 		const symbols: SymbolNode[] = TEST_SYMBOLS.slice(0, 2);
 
-		const result = computeMultiSignalConfidence(2, 2, symbols, fusedResults, 0.5);
+		const result = computeMultiSignalConfidence(
+			2,
+			2,
+			symbols,
+			fusedResults,
+			0.5,
+		);
 
 		// With log-amplified spread + dominance bonus, should be clamped at 1.0
 		expect(result.diagnostics.scoreSpread).toBe(1.0);
@@ -489,6 +569,8 @@ describe("Phase 2 — Enhanced path confidence is not degraded when results exis
 		expect(typeof result.metadata.vectorHits).toBe("number");
 
 		// With a targeted query, at least one channel should produce hits
-		expect(result.metadata.ftsHits + result.metadata.vectorHits).toBeGreaterThan(0);
+		expect(
+			result.metadata.ftsHits + result.metadata.vectorHits,
+		).toBeGreaterThan(0);
 	});
 });

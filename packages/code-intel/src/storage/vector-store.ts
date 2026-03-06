@@ -43,9 +43,7 @@ export function createVectorStore(db: Database): VectorStore {
 
 	const deleteStmt = db.prepare("DELETE FROM vec_symbols WHERE symbol_id = ?");
 
-	const countStmt = db.prepare(
-		"SELECT COUNT(*) as count FROM vec_symbols",
-	);
+	const countStmt = db.prepare("SELECT COUNT(*) as count FROM vec_symbols");
 
 	return {
 		upsert(symbolId: string, embedding: number[]): void {

@@ -11,7 +11,12 @@
 
 export type JobPriority = "critical" | "high" | "normal" | "low";
 
-export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type JobStatus =
+	| "pending"
+	| "running"
+	| "completed"
+	| "failed"
+	| "cancelled";
 
 export interface Job<T = unknown> {
 	id: string;
@@ -125,7 +130,10 @@ export function createJobQueue<T = unknown>(
 	const pendingJobs: Job<T>[] = [];
 	const runningJobs = new Map<string, Job<T>>();
 	const completedJobs = new Map<string, Job<T>>();
-	const jobPromises = new Map<string, { resolve: (value: T) => void; reject: (error: Error) => void }>();
+	const jobPromises = new Map<
+		string,
+		{ resolve: (value: T) => void; reject: (error: Error) => void }
+	>();
 	const retryCount = new Map<string, number>();
 
 	let jobIdCounter = 0;
@@ -140,7 +148,8 @@ export function createJobQueue<T = unknown>(
 
 	function sortQueue(): void {
 		pendingJobs.sort((a, b) => {
-			const priorityDiff = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
+			const priorityDiff =
+				PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
 			if (priorityDiff !== 0) return priorityDiff;
 			return a.createdAt - b.createdAt;
 		});
@@ -154,13 +163,14 @@ export function createJobQueue<T = unknown>(
 		try {
 			const timeoutPromise = new Promise<never>((_, reject) => {
 				setTimeout(
-					() => reject(new Error(`Job ${job.id} timed out after ${jobTimeout}ms`)),
+					() =>
+						reject(new Error(`Job ${job.id} timed out after ${jobTimeout}ms`)),
 					jobTimeout,
 				);
 			});
 
 			const result = await Promise.race([job.execute(), timeoutPromise]);
-			
+
 			job.status = "completed";
 			job.result = result;
 			job.completedAt = Date.now();
@@ -177,7 +187,7 @@ export function createJobQueue<T = unknown>(
 			}
 		} catch (error) {
 			const err = error instanceof Error ? error : new Error(String(error));
-			
+
 			// Check for retry
 			const attempts = retryCount.get(job.id) ?? 0;
 			if (retryOnFailure && attempts < maxRetries) {
@@ -291,7 +301,7 @@ export function createJobQueue<T = unknown>(
 
 		cancelAll(): number {
 			const count = pendingJobs.length;
-			
+
 			for (const job of pendingJobs) {
 				job.status = "cancelled";
 				job.completedAt = Date.now();
@@ -375,7 +385,7 @@ export function createJobQueue<T = unknown>(
 
 		async shutdown(): Promise<void> {
 			shuttingDown = true;
-			
+
 			// Cancel all pending jobs
 			this.cancelAll();
 
@@ -393,10 +403,7 @@ export function createJobQueue<T = unknown>(
 
 export interface IndexingJobQueue extends JobQueue<void> {
 	/** Enqueue an LSP operation with high priority */
-	enqueueLspOperation(
-		filePath: string,
-		execute: () => Promise<void>,
-	): string;
+	enqueueLspOperation(filePath: string, execute: () => Promise<void>): string;
 
 	/** Enqueue a symbol extraction with normal priority */
 	enqueueSymbolExtraction(
@@ -405,10 +412,7 @@ export interface IndexingJobQueue extends JobQueue<void> {
 	): string;
 
 	/** Enqueue an edge extraction with normal priority */
-	enqueueEdgeExtraction(
-		filePath: string,
-		execute: () => Promise<void>,
-	): string;
+	enqueueEdgeExtraction(filePath: string, execute: () => Promise<void>): string;
 
 	/** Enqueue a batch write with low priority */
 	enqueueBatchWrite(execute: () => Promise<void>): string;
@@ -429,7 +433,10 @@ export function createIndexingJobQueue(
 	return {
 		...baseQueue,
 
-		enqueueLspOperation(filePath: string, execute: () => Promise<void>): string {
+		enqueueLspOperation(
+			filePath: string,
+			execute: () => Promise<void>,
+		): string {
 			return baseQueue.enqueue(execute, "high", {
 				type: "lsp",
 				filePath,

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { VoyageAIClient } from "voyageai";
+import type { RerankItem } from "../query/reranker";
 import {
 	createVoyageReranker,
 	isVoyageRerankerAvailable,
 } from "../query/voyage-reranker";
-import type { RerankItem } from "../query/reranker";
 
 type VoyageRerankResponse = Awaited<ReturnType<VoyageAIClient["rerank"]>>;
 
@@ -89,9 +89,21 @@ describe("Voyage reranker", () => {
 		const results = await reranker.rerank(items, { query: "test", limit: 3 });
 
 		expect(results).toHaveLength(3);
-		expect(results[0]).toMatchObject({ id: "b", finalScore: 0.9, granularity: "chunk" });
-		expect(results[1]).toMatchObject({ id: "a", finalScore: 0.4, granularity: "symbol" });
-		expect(results[2]).toMatchObject({ id: "c", finalScore: 0, granularity: "file" });
+		expect(results[0]).toMatchObject({
+			id: "b",
+			finalScore: 0.9,
+			granularity: "chunk",
+		});
+		expect(results[1]).toMatchObject({
+			id: "a",
+			finalScore: 0.4,
+			granularity: "symbol",
+		});
+		expect(results[2]).toMatchObject({
+			id: "c",
+			finalScore: 0,
+			granularity: "file",
+		});
 	});
 
 	test("rerank throws when Voyage returns empty data", async () => {
@@ -110,8 +122,8 @@ describe("Voyage reranker", () => {
 			},
 		];
 
-		return expect(reranker.rerank(items, { query: "test", limit: 1 })).rejects.toThrow(
-			/empty response/i,
-		);
+		return expect(
+			reranker.rerank(items, { query: "test", limit: 1 }),
+		).rejects.toThrow(/empty response/i);
 	});
 });

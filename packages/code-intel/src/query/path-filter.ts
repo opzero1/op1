@@ -71,7 +71,10 @@ export function matchesPathFilters(
 	pathPrefix?: string,
 	filePatterns?: string[],
 ): boolean {
-	const hasFilters = !!(pathPrefix || (filePatterns && filePatterns.length > 0));
+	const hasFilters = !!(
+		pathPrefix ||
+		(filePatterns && filePatterns.length > 0)
+	);
 	if (!hasFilters) return true;
 
 	// If we can't determine the path and filters are active, exclude the row

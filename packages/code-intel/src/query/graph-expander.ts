@@ -4,7 +4,12 @@
 
 import type { EdgeStore } from "../storage/edge-store";
 import type { SymbolStore } from "../storage/symbol-store";
-import type { QueryOptions, SymbolEdge, SymbolNode, SymbolType } from "../types";
+import type {
+	QueryOptions,
+	SymbolEdge,
+	SymbolNode,
+	SymbolType,
+} from "../types";
 
 // ============================================================================
 // Types
@@ -59,8 +64,14 @@ const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
 // ============================================================================
 
 export interface GraphExpander {
-	findCallers(symbolId: string, options: GraphExpansionOptions): GraphExpansionResult | null;
-	findCallees(symbolId: string, options: GraphExpansionOptions): GraphExpansionResult | null;
+	findCallers(
+		symbolId: string,
+		options: GraphExpansionOptions,
+	): GraphExpansionResult | null;
+	findCallees(
+		symbolId: string,
+		options: GraphExpansionOptions,
+	): GraphExpansionResult | null;
 }
 
 export function createGraphExpander(
@@ -83,10 +94,19 @@ export function createGraphExpander(
 			options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
 		const symbolTypes = options.symbolTypes ?? null;
 
-		return { maxDepth, maxFanOut, confidenceThreshold, symbolTypes, branch: options.branch };
+		return {
+			maxDepth,
+			maxFanOut,
+			confidenceThreshold,
+			symbolTypes,
+			branch: options.branch,
+		};
 	}
 
-	function matchesTypeFilter(symbol: SymbolNode, symbolTypes: SymbolType[] | null): boolean {
+	function matchesTypeFilter(
+		symbol: SymbolNode,
+		symbolTypes: SymbolType[] | null,
+	): boolean {
 		if (!symbolTypes) return true;
 		return symbolTypes.includes(symbol.type);
 	}
@@ -98,7 +118,10 @@ export function createGraphExpander(
 		return edges.filter((edge) => edge.confidence >= threshold);
 	}
 
-	function limitEdges(edges: SymbolEdge[], maxFanOut: number): { edges: SymbolEdge[]; truncated: boolean } {
+	function limitEdges(
+		edges: SymbolEdge[],
+		maxFanOut: number,
+	): { edges: SymbolEdge[]; truncated: boolean } {
 		if (edges.length <= maxFanOut) {
 			return { edges, truncated: false };
 		}
@@ -132,9 +155,18 @@ export function createGraphExpander(
 			if (current.depth >= options.maxDepth) continue;
 
 			// Get callers (edges where target_id is current symbol)
-			const callerEdges = edgeStore.getCallers(current.symbolId, options.branch);
-			const filteredEdges = filterEdgesByConfidence(callerEdges, options.confidenceThreshold);
-			const { edges: limitedEdges, truncated } = limitEdges(filteredEdges, options.maxFanOut);
+			const callerEdges = edgeStore.getCallers(
+				current.symbolId,
+				options.branch,
+			);
+			const filteredEdges = filterEdgesByConfidence(
+				callerEdges,
+				options.confidenceThreshold,
+			);
+			const { edges: limitedEdges, truncated } = limitEdges(
+				filteredEdges,
+				options.maxFanOut,
+			);
 
 			if (truncated) truncatedNodes++;
 
@@ -200,9 +232,18 @@ export function createGraphExpander(
 			if (current.depth >= options.maxDepth) continue;
 
 			// Get callees (edges where source_id is current symbol)
-			const calleeEdges = edgeStore.getCallees(current.symbolId, options.branch);
-			const filteredEdges = filterEdgesByConfidence(calleeEdges, options.confidenceThreshold);
-			const { edges: limitedEdges, truncated } = limitEdges(filteredEdges, options.maxFanOut);
+			const calleeEdges = edgeStore.getCallees(
+				current.symbolId,
+				options.branch,
+			);
+			const filteredEdges = filterEdgesByConfidence(
+				calleeEdges,
+				options.confidenceThreshold,
+			);
+			const { edges: limitedEdges, truncated } = limitEdges(
+				filteredEdges,
+				options.maxFanOut,
+			);
 
 			if (truncated) truncatedNodes++;
 
@@ -244,7 +285,10 @@ export function createGraphExpander(
 	}
 
 	return {
-		findCallers(symbolId: string, options: GraphExpansionOptions): GraphExpansionResult | null {
+		findCallers(
+			symbolId: string,
+			options: GraphExpansionOptions,
+		): GraphExpansionResult | null {
 			const rootSymbol = symbolStore.getById(symbolId);
 			if (!rootSymbol) return null;
 
@@ -252,7 +296,10 @@ export function createGraphExpander(
 			return traverseCallers(rootSymbol, parsedOptions);
 		},
 
-		findCallees(symbolId: string, options: GraphExpansionOptions): GraphExpansionResult | null {
+		findCallees(
+			symbolId: string,
+			options: GraphExpansionOptions,
+		): GraphExpansionResult | null {
 			const rootSymbol = symbolStore.getById(symbolId);
 			if (!rootSymbol) return null;
 

@@ -234,7 +234,9 @@ export function createBranchManagerWithCleanup(
 		},
 
 		async cleanupOrphanedBranches(): Promise<BranchCleanupResult[]> {
-			const localBranches = new Set(await baseBranchManager.listLocalBranches());
+			const localBranches = new Set(
+				await baseBranchManager.listLocalBranches(),
+			);
 			const indexedBranches = store.listIndexedBranches();
 			const results: BranchCleanupResult[] = [];
 

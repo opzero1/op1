@@ -172,7 +172,9 @@ export function createContextCache<T>(
 
 		invalidateByFile(filePath: string): number {
 			// Keys that contain the file path should be invalidated
-			const pattern = new RegExp(filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+			const pattern = new RegExp(
+				filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+			);
 			return this.invalidatePattern(pattern);
 		},
 

@@ -1,6 +1,6 @@
 /**
  * Canonical ID generation for stable symbol identification
- * 
+ *
  * IDs are stable across file renames/moves by using:
  * hash(qualified_name + signature + language)
  */

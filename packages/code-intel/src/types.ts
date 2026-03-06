@@ -139,12 +139,7 @@ export interface FileContent {
 // File Types
 // ============================================================================
 
-export type FileStatus =
-	| "pending"
-	| "indexing"
-	| "indexed"
-	| "error"
-	| "stale";
+export type FileStatus = "pending" | "indexing" | "indexed" | "error" | "stale";
 
 export interface FileRecord {
 	/** Primary key - relative file path */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * FULL PIPELINE TEST v2 for @op1/code-intel
- * 
+ *
  * Tests the complete end-to-end flow with fallback support:
  * 1. Extract symbols from files
  * 2. Generate embeddings (auto-select best available)
@@ -11,24 +11,24 @@
  * 6. Smart query with context
  */
 
+import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createAutoEmbedder } from "../embeddings";
 
+import {
+	createTypeScriptAdapter,
+	generateCanonicalId,
+	generateContentHash,
+} from "../extraction";
 // Imports
 import {
-	createSymbolStore,
 	createEdgeStore,
 	createKeywordStore,
 	createPureVectorStore,
+	createSymbolStore,
 } from "../storage";
-
-import {
-	generateCanonicalId,
-	generateContentHash,
-	createTypeScriptAdapter,
-} from "../extraction";
-
-import { createAutoEmbedder } from "../embeddings";
 
 import type { SymbolNode } from "../types";
 
@@ -36,7 +36,7 @@ console.log("=".repeat(70));
 console.log("@op1/code-intel - FULL PIPELINE TEST v2 (No Native Deps)");
 console.log("=".repeat(70));
 
-const WORKSPACE_ROOT = process.cwd();
+const WORKSPACE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 let allTestsPassed = true;
 const testResults: Record<string, { passed: boolean; details: string }> = {};
 
@@ -47,6 +47,12 @@ function logTest(name: string, passed: boolean, details: string) {
 	console.log(`   ${details}`);
 	if (!passed) allTestsPassed = false;
 }
+
+test("full pipeline v2 script", async () => {
+	allTestsPassed = true;
+	for (const key of Object.keys(testResults)) {
+		delete testResults[key];
+	}
 
 // ============================================================================
 // STEP 1: Database Setup
@@ -132,7 +138,11 @@ db.run(`
 	)
 `);
 
-logTest("Database Setup", true, "Created symbols, edges, js_vectors, chunks, FTS5 tables");
+logTest(
+	"Database Setup",
+	true,
+	"Created symbols, edges, js_vectors, chunks, FTS5 tables",
+);
 
 // ============================================================================
 // STEP 2: Create stores
@@ -145,7 +155,11 @@ const edgeStore = createEdgeStore(db);
 const keywordStore = createKeywordStore(db);
 const vectorStore = createPureVectorStore(db);
 
-logTest("Store Initialization", true, "Created symbol, edge, keyword, and vector stores");
+logTest(
+	"Store Initialization",
+	true,
+	"Created symbol, edge, keyword, and vector stores",
+);
 
 // ============================================================================
 // STEP 3: Extract symbols from real files
@@ -166,22 +180,26 @@ const allSymbols: SymbolNode[] = [];
 
 for (const filePath of sourceFiles) {
 	const fullPath = join(WORKSPACE_ROOT, filePath);
-	
+
 	try {
 		const file = Bun.file(fullPath);
 		if (!(await file.exists())) {
 			console.log(`  ⚠️  File not found: ${filePath}`);
 			continue;
 		}
-		
+
 		const content = await file.text();
 		const rawSymbols = await adapter.extractSymbols(content, filePath);
-		
+
 		console.log(`  📄 ${filePath}: ${rawSymbols.length} symbols`);
-		
+
 		for (const raw of rawSymbols) {
 			const symbol: SymbolNode = {
-				id: generateCanonicalId(raw.qualified_name, raw.signature, "typescript"),
+				id: generateCanonicalId(
+					raw.qualified_name,
+					raw.signature,
+					"typescript",
+				),
 				name: raw.name,
 				qualified_name: raw.qualified_name,
 				type: raw.type,
@@ -198,17 +216,17 @@ for (const filePath of sourceFiles) {
 				updated_at: Date.now(),
 				revision_id: 1,
 			};
-			
+
 			allSymbols.push(symbol);
 			symbolStore.upsert(symbol);
-			
+
 			// Index in FTS5 for keyword search
 			keywordStore.index(
 				symbol.id,
 				symbol.name,
 				symbol.qualified_name,
 				symbol.content,
-				symbol.file_path
+				symbol.file_path,
 			);
 		}
 	} catch (error) {
@@ -216,7 +234,11 @@ for (const filePath of sourceFiles) {
 	}
 }
 
-logTest("Symbol Extraction", allSymbols.length > 0, `Extracted ${allSymbols.length} symbols from ${sourceFiles.length} files`);
+logTest(
+	"Symbol Extraction",
+	allSymbols.length > 0,
+	`Extracted ${allSymbols.length} symbols from ${sourceFiles.length} files`,
+);
 
 // ============================================================================
 // STEP 4: Generate embeddings (auto-select best available)
@@ -241,7 +263,7 @@ const embedTime = Date.now() - startEmbedTime;
 logTest(
 	"Embedding Generation",
 	embeddings.length > 0 && embeddings[0].length > 0,
-	`Generated ${embeddings.length} embeddings (${embeddings[0]?.length || 0}-dim) in ${embedTime}ms. Model: ${embedder.modelId}`
+	`Generated ${embeddings.length} embeddings (${embeddings[0]?.length || 0}-dim) in ${embedTime}ms. Model: ${embedder.modelId}`,
 );
 
 // ============================================================================
@@ -255,7 +277,11 @@ for (let i = 0; i < symbolsToEmbed.length; i++) {
 }
 
 const vectorCount = vectorStore.count();
-logTest("Vector Storage", vectorCount === symbolsToEmbed.length, `Stored ${vectorCount} vectors in pure JS vector store`);
+logTest(
+	"Vector Storage",
+	vectorCount === symbolsToEmbed.length,
+	`Stored ${vectorCount} vectors in pure JS vector store`,
+);
 
 // ============================================================================
 // STEP 6: Vector similarity search
@@ -264,7 +290,8 @@ logTest("Vector Storage", vectorCount === symbolsToEmbed.length, `Stored ${vecto
 console.log("\n🔍 STEP 6: Testing vector similarity search...");
 
 // Create a query embedding
-const queryCode = "function createLogger(options) { return new Logger(options); }";
+const queryCode =
+	"function createLogger(options) { return new Logger(options); }";
 const queryEmbedding = await embedder.embed(queryCode);
 
 const vectorResults = vectorStore.search(queryEmbedding, 5);
@@ -272,7 +299,7 @@ const vectorResults = vectorStore.search(queryEmbedding, 5);
 logTest(
 	"Vector Search",
 	vectorResults.length > 0,
-	`Found ${vectorResults.length} similar vectors. Top similarity: ${vectorResults[0]?.similarity.toFixed(4) || "N/A"}`
+	`Found ${vectorResults.length} similar vectors. Top similarity: ${vectorResults[0]?.similarity.toFixed(4) || "N/A"}`,
 );
 
 // Show top results
@@ -281,7 +308,9 @@ if (vectorResults.length > 0) {
 	for (let i = 0; i < Math.min(3, vectorResults.length); i++) {
 		const result = vectorResults[i];
 		const symbol = symbolStore.getById(result.symbol_id);
-		console.log(`    ${i + 1}. ${symbol?.name || "?"} (similarity: ${result.similarity.toFixed(4)})`);
+		console.log(
+			`    ${i + 1}. ${symbol?.name || "?"} (similarity: ${result.similarity.toFixed(4)})`,
+		);
 	}
 }
 
@@ -295,7 +324,7 @@ const keywordResults = keywordStore.search("Logger", 10);
 logTest(
 	"Keyword Search",
 	keywordResults.length > 0,
-	`Found ${keywordResults.length} results for "Logger". Top: ${keywordResults[0]?.name || "none"}`
+	`Found ${keywordResults.length} results for "Logger". Top: ${keywordResults[0]?.name || "none"}`,
 );
 
 // ============================================================================
@@ -307,15 +336,15 @@ console.log("\n🔀 STEP 8: Testing RRF fusion (hybrid search)...");
 const { fuseWithRrf } = await import("../query/rrf-fusion");
 
 // Convert to ranked items format
-const vectorRanked = vectorResults.map(r => ({ symbolId: r.symbol_id }));
-const keywordRanked = keywordResults.map(r => ({ symbolId: r.symbol_id }));
+const vectorRanked = vectorResults.map((r) => ({ symbolId: r.symbol_id }));
+const keywordRanked = keywordResults.map((r) => ({ symbolId: r.symbol_id }));
 
 const fusedResults = fuseWithRrf(vectorRanked, keywordRanked);
 
 logTest(
 	"Hybrid Search (RRF)",
 	fusedResults.length > 0,
-	`Fused ${vectorRanked.length} vector + ${keywordRanked.length} keyword results into ${fusedResults.length} ranked results`
+	`Fused ${vectorRanked.length} vector + ${keywordRanked.length} keyword results into ${fusedResults.length} ranked results`,
 );
 
 // ============================================================================
@@ -339,7 +368,7 @@ const result = await smartQuery.search({
 logTest(
 	"Smart Query (hybrid)",
 	result.metadata.vectorHits > 0 || result.metadata.keywordHits > 0,
-	`Query completed in ${result.metadata.queryTime}ms. Vector: ${result.metadata.vectorHits}, Keyword: ${result.metadata.keywordHits}, Confidence: ${result.metadata.confidence}`
+	`Query completed in ${result.metadata.queryTime}ms. Vector: ${result.metadata.vectorHits}, Keyword: ${result.metadata.keywordHits}, Confidence: ${result.metadata.confidence}`,
 );
 
 // ============================================================================
@@ -351,13 +380,15 @@ console.log("\n📝 STEP 10: Testing context building...");
 logTest(
 	"Context Building",
 	result.context.length > 0,
-	`Generated ${result.tokenCount} tokens of context. Symbols included: ${result.symbols.length}`
+	`Generated ${result.tokenCount} tokens of context. Symbols included: ${result.symbols.length}`,
 );
 
 // Show a snippet of context
 if (result.context.length > 0) {
 	console.log("  Context snippet (first 300 chars):");
-	console.log("  " + result.context.slice(0, 300).replace(/\n/g, "\n  ") + "...");
+	console.log(
+		"  " + result.context.slice(0, 300).replace(/\n/g, "\n  ") + "...",
+	);
 }
 
 // ============================================================================
@@ -376,7 +407,7 @@ for (const [name, result] of Object.entries(testResults)) {
 	console.log(`   ${result.details}\n`);
 }
 
-const passedCount = Object.values(testResults).filter(r => r.passed).length;
+const passedCount = Object.values(testResults).filter((r) => r.passed).length;
 const totalCount = Object.keys(testResults).length;
 
 console.log("=".repeat(70));
@@ -395,9 +426,11 @@ if (allTestsPassed) {
 	console.log("   8. Context Building ✅");
 } else {
 	console.log("❌ SOME TESTS FAILED - See details above");
-	process.exit(1);
 }
 console.log("=".repeat(70));
 
+expect(allTestsPassed).toBe(true);
+
 // Cleanup
 db.close();
+}, 60000);

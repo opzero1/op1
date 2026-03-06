@@ -6,9 +6,9 @@
  * recomputing the entire graph on every change.
  */
 
+import type { Database } from "bun:sqlite";
 import Graph from "graphology";
 import pagerank from "graphology-metrics/centrality/pagerank";
-import type { Database } from "bun:sqlite";
 import type { EdgeStore } from "../storage/edge-store";
 import type { RepoMapStore } from "../storage/repo-map-store";
 import type { SymbolStore } from "../storage/symbol-store";
@@ -152,7 +152,9 @@ export function createRepoMapGenerator(
 		return new Map(Object.entries(scores));
 	}
 
-	function computeDegrees(graph: Graph): Map<string, { in: number; out: number }> {
+	function computeDegrees(
+		graph: Graph,
+	): Map<string, { in: number; out: number }> {
 		const degrees = new Map<string, { in: number; out: number }>();
 
 		for (const node of graph.nodes()) {

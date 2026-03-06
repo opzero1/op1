@@ -66,7 +66,10 @@ export interface AstInference {
 	): InferenceResult;
 
 	/** Parse imports from source code */
-	parseImports(content: string, language: "typescript" | "python"): ImportInfo[];
+	parseImports(
+		content: string,
+		language: "typescript" | "python",
+	): ImportInfo[];
 
 	/** Find function/method call references in content */
 	findCallReferences(
@@ -96,19 +99,15 @@ const CONFIDENCE = {
 
 const TS_PATTERNS = {
 	// import { foo, bar } from 'module'
-	NAMED_IMPORT:
-		/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g,
+	NAMED_IMPORT: /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g,
 	// import foo from 'module'
-	DEFAULT_IMPORT:
-		/import\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g,
+	DEFAULT_IMPORT: /import\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g,
 	// import * as foo from 'module'
-	NAMESPACE_IMPORT:
-		/import\s*\*\s*as\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g,
+	NAMESPACE_IMPORT: /import\s*\*\s*as\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g,
 	// import 'module' (side-effect)
 	SIDE_EFFECT_IMPORT: /import\s*['"]([^'"]+)['"]/g,
 	// export { foo } from 'module'
-	REEXPORT:
-		/export\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g,
+	REEXPORT: /export\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g,
 	// Function call: functionName(
 	FUNCTION_CALL: /\b([a-zA-Z_$][\w$]*)\s*\(/g,
 	// Method call: object.method(
@@ -117,8 +116,7 @@ const TS_PATTERNS = {
 
 const PY_PATTERNS = {
 	// from module import foo, bar
-	FROM_IMPORT:
-		/from\s+([\w.]+)\s+import\s+(.+)/g,
+	FROM_IMPORT: /from\s+([\w.]+)\s+import\s+(.+)/g,
 	// import module
 	IMPORT_MODULE: /^import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm,
 	// Function call: function_name(
@@ -242,9 +240,7 @@ export function createAstInference(
 			}
 
 			// import module
-			const importMatch = line.match(
-				/^import\s+([\w.]+)(?:\s+as\s+(\w+))?/,
-			);
+			const importMatch = line.match(/^import\s+([\w.]+)(?:\s+as\s+(\w+))?/);
 			if (importMatch) {
 				imports.push({
 					modulePath: importMatch[1],
@@ -282,10 +278,14 @@ export function createAstInference(
 			// Skip import/export lines
 			if (/^\s*(import|export)\s/.test(line)) continue;
 			// Skip function definitions
-			if (/^\s*(function|async\s+function|const|let|var)\s+\w+\s*[=(]/.test(line)) continue;
+			if (
+				/^\s*(function|async\s+function|const|let|var)\s+\w+\s*[=(]/.test(line)
+			)
+				continue;
 
 			// Method calls
-			const methodPattern = /\b([a-zA-Z_$][\w$]*)\s*\.\s*([a-zA-Z_$][\w$]*)\s*\(/g;
+			const methodPattern =
+				/\b([a-zA-Z_$][\w$]*)\s*\.\s*([a-zA-Z_$][\w$]*)\s*\(/g;
 			let methodMatch: RegExpExecArray | null;
 			while ((methodMatch = methodPattern.exec(line)) !== null) {
 				calls.push({
@@ -471,14 +471,10 @@ export function createAstInference(
 				}
 
 				edges.push(
-					createEdge(
-						symbol.id,
-						target.id,
-						"CALLS",
-						confidence,
-						branch,
-						[symbol.start_line + call.line - 1, symbol.start_line + call.line - 1],
-					),
+					createEdge(symbol.id, target.id, "CALLS", confidence, branch, [
+						symbol.start_line + call.line - 1,
+						symbol.start_line + call.line - 1,
+					]),
 				);
 			}
 

@@ -1,6 +1,6 @@
 /**
  * Python Language Adapter
- * 
+ *
  * Extracts symbols from Python files using regex-based parsing.
  */
 
@@ -26,7 +26,11 @@ export function createPythonAdapter(): LanguageAdapter {
 			const symbols: RawSymbol[] = [];
 			const lines = sourceCode.split("\n");
 
-			let currentClass: { name: string; startLine: number; indent: number } | null = null;
+			let currentClass: {
+				name: string;
+				startLine: number;
+				indent: number;
+			} | null = null;
 
 			for (let i = 0; i < lines.length; i++) {
 				const line = lines[i];
@@ -66,7 +70,9 @@ export function createPythonAdapter(): LanguageAdapter {
 				}
 
 				// Function/method detection
-				const funcMatch = line.match(/^(\s*)(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?:/);
+				const funcMatch = line.match(
+					/^(\s*)(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?:/,
+				);
 				if (funcMatch) {
 					const funcIndent = funcMatch[1].length;
 					const name = funcMatch[2];
@@ -74,7 +80,8 @@ export function createPythonAdapter(): LanguageAdapter {
 					const content = lines.slice(i, endLine).join("\n");
 					docstring = extractPythonDocstring(lines, i + 1);
 
-					const isMethod = currentClass !== null && funcIndent > currentClass.indent;
+					const isMethod =
+						currentClass !== null && funcIndent > currentClass.indent;
 					const type: SymbolType = isMethod ? "METHOD" : "FUNCTION";
 					const qualifiedName = isMethod
 						? this.getQualifiedName(filePath, name, currentClass!.name)
@@ -96,7 +103,11 @@ export function createPythonAdapter(): LanguageAdapter {
 				// Module-level variable detection
 				if (indent === 0 && !currentClass) {
 					const varMatch = line.match(/^(\w+)\s*(?::\s*[^=]+)?\s*=/);
-					if (varMatch && !line.startsWith("def ") && !line.startsWith("class ")) {
+					if (
+						varMatch &&
+						!line.startsWith("def ") &&
+						!line.startsWith("class ")
+					) {
 						const name = varMatch[1];
 						// Skip dunder variables and private
 						if (!name.startsWith("_") || name === "__all__") {
@@ -119,7 +130,11 @@ export function createPythonAdapter(): LanguageAdapter {
 			return symbols;
 		},
 
-		getQualifiedName(filePath: string, symbolName: string, parentName?: string): string {
+		getQualifiedName(
+			filePath: string,
+			symbolName: string,
+			parentName?: string,
+		): string {
 			return createQualifiedName(filePath, symbolName, parentName);
 		},
 	};
@@ -127,7 +142,11 @@ export function createPythonAdapter(): LanguageAdapter {
 
 // Helper functions
 
-function findPythonBlockEnd(lines: string[], startIndex: number, startIndent: number): number {
+function findPythonBlockEnd(
+	lines: string[],
+	startIndex: number,
+	startIndent: number,
+): number {
 	for (let i = startIndex + 1; i < lines.length; i++) {
 		const line = lines[i];
 		if (!line.trim()) continue; // Skip empty lines
@@ -165,7 +184,10 @@ function findStatementEnd(lines: string[], startIndex: number): number {
 	return startIndex + 1;
 }
 
-function extractPythonDocstring(lines: string[], startIndex: number): string | undefined {
+function extractPythonDocstring(
+	lines: string[],
+	startIndex: number,
+): string | undefined {
 	if (startIndex >= lines.length) return undefined;
 
 	const line = lines[startIndex].trim();
@@ -201,6 +223,8 @@ function extractClassSignature(line: string): string {
 }
 
 function extractFuncSignature(line: string): string {
-	const match = line.match(/(?:async\s+)?def\s+\w+\s*\([^)]*\)(?:\s*->\s*[^:]+)?/);
+	const match = line.match(
+		/(?:async\s+)?def\s+\w+\s*\([^)]*\)(?:\s*->\s*[^:]+)?/,
+	);
 	return match ? match[0].trim() : "";
 }

@@ -12,19 +12,19 @@
  *   Layer 3: smart-query.ts had no handler for file/chunk results → SymbolNode wrappers
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createSymbolStore } from "../storage/symbol-store";
-import { createChunkStore } from "../storage/chunk-store";
-import { createContentFTSStore } from "../storage/content-fts-store";
-import { createGranularVectorStore } from "../storage/pure-vector-store";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
 	createEnhancedMultiGranularSearch,
 	createMultiGranularSearch,
 	type EnhancedMultiGranularSearch,
 	type MultiGranularSearch,
 } from "../query/multi-granular-search";
-import type { SymbolNode, ChunkNode } from "../types";
+import { createChunkStore } from "../storage/chunk-store";
+import { createContentFTSStore } from "../storage/content-fts-store";
+import { createGranularVectorStore } from "../storage/pure-vector-store";
+import { createSymbolStore } from "../storage/symbol-store";
+import type { ChunkNode, SymbolNode } from "../types";
 
 // ============================================================================
 // Helpers
@@ -204,7 +204,8 @@ const CHUNKS: ChunkNode[] = [
 		file_path: "src/utils.ts",
 		start_line: 1,
 		end_line: 50,
-		content: "// Full file content of utils.ts\nexport function utilHelper() { return true; }",
+		content:
+			"// Full file content of utils.ts\nexport function utilHelper() { return true; }",
 		chunk_type: "file",
 		language: "typescript",
 		content_hash: "hash-file-utils",
@@ -278,7 +279,8 @@ describe("Phase 1 Bug Fixes", () => {
 				content_type: "file" as const,
 				file_path: "src/utils.ts",
 				name: "utils.ts",
-				content: "Full file content of utils.ts\nexport function utilHelper() { return true; }",
+				content:
+					"Full file content of utils.ts\nexport function utilHelper() { return true; }",
 			},
 			{
 				content_id: "file-src-config-py",
@@ -370,7 +372,10 @@ describe("Phase 1 Bug Fixes", () => {
 			// The enhanced result should have symbols derived from the reranked order.
 			// If both base and enhanced have multiple symbol results, verify at least
 			// the top symbol in ranked matches the first symbol in the result.
-			if (enhancedResult.ranked.length > 0 && enhancedResult.symbols.length > 0) {
+			if (
+				enhancedResult.ranked.length > 0 &&
+				enhancedResult.symbols.length > 0
+			) {
 				const topRankedSymbol = enhancedResult.ranked.find(
 					(r) => r.granularity === "symbol",
 				);
@@ -392,7 +397,9 @@ describe("Phase 1 Bug Fixes", () => {
 			const queryEmbedding = nearBasisVector(DIMS, 0, 0.1);
 
 			// First verify vector-only base search produces line metadata
-			const vectorResult = baseSearch.searchVectors(queryEmbedding, { branch: "main" });
+			const vectorResult = baseSearch.searchVectors(queryEmbedding, {
+				branch: "main",
+			});
 			const vectorSymbols = vectorResult.ranked.filter(
 				(r) => r.granularity === "symbol" && r.start_line !== undefined,
 			);
@@ -526,7 +533,9 @@ describe("Phase 1 Bug Fixes", () => {
 
 			// Should find the config.py file
 			if (fileRanked.length > 0) {
-				const configItem = fileRanked.find((r) => r.id === "file-src-config-py");
+				const configItem = fileRanked.find(
+					(r) => r.id === "file-src-config-py",
+				);
 				if (configItem) {
 					expect(configItem.file_path).toBe("src/config.py");
 					expect(configItem.content).toContain("load_config");
@@ -665,7 +674,9 @@ describe("Phase 1 Bug Fixes", () => {
 				qualified_name: rankedFileItem.file_path,
 				type: "MODULE",
 				file_path: rankedFileItem.file_path,
-				language: rankedFileItem.file_path.endsWith(".py") ? "python" : "typescript",
+				language: rankedFileItem.file_path.endsWith(".py")
+					? "python"
+					: "typescript",
 				start_line: rankedFileItem.start_line ?? 1,
 				end_line: rankedFileItem.end_line ?? 1,
 				content: rankedFileItem.content,
@@ -705,7 +716,9 @@ describe("Phase 1 Bug Fixes", () => {
 				qualified_name: rankedPyItem.file_path,
 				type: "MODULE",
 				file_path: rankedPyItem.file_path,
-				language: rankedPyItem.file_path.endsWith(".py") ? "python" : "typescript",
+				language: rankedPyItem.file_path.endsWith(".py")
+					? "python"
+					: "typescript",
 			};
 
 			expect(wrapper.language).toBe("python");

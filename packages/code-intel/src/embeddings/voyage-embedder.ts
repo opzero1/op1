@@ -12,10 +12,10 @@
  * - Batch processing (up to 128 items per request)
  */
 
-import { VoyageAIClient, VoyageAIError, VoyageAITimeoutError } from "voyageai";
 import type { VoyageAI } from "voyageai";
-import type { Embedder, EmbedOptions } from "./embedder";
+import { VoyageAIClient, VoyageAIError, VoyageAITimeoutError } from "voyageai";
 import { EmbeddingCache } from "./cache";
+import type { Embedder, EmbedOptions } from "./embedder";
 
 // ============================================================================
 // Types

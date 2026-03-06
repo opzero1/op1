@@ -117,8 +117,12 @@ function buildFusedResults(
 	keywordRanked: RankedItem[],
 ): FusedResult[] {
 	// Build lookup maps for source ranks
-	const vectorRankLookup = new Map(vectorRanked.map((item) => [item.symbolId, item.rank]));
-	const keywordRankLookup = new Map(keywordRanked.map((item) => [item.symbolId, item.rank]));
+	const vectorRankLookup = new Map(
+		vectorRanked.map((item) => [item.symbolId, item.rank]),
+	);
+	const keywordRankLookup = new Map(
+		keywordRanked.map((item) => [item.symbolId, item.rank]),
+	);
 
 	const results: FusedResult[] = [];
 

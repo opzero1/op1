@@ -107,17 +107,28 @@ const FILE_PATTERNS: Array<{ pattern: RegExp; glob: string }> = [
  * path-like syntax (slashes, file extensions) — see extractFilePatterns.
  */
 const FILE_PATTERN_EXCLUSIONS = new Set([
-	"service", "services",
-	"model", "models",
-	"type", "types",
-	"route", "routes",
-	"controller", "controllers",
-	"component", "components",
-	"hook", "hooks",
-	"util", "utils",
-	"helper", "helpers",
+	"service",
+	"services",
+	"model",
+	"models",
+	"type",
+	"types",
+	"route",
+	"routes",
+	"controller",
+	"controllers",
+	"component",
+	"components",
+	"hook",
+	"hooks",
+	"util",
+	"utils",
+	"helper",
+	"helpers",
 	"config",
-	"test", "tests", "spec",
+	"test",
+	"tests",
+	"spec",
 	"middleware",
 	"schema",
 	"api",
@@ -183,7 +194,7 @@ export function createQueryRewriter(
 		// General terms like "service" or "model" are too ambiguous —
 		// they're common search terms and shouldn't restrict results to
 		// files whose paths happen to contain the word.
-		const hasExplicitPathSyntax = /[\/\\]|\.(?:ts|tsx|js|jsx|py)\b/.test(query);
+		const hasExplicitPathSyntax = /[/\\]|\.(?:ts|tsx|js|jsx|py)\b/.test(query);
 
 		for (const { pattern, glob } of FILE_PATTERNS) {
 			if (!pattern.test(query)) continue;
@@ -243,9 +254,8 @@ export function createQueryRewriter(
 					expandedParts.push(term);
 				}
 			}
-			const expanded = expandedParts.length > 0
-				? expandedParts.join(" ")
-				: query;
+			const expanded =
+				expandedParts.length > 0 ? expandedParts.join(" ") : query;
 
 			return {
 				original: query,

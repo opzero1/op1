@@ -104,9 +104,7 @@ export function createContentFTSStore(db: Database): ContentFTSStore {
 		"DELETE FROM fts_content WHERE file_path = ?",
 	);
 
-	const countStmt = db.prepare(
-		"SELECT COUNT(*) as count FROM fts_content",
-	);
+	const countStmt = db.prepare("SELECT COUNT(*) as count FROM fts_content");
 
 	const countByContentTypeStmt = db.prepare(
 		"SELECT COUNT(*) as count FROM fts_content WHERE content_type = ?",
@@ -205,7 +203,9 @@ export function createContentFTSStore(db: Database): ContentFTSStore {
 		},
 
 		countByContentType(contentType: Granularity): number {
-			const result = countByContentTypeStmt.get(contentType) as { count: number };
+			const result = countByContentTypeStmt.get(contentType) as {
+				count: number;
+			};
 			return result.count;
 		},
 	};

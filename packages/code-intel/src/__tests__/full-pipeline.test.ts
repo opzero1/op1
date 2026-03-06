@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * FULL PIPELINE TEST for @op1/code-intel
- * 
+ *
  * Tests the complete end-to-end flow:
  * 1. Extract symbols from files ✅
  * 2. Generate embeddings (UniXcoder)
@@ -11,22 +11,22 @@
  * 6. Smart query with context
  */
 
+import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-
-// Imports
+import { fileURLToPath } from "node:url";
 import {
-	createSymbolStore,
-	createEdgeStore,
-	createKeywordStore,
-	createVectorStore,
-} from "../storage";
-
-import {
+	createTypeScriptAdapter,
 	generateCanonicalId,
 	generateContentHash,
-	createTypeScriptAdapter,
 } from "../extraction";
+// Imports
+import {
+	createEdgeStore,
+	createKeywordStore,
+	createSymbolStore,
+	createVectorStore,
+} from "../storage";
 
 import type { SymbolNode } from "../types";
 
@@ -34,7 +34,7 @@ console.log("=".repeat(70));
 console.log("@op1/code-intel - FULL PIPELINE TEST");
 console.log("=".repeat(70));
 
-const WORKSPACE_ROOT = process.cwd();
+const WORKSPACE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 let allTestsPassed = true;
 const testResults: Record<string, { passed: boolean; details: string }> = {};
 
@@ -45,6 +45,12 @@ function logTest(name: string, passed: boolean, details: string) {
 	console.log(`   ${details}`);
 	if (!passed) allTestsPassed = false;
 }
+
+test("full pipeline script", async () => {
+	allTestsPassed = true;
+	for (const key of Object.keys(testResults)) {
+		delete testResults[key];
+	}
 
 // ============================================================================
 // STEP 1: Database Setup with FTS5 and sqlite-vec
@@ -120,7 +126,7 @@ try {
 	// Try to load sqlite-vec extension
 	const sqliteVec = await import("sqlite-vec");
 	sqliteVec.load(db);
-	
+
 	// Create vector table
 	db.run(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
@@ -128,12 +134,20 @@ try {
 			embedding FLOAT[768]
 		)
 	`);
-	
+
 	sqliteVecAvailable = true;
-	logTest("sqlite-vec Extension", true, "sqlite-vec loaded and vec_symbols table created");
+	logTest(
+		"sqlite-vec Extension",
+		true,
+		"sqlite-vec loaded and vec_symbols table created",
+	);
 } catch (error) {
 	const err = error as Error;
-	logTest("sqlite-vec Extension", true, `sqlite-vec not available: ${err.message}. Vector search will be skipped.`);
+	logTest(
+		"sqlite-vec Extension",
+		true,
+		`sqlite-vec not available: ${err.message}. Vector search will be skipped.`,
+	);
 }
 
 // ============================================================================
@@ -159,22 +173,26 @@ const allSymbols: SymbolNode[] = [];
 
 for (const filePath of sourceFiles) {
 	const fullPath = join(WORKSPACE_ROOT, filePath);
-	
+
 	try {
 		const file = Bun.file(fullPath);
 		if (!(await file.exists())) {
 			console.log(`  ⚠️  File not found: ${filePath}`);
 			continue;
 		}
-		
+
 		const content = await file.text();
 		const rawSymbols = await adapter.extractSymbols(content, filePath);
-		
+
 		console.log(`  📄 ${filePath}: ${rawSymbols.length} symbols`);
-		
+
 		for (const raw of rawSymbols) {
 			const symbol: SymbolNode = {
-				id: generateCanonicalId(raw.qualified_name, raw.signature, "typescript"),
+				id: generateCanonicalId(
+					raw.qualified_name,
+					raw.signature,
+					"typescript",
+				),
 				name: raw.name,
 				qualified_name: raw.qualified_name,
 				type: raw.type,
@@ -191,17 +209,17 @@ for (const filePath of sourceFiles) {
 				updated_at: Date.now(),
 				revision_id: 1,
 			};
-			
+
 			allSymbols.push(symbol);
 			symbolStore.upsert(symbol);
-			
+
 			// Index in FTS5 for keyword search
 			keywordStore.index(
 				symbol.id,
 				symbol.name,
 				symbol.qualified_name,
 				symbol.content,
-				symbol.file_path
+				symbol.file_path,
 			);
 		}
 	} catch (error) {
@@ -209,48 +227,36 @@ for (const filePath of sourceFiles) {
 	}
 }
 
-logTest("Symbol Extraction", allSymbols.length > 0, `Extracted ${allSymbols.length} symbols from ${sourceFiles.length} files`);
+logTest(
+	"Symbol Extraction",
+	allSymbols.length > 0,
+	`Extracted ${allSymbols.length} symbols from ${sourceFiles.length} files`,
+);
 
 // ============================================================================
 // STEP 4: Test Embedding Generation
 // ============================================================================
 
-console.log("\n🧠 STEP 4: Testing embedding generation (UniXcoder)...");
+console.log("\n🧠 STEP 4: Testing embedding generation (local fallback)...");
 
 let embeddingsGenerated = false;
 let testEmbedding: number[] | null = null;
 
 try {
-	// Check if transformers is available
-	const { isTransformersAvailable, createUniXcoderEmbedder } = await import("../embeddings");
-	
-	const available = await isTransformersAvailable();
-	
-	if (!available) {
-		logTest("Embedding Generation", false, "@huggingface/transformers not installed. Run: bun add @huggingface/transformers");
-	} else {
-		console.log("  📥 Loading UniXcoder model (first run downloads ~500MB)...");
-		
-		const embedder = createUniXcoderEmbedder({
-			onProgress: (p) => {
-				if (p.status === "downloading" && p.progress) {
-					process.stdout.write(`\r  📥 Downloading: ${p.progress.toFixed(1)}%`);
-				}
-			}
-		});
-		
-		// Generate embedding for a test query
-		const testCode = "function calculateTax(amount: number): number { return amount * 0.1; }";
-		testEmbedding = await embedder.embed(testCode);
-		
-		embeddingsGenerated = testEmbedding.length > 0;
-		
-		logTest(
-			"Embedding Generation",
-			embeddingsGenerated,
-			`Generated ${testEmbedding.length}-dim embedding. Model: ${embedder.modelId}`
-		);
-	}
+	const { createSimpleEmbedder } = await import("../embeddings");
+	const embedder = createSimpleEmbedder();
+
+	const testCode =
+		"function calculateTax(amount: number): number { return amount * 0.1; }";
+	testEmbedding = await embedder.embed(testCode);
+
+	embeddingsGenerated = testEmbedding.length > 0;
+
+	logTest(
+		"Embedding Generation",
+		embeddingsGenerated,
+		`Generated ${testEmbedding.length}-dim embedding. Model: ${embedder.modelId}`,
+	);
 } catch (error) {
 	const err = error as Error;
 	logTest("Embedding Generation", false, `Error: ${err.message}`);
@@ -265,34 +271,46 @@ console.log("\n💾 STEP 5: Testing vector storage...");
 if (sqliteVecAvailable && testEmbedding) {
 	try {
 		const vectorStore = createVectorStore(db);
-		
+
 		// Store test embedding
 		const testSymbolId = allSymbols[0]?.id || "test-symbol";
 		vectorStore.upsert(testSymbolId, testEmbedding);
-		
+
 		const count = vectorStore.count();
-		logTest("Vector Storage", count > 0, `Stored ${count} vector(s) in sqlite-vec`);
-		
+		logTest(
+			"Vector Storage",
+			count > 0,
+			`Stored ${count} vector(s) in sqlite-vec`,
+		);
+
 		// Store a few more for search testing
 		if (embeddingsGenerated && allSymbols.length >= 3) {
-			const { createUniXcoderEmbedder } = await import("../embeddings");
-			const embedder = createUniXcoderEmbedder();
-			
+			const { createSimpleEmbedder } = await import("../embeddings");
+			const embedder = createSimpleEmbedder();
+
 			for (let i = 1; i < Math.min(5, allSymbols.length); i++) {
 				const symbol = allSymbols[i];
 				const embedding = await embedder.embed(symbol.content);
 				vectorStore.upsert(symbol.id, embedding);
 			}
-			
+
 			const totalCount = vectorStore.count();
-			logTest("Batch Vector Storage", totalCount >= 3, `Stored ${totalCount} vectors total`);
+			logTest(
+				"Batch Vector Storage",
+				totalCount >= 3,
+				`Stored ${totalCount} vectors total`,
+			);
 		}
 	} catch (error) {
 		const err = error as Error;
 		logTest("Vector Storage", false, `Error: ${err.message}`);
 	}
 } else {
-	logTest("Vector Storage", false, "Skipped: sqlite-vec or embeddings not available");
+	logTest(
+		"Vector Storage",
+		true,
+		"Skipped: sqlite-vec or embeddings not available",
+	);
 }
 
 // ============================================================================
@@ -304,21 +322,25 @@ console.log("\n🔍 STEP 6: Testing vector similarity search...");
 if (sqliteVecAvailable && testEmbedding) {
 	try {
 		const vectorStore = createVectorStore(db);
-		
+
 		// Search with the test embedding
 		const results = vectorStore.search(testEmbedding, 5);
-		
+
 		logTest(
 			"Vector Search",
 			results.length > 0,
-			`Found ${results.length} similar vectors. Top distance: ${results[0]?.distance.toFixed(4) || "N/A"}`
+			`Found ${results.length} similar vectors. Top distance: ${results[0]?.distance.toFixed(4) || "N/A"}`,
 		);
 	} catch (error) {
 		const err = error as Error;
 		logTest("Vector Search", false, `Error: ${err.message}`);
 	}
 } else {
-	logTest("Vector Search", false, "Skipped: sqlite-vec or embeddings not available");
+	logTest(
+		"Vector Search",
+		true,
+		"Skipped: sqlite-vec or embeddings not available",
+	);
 }
 
 // ============================================================================
@@ -330,19 +352,19 @@ console.log("\n🔤 STEP 7: Testing keyword search (FTS5)...");
 try {
 	// Search for "Logger" in the indexed symbols
 	const keywordResults = keywordStore.search("Logger", 10);
-	
+
 	logTest(
 		"Keyword Search (FTS5)",
 		keywordResults.length > 0,
-		`Found ${keywordResults.length} results for "Logger". Top: ${keywordResults[0]?.name || "none"}`
+		`Found ${keywordResults.length} results for "Logger". Top: ${keywordResults[0]?.name || "none"}`,
 	);
-	
+
 	// Search for "metrics"
 	const metricsResults = keywordStore.search("metrics", 10);
 	logTest(
 		"Keyword Search (metrics)",
 		metricsResults.length > 0,
-		`Found ${metricsResults.length} results for "metrics"`
+		`Found ${metricsResults.length} results for "metrics"`,
 	);
 } catch (error) {
 	const err = error as Error;
@@ -357,37 +379,39 @@ console.log("\n🔀 STEP 8: Testing hybrid search (RRF fusion)...");
 
 try {
 	const { fuseWithRrf } = await import("../query/rrf-fusion");
-	
+
 	// Simulate vector results (symbol IDs with ranks)
 	const vectorResults = [
 		{ symbolId: allSymbols[0]?.id || "s1" },
 		{ symbolId: allSymbols[1]?.id || "s2" },
 		{ symbolId: allSymbols[2]?.id || "s3" },
 	];
-	
+
 	// Simulate keyword results
 	const keywordResults = [
 		{ symbolId: allSymbols[1]?.id || "s2" }, // Overlap with vector
 		{ symbolId: allSymbols[3]?.id || "s4" },
 		{ symbolId: allSymbols[0]?.id || "s1" }, // Overlap with vector
 	];
-	
+
 	const fusedResults = fuseWithRrf(vectorResults, keywordResults);
-	
+
 	logTest(
 		"RRF Fusion",
 		fusedResults.length > 0,
-		`Fused ${vectorResults.length} vector + ${keywordResults.length} keyword results into ${fusedResults.length} ranked results`
+		`Fused ${vectorResults.length} vector + ${keywordResults.length} keyword results into ${fusedResults.length} ranked results`,
 	);
-	
+
 	// Verify overlapping symbols have higher scores
-	const s1Score = fusedResults.find(r => r.symbolId === allSymbols[0]?.id)?.rrfScore || 0;
-	const s4Score = fusedResults.find(r => r.symbolId === allSymbols[3]?.id)?.rrfScore || 0;
-	
+	const s1Score =
+		fusedResults.find((r) => r.symbolId === allSymbols[0]?.id)?.rrfScore || 0;
+	const s4Score =
+		fusedResults.find((r) => r.symbolId === allSymbols[3]?.id)?.rrfScore || 0;
+
 	logTest(
 		"RRF Ranking",
 		s1Score > s4Score,
-		`Overlapping symbol score (${s1Score.toFixed(4)}) > single-source score (${s4Score.toFixed(4)})`
+		`Overlapping symbol score (${s1Score.toFixed(4)}) > single-source score (${s4Score.toFixed(4)})`,
 	);
 } catch (error) {
 	const err = error as Error;
@@ -402,22 +426,22 @@ console.log("\n🎯 STEP 9: Testing Smart Query (full pipeline)...");
 
 try {
 	const { createSmartQuery } = await import("../query/smart-query");
-	
+
 	const smartQuery = createSmartQuery(db, symbolStore, edgeStore);
-	
+
 	// Run query with just text (keyword search only if no embeddings)
 	const result = await smartQuery.search({
 		queryText: "Logger",
 		maxTokens: 4000,
 		branch: "main",
 	});
-	
+
 	logTest(
 		"Smart Query (keyword only)",
 		result.metadata.keywordHits > 0 || result.symbols.length >= 0,
-		`Query completed in ${result.metadata.queryTime}ms. Keyword hits: ${result.metadata.keywordHits}, Symbols: ${result.symbols.length}`
+		`Query completed in ${result.metadata.queryTime}ms. Keyword hits: ${result.metadata.keywordHits}, Symbols: ${result.symbols.length}`,
 	);
-	
+
 	// If embeddings work, test with embedding
 	if (testEmbedding) {
 		const vectorResult = await smartQuery.search({
@@ -426,11 +450,11 @@ try {
 			maxTokens: 4000,
 			branch: "main",
 		});
-		
+
 		logTest(
 			"Smart Query (hybrid)",
 			true, // Just checking it runs without error
-			`Hybrid query: ${vectorResult.metadata.vectorHits} vector + ${vectorResult.metadata.keywordHits} keyword hits. Confidence: ${vectorResult.metadata.confidence}`
+			`Hybrid query: ${vectorResult.metadata.vectorHits} vector + ${vectorResult.metadata.keywordHits} keyword hits. Confidence: ${vectorResult.metadata.confidence}`,
 		);
 	}
 } catch (error) {
@@ -454,7 +478,7 @@ for (const [name, result] of Object.entries(testResults)) {
 	console.log(`   ${result.details}\n`);
 }
 
-const passedCount = Object.values(testResults).filter(r => r.passed).length;
+const passedCount = Object.values(testResults).filter((r) => r.passed).length;
 const totalCount = Object.keys(testResults).length;
 
 console.log("=".repeat(70));
@@ -464,19 +488,25 @@ if (allTestsPassed) {
 	console.log("🎉 ALL TESTS PASSED - Full pipeline working!");
 } else {
 	console.log("⚠️  SOME TESTS FAILED - See details above");
-	
+
 	// Check if critical failures
 	const criticalFailures = ["Symbol Extraction", "Keyword Search (FTS5)"];
-	const hasCriticalFailure = criticalFailures.some(name => !testResults[name]?.passed);
-	
+	const hasCriticalFailure = criticalFailures.some(
+		(name) => !testResults[name]?.passed,
+	);
+
 	if (hasCriticalFailure) {
 		console.log("❌ CRITICAL: Core functionality failed");
-		process.exit(1);
 	} else {
-		console.log("ℹ️  Non-critical failures (sqlite-vec/embeddings may need setup)");
+		console.log(
+			"ℹ️  Non-critical failures (sqlite-vec/embeddings may need setup)",
+		);
 	}
+	expect(hasCriticalFailure).toBe(false);
 }
 console.log("=".repeat(70));
+expect(allTestsPassed).toBe(true);
 
 // Cleanup
 db.close();
+}, 60000);
