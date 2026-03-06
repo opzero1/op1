@@ -21,6 +21,22 @@ import {
 	rebuildSkillPointerArtifacts,
 	validateSkillPointerIndex,
 } from "./skill-pointer.js";
+import {
+	type EnsureWarmplaneBinaryResult,
+	ensureWarmplaneBinary,
+	isWarmplaneBinaryRecommendedDefault,
+} from "./warmplane-binary.js";
+import {
+	buildWarmplaneConfig,
+	buildWarmplanePointerAuthMetadata,
+	extractRequiredEnvVars,
+	filterFacadeMcps,
+	isMcp0Selected,
+	resolveWarmplaneAuthStorePath,
+	resolveWarmplaneConfigPath,
+	type WarmplaneConfig,
+	type WarmplanePointerAuthMetadata,
+} from "./warmplane-config.js";
 
 const IS_WINDOWS = (Bun.env.OS ?? "").toLowerCase().includes("windows");
 
@@ -142,6 +158,10 @@ interface McpDefinition {
 	agentAccess: string[]; // which agents should have access
 	required?: boolean;
 	oauthCapable?: boolean;
+	oauthConfig?: Omit<
+		Extract<WarmplaneConfig["mcpServers"][string]["auth"], { type: "oauth" }>,
+		"type" | "tokenStoreKey"
+	>;
 }
 
 type McpCriticality = "required" | "optional";
@@ -152,7 +172,19 @@ interface McpCategory {
 	description: string;
 	requiresEnvVar?: string;
 	requiredByDefault?: boolean;
+	recommendedByDefault?: boolean;
 	mcps: McpDefinition[];
+}
+
+function isCategoryRecommendedByDefault(category: McpCategory): boolean {
+	if (category.id === "mcp0") {
+		return (
+			category.recommendedByDefault === true &&
+			isWarmplaneBinaryRecommendedDefault()
+		);
+	}
+
+	return category.recommendedByDefault === true;
 }
 
 const MCP_DEFAULT_CRITICALITY: McpCriticality = "optional";
@@ -200,6 +232,7 @@ function toMcpPointerDefinition(input: {
 	mcp: McpDefinition;
 	category: McpCategory;
 	sourceConfigPath: string;
+	authMetadata?: WarmplanePointerAuthMetadata;
 }): BuilderMcpDefinition {
 	return {
 		id: input.mcp.id,
@@ -211,6 +244,10 @@ function toMcpPointerDefinition(input: {
 				: "optional",
 		config: input.mcp.config,
 		oauthCapable: input.mcp.oauthCapable,
+		authStatus: input.authMetadata?.authStatus,
+		hasClientId: input.authMetadata?.hasClientId,
+		hasClientSecret: input.authMetadata?.hasClientSecret,
+		lastAuthErrorCode: input.authMetadata?.lastErrorCode,
 		sourceConfigPath: input.sourceConfigPath,
 	};
 }
@@ -286,9 +323,15 @@ const MCP_CATEGORIES: McpCategory[] = [
 				name: "Linear",
 				description: "Issue tracking",
 				oauthCapable: true,
+				oauthConfig: {
+					authorizationServer: "https://api.linear.app",
+					authorizationEndpoint: "https://linear.app/oauth/authorize",
+					tokenEndpoint: "https://api.linear.app/oauth/token",
+					codeChallengeMethodsSupported: ["S256"],
+				},
 				config: {
-					type: "local",
-					command: ["bunx", "-y", "mcp-remote", "https://mcp.linear.app/mcp"],
+					type: "remote",
+					url: "https://mcp.linear.app/mcp",
 				},
 				toolPattern: "linear_*",
 				agentAccess: ["researcher"],
@@ -356,12 +399,13 @@ const MCP_CATEGORIES: McpCategory[] = [
 		name: "mcp0 (Warmplane)",
 		description:
 			"Local MCP control-plane facade (compact, deterministic tool surface)",
+		recommendedByDefault: true,
 		mcps: [
 			{
 				id: "mcp0",
 				name: "mcp0",
 				description:
-					"Warmplane facade server. Expects warmplane on PATH and local mcp0 config.",
+					"Warmplane facade server. Installs a managed macOS binary when available and writes a deterministic local mcp0 config.",
 				config: {
 					type: "local",
 					command: ["warmplane", "mcp-server"],
@@ -540,6 +584,76 @@ interface OpenCodeConfig {
 	compaction?: { auto?: boolean; prune?: boolean };
 	provider?: Record<string, unknown>;
 	[key: string]: unknown;
+}
+
+function cloneAgentConfig(
+	agent?: Record<string, AgentConfig>,
+): Record<string, AgentConfig> | undefined {
+	if (!agent) return undefined;
+	return Object.fromEntries(
+		Object.entries(agent).map(([name, config]) => [
+			name,
+			{
+				...config,
+				tools: config.tools ? { ...config.tools } : undefined,
+			},
+		]),
+	);
+}
+
+function applyMcp0FacadeMode(input: {
+	config: OpenCodeConfig;
+	warmplaneConfigPath: string;
+	warmplaneBinaryPath: string;
+}): OpenCodeConfig {
+	const next: OpenCodeConfig = {
+		...input.config,
+		mcp: { ...(input.config.mcp || {}) },
+		tools: { ...(input.config.tools || {}) },
+		agent: cloneAgentConfig(input.config.agent) || {},
+	};
+
+	for (const id of Object.keys(next.mcp || {})) {
+		if (id === "mcp0") continue;
+		delete next.mcp?.[id];
+	}
+
+	const removedPatterns = new Set(
+		Object.keys(next.tools || {}).filter((pattern) => pattern !== "mcp0_*"),
+	);
+	for (const id of Object.keys(input.config.mcp || {})) {
+		if (id === "mcp0") continue;
+		removedPatterns.add(`${id.replace(/[^a-zA-Z0-9_-]/g, "_")}_*`);
+	}
+
+	for (const pattern of removedPatterns) {
+		if (pattern === "mcp0_*") continue;
+		delete next.tools?.[pattern];
+	}
+	for (const config of Object.values(next.agent || {})) {
+		for (const pattern of removedPatterns) {
+			if (pattern === "mcp0_*") continue;
+			delete config.tools?.[pattern];
+		}
+	}
+
+	next.mcp = next.mcp || {};
+	next.mcp.mcp0 = {
+		type: "local",
+		command: [
+			input.warmplaneBinaryPath,
+			"mcp-server",
+			"--config",
+			input.warmplaneConfigPath,
+		],
+	};
+
+	next.tools = next.tools || {};
+	if (next.tools["mcp0_*"] === undefined) {
+		next.tools["mcp0_*"] = false;
+	}
+
+	return next;
 }
 
 const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
@@ -1303,6 +1417,9 @@ export async function main(mainOptions: MainOptions = {}) {
 	const homeDir = getHomeDirectory();
 	const globalConfigDir = joinPath(homeDir, ".config", "opencode");
 	const globalConfigFile = joinPath(globalConfigDir, "opencode.json");
+	const warmplaneConfigFile = resolveWarmplaneConfigPath(globalConfigDir);
+	const warmplaneConfigDir = joinPath(globalConfigDir, "mcp0");
+	const warmplaneAuthStorePath = resolveWarmplaneAuthStorePath(homeDir);
 	const workspaceConfigFile = joinPath(
 		globalConfigDir,
 		WORKSPACE_CONFIG_FILENAME,
@@ -1570,9 +1687,13 @@ export async function main(mainOptions: MainOptions = {}) {
 			options: optionalCategories.map((cat) => ({
 				value: cat.id,
 				label: cat.name,
-				hint: cat.description,
+				hint: isCategoryRecommendedByDefault(cat)
+					? `${cat.description} (recommended default)`
+					: cat.description,
 			})),
-			initialValues: [],
+			initialValues: optionalCategories
+				.filter((category) => isCategoryRecommendedByDefault(category))
+				.map((category) => category.id),
 			required: false,
 		});
 
@@ -1753,6 +1874,8 @@ export async function main(mainOptions: MainOptions = {}) {
 	let skillPointerRecoveryNote: string | null = null;
 	let mcpPointerResult: InstallMcpPointerArtifactsResult | null = null;
 	let mcpPointerFallbackReason: string | null = null;
+	let warmplaneConfig: WarmplaneConfig | null = null;
+	let warmplaneBinaryResult: EnsureWarmplaneBinaryResult | null = null;
 
 	try {
 		const originalConfig = configFileResult.data;
@@ -1768,12 +1891,38 @@ export async function main(mainOptions: MainOptions = {}) {
 			globalModelToSet,
 			allAgents,
 		);
+		const facadeMode = isMcp0Selected(selectedMcps);
+		const facadeMcps: McpDefinition[] = facadeMode
+			? selectedMcps.filter((mcp) => mcp.id !== "mcp0")
+			: selectedMcps;
+		let warmplanePointerAuthMetadata: Record<
+			string,
+			WarmplanePointerAuthMetadata
+		> = {};
+		if (facadeMode) {
+			warmplaneBinaryResult = await ensureWarmplaneBinary({
+				homeDir,
+				dryRun,
+			});
+			warmplaneConfig = buildWarmplaneConfig({
+				mcps: facadeMcps,
+				authStorePath: warmplaneAuthStorePath,
+			});
+			warmplanePointerAuthMetadata = await buildWarmplanePointerAuthMetadata({
+				config: warmplaneConfig,
+			});
+			mergedConfig = applyMcp0FacadeMode({
+				config: mergedConfig,
+				warmplaneConfigPath: warmplaneConfigFile,
+				warmplaneBinaryPath: warmplaneBinaryResult.binaryPath,
+			});
+		}
 
 		const totalCatalogMcpCount = MCP_CATEGORIES.reduce(
 			(sum, category) => sum + category.mcps.length,
 			0,
 		);
-		const selectedMcpPointerDefs: BuilderMcpDefinition[] = selectedMcps
+		const selectedMcpPointerDefs: BuilderMcpDefinition[] = facadeMcps
 			.map((mcp) => {
 				const category = MCP_CATEGORIES.find((entry) =>
 					entry.mcps.some((candidate) => candidate.id === mcp.id),
@@ -1785,7 +1934,10 @@ export async function main(mainOptions: MainOptions = {}) {
 				return toMcpPointerDefinition({
 					mcp,
 					category,
-					sourceConfigPath: globalConfigFile,
+					sourceConfigPath: facadeMode ? warmplaneConfigFile : globalConfigFile,
+					authMetadata: facadeMode
+						? warmplanePointerAuthMetadata[mcp.id]
+						: undefined,
 				});
 			})
 			.filter((entry): entry is BuilderMcpDefinition => entry !== null);
@@ -1891,6 +2043,10 @@ export async function main(mainOptions: MainOptions = {}) {
 						enabled: false,
 					};
 				}
+			}
+
+			if (warmplaneConfig) {
+				totalFiles += 1;
 			}
 
 			totalFiles += 2; // opencode.json + workspace.json writes
@@ -2010,6 +2166,12 @@ export async function main(mainOptions: MainOptions = {}) {
 				}
 			}
 
+			if (warmplaneConfig) {
+				await ensureDirectory(warmplaneConfigDir);
+				await writeJsonFile(warmplaneConfigFile, warmplaneConfig);
+				totalFiles += 1;
+			}
+
 			// Write merged config
 			await writeJsonFile(globalConfigFile, mergedConfig);
 			await writeJsonFile(workspaceConfigFile, mergedWorkspaceConfig);
@@ -2092,6 +2254,24 @@ export async function main(mainOptions: MainOptions = {}) {
 			`${pc.green("✓")} MCPs ${configVerb}: ${selectedMcps.map((m) => pc.cyan(m.name)).join(", ")}`,
 		);
 	}
+	if (warmplaneConfig) {
+		summaryLines.push(
+			`${pc.green("✓")} Warmplane ${dryRun ? "would scaffold" : "scaffolded"} strict mcp0-only config at ${pc.dim("~/.config/opencode/mcp0/mcp_servers.json")}`,
+		);
+	}
+	if (warmplaneBinaryResult) {
+		const actionText =
+			warmplaneBinaryResult.status === "reused"
+				? "reused"
+				: warmplaneBinaryResult.status === "path"
+					? "resolved from PATH"
+					: dryRun
+						? "would install"
+						: "installed";
+		summaryLines.push(
+			`${pc.green("✓")} Warmplane mac binary ${actionText} at ${pc.dim(warmplaneBinaryResult.binaryPath)}`,
+		);
+	}
 	if (mcpPointerResult) {
 		summaryLines.push(
 			`${pc.green("✓")} MCP pointer ${dryRun ? "would generate" : "generated"} ${pc.cyan(String(mcpPointerResult.activeMcpCount))} active entries (${pc.cyan(String(mcpPointerResult.deferredMcpCount))} deferred) at ${pc.dim("~/.config/opencode/.mcp-pointer/index.json")}`,
@@ -2127,6 +2307,14 @@ export async function main(mainOptions: MainOptions = {}) {
 		p.note(
 			[
 				`Config target: ${pc.dim(globalConfigFile)}`,
+				...(warmplaneConfig
+					? [`Warmplane config target: ${pc.dim(warmplaneConfigFile)}`]
+					: []),
+				...(warmplaneBinaryResult
+					? [
+							`Warmplane binary target: ${pc.dim(warmplaneBinaryResult.binaryPath)}`,
+						]
+					: []),
 				`Workspace config target: ${pc.dim(workspaceConfigFile)}`,
 				`Plugins: ${pc.cyan(pluginList)}`,
 				`Workspace enabled flags: ${pc.cyan(workspaceFlags || "(none)")}`,
@@ -2158,8 +2346,14 @@ export async function main(mainOptions: MainOptions = {}) {
 			(requiresEnvVar): requiresEnvVar is string =>
 				typeof requiresEnvVar === "string" && requiresEnvVar.length > 0,
 		);
+	const warmplaneRequiredEnvVars = warmplaneConfig
+		? extractRequiredEnvVars(warmplaneConfig)
+		: [];
+	const allRequiredEnvVars = [
+		...new Set([...requiredEnvVars, ...warmplaneRequiredEnvVars]),
+	];
 
-	const missingEnvVars = requiredEnvVars.filter(
+	const missingEnvVars = allRequiredEnvVars.filter(
 		(requiresEnvVar) => !Bun.env[requiresEnvVar],
 	);
 
@@ -2178,13 +2372,20 @@ export async function main(mainOptions: MainOptions = {}) {
 }
 
 export {
+	applyMcp0FacadeMode,
+	buildWarmplaneConfig,
 	copyDir,
+	extractRequiredEnvVars,
 	fileExists,
+	filterFacadeMcps,
 	mergeConfig,
 	mergeWorkspaceConfig,
 	MCP_CATEGORIES,
 	getRequiredMcpDefinitions,
+	isMcp0Selected,
 	resolveMcpCriticality,
+	resolveWarmplaneAuthStorePath,
+	resolveWarmplaneConfigPath,
 };
 export type {
 	InstallOptions,

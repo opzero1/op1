@@ -101,11 +101,32 @@ After installation, your `~/.config/opencode/opencode.json` will include:
 
 ## mcp0 (Warmplane Port)
 
-`mcp0` is the planned local MCP control-plane path for token-efficient MCP usage in op1.
+`mcp0` is the local MCP control-plane path for token-efficient MCP usage in op1.
 
 - Installer category: `mcp0 (Warmplane)`
-- Expected command: `warmplane mcp-server`
+- Installer default: recommended and preselected on macOS, or when `warmplane` is already available on `PATH`
+- Expected command: `~/.local/share/opencode/bin/warmplane mcp-server --config ~/.config/opencode/mcp0/mcp_servers.json`
 - Intended compact tool namespace: `mcp0_*`
+
+When selected in the installer, op1 rewrites the local MCP topology to a single `mcp0` facade entry, scaffolds `~/.config/opencode/mcp0/mcp_servers.json` for the chosen downstream MCPs, and removes stale direct MCP tool grants so the client does not keep a mixed direct+facade configuration.
+
+For the current macOS-first shipping path, `@op1/install` also manages the Warmplane binary under `~/.local/share/opencode/bin/warmplane` so `mcp0` does not depend on a separately managed Rust or Homebrew install.
+
+Use `mcp0_health` for binary/config/readiness checks and `mcp_oauth_helper` for Warmplane-managed OAuth visibility behind the facade.
+
+For OAuth-backed downstream MCPs behind `mcp0`, the normal operator flow is:
+
+1. `~/.local/share/opencode/bin/warmplane auth discover --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+2. `~/.local/share/opencode/bin/warmplane auth login --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+3. `~/.local/share/opencode/bin/warmplane auth status --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+
+If integrated login is not convenient, fall back to `~/.local/share/opencode/bin/warmplane auth start` followed by `~/.local/share/opencode/bin/warmplane auth exchange`.
+
+Provider notes:
+
+- Figma is the cleanest standards-first native path.
+- Linear uses native Warmplane OAuth with explicit fallback metadata because its OAuth endpoints are documented but not discoverable through the MCP well-known chain.
+- Notion should still be treated as a compatibility exception until PKCE + loopback redirect behavior is verified end to end.
 
 When enabled, keep mcp0 available only to agents that need it (for example `researcher`, `coder`, `frontend`) to reduce unnecessary tool-surface exposure.
 

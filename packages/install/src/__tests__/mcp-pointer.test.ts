@@ -121,6 +121,37 @@ describe("mcp pointer builder", () => {
 		}
 	});
 
+	test("preserves provided auth metadata in pointer entries", () => {
+		const index = buildMcpPointerIndex({
+			nowMs: Date.parse("2026-03-02T00:00:00.000Z"),
+			mcps: [
+				{
+					id: "figma",
+					name: "Figma",
+					toolPattern: "figma_*",
+					required: "optional",
+					oauthCapable: true,
+					authStatus: "authenticated",
+					hasClientId: true,
+					hasClientSecret: true,
+					sourceConfigPath: "/tmp/mcp0/mcp_servers.json",
+					config: {
+						type: "remote",
+						url: "https://mcp.figma.com/mcp",
+					},
+				},
+			],
+		});
+
+		expect(index.servers[0]?.auth).toEqual({
+			oauth_capable: true,
+			auth_status: "authenticated",
+			has_client_id: true,
+			has_client_secret: true,
+			last_error_code: undefined,
+		});
+	});
+
 	test("supports dry-run pointer artifact preview", async () => {
 		const tempDir = await createTempDir();
 		try {

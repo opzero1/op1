@@ -183,4 +183,226 @@ describe("mcp oauth helper", () => {
 		expect(snapshot.servers[0]?.name).toBe("linear");
 		expect(snapshot.servers[0]?.auth_status).toBe("not_authenticated");
 	});
+
+	test("detects warmplane-managed oauth upstreams behind mcp0", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-mcp-oauth-test-"));
+		tempRoots.push(root);
+
+		const directory = join(root, "project");
+		const homeDirectory = join(root, "home");
+		const warmplaneDir = join(homeDirectory, ".config", "opencode", "mcp0");
+		const warmplaneConfigPath = join(warmplaneDir, "mcp_servers.json");
+		await mkdir(join(directory, ".opencode"), { recursive: true });
+		await mkdir(warmplaneDir, { recursive: true });
+		await Bun.write(
+			join(directory, ".opencode", "opencode.json"),
+			JSON.stringify(
+				{
+					mcp: {
+						mcp0: {
+							type: "local",
+							command: [
+								"warmplane",
+								"mcp-server",
+								"--config",
+								warmplaneConfigPath,
+							],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			warmplaneConfigPath,
+			JSON.stringify(
+				{
+					authStorePath: join(
+						homeDirectory,
+						".local",
+						"share",
+						"opencode",
+						"mcp-auth.json",
+					),
+					mcpServers: {
+						figma: {
+							url: "https://mcp.figma.com/mcp",
+							auth: {
+								type: "oauth",
+								tokenStoreKey: "figma",
+							},
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const authStorePath = join(
+			homeDirectory,
+			".local",
+			"share",
+			"opencode",
+			"mcp-auth.json",
+		);
+		await mkdir(join(homeDirectory, ".local", "share", "opencode"), {
+			recursive: true,
+		});
+		await Bun.write(
+			authStorePath,
+			JSON.stringify(
+				{
+					figma: {
+						tokens: {
+							accessToken: "token",
+							expiresAt: Math.floor(Date.now() / 1000) + 3600,
+						},
+						serverUrl: "https://mcp.figma.com/mcp",
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const snapshot = await buildMcpOAuthHelperSnapshot({
+			directory,
+			homeDirectory,
+		});
+
+		expect(snapshot.auth_store_path).toBe(authStorePath);
+		expect(snapshot.servers).toHaveLength(1);
+		expect(snapshot.servers[0]?.name).toBe("figma");
+		expect(snapshot.servers[0]?.managed_by).toBe("warmplane");
+		expect(snapshot.servers[0]?.auth_status).toBe("authenticated");
+		expect(snapshot.servers[0]?.recommended_action).toContain(
+			"warmplane auth status",
+		);
+	});
+
+	test("uses the highest-precedence mcp0 config and its explicit auth store", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-mcp-oauth-test-"));
+		tempRoots.push(root);
+
+		const directory = join(root, "project");
+		const homeDirectory = join(root, "home");
+		const globalConfigPath = join(
+			homeDirectory,
+			".config",
+			"opencode",
+			"opencode.json",
+		);
+		const globalWarmplanePath = join(root, "global-mcp0", "mcp_servers.json");
+		const projectWarmplanePath = join(root, "project-mcp0", "mcp_servers.json");
+		const projectAuthStorePath = join(root, "project-auth", "mcp-auth.json");
+
+		await mkdir(join(directory, ".opencode"), { recursive: true });
+		await mkdir(join(homeDirectory, ".config", "opencode"), {
+			recursive: true,
+		});
+		await mkdir(join(root, "global-mcp0"), { recursive: true });
+		await mkdir(join(root, "project-mcp0"), { recursive: true });
+		await mkdir(join(root, "project-auth"), { recursive: true });
+
+		await Bun.write(
+			globalConfigPath,
+			JSON.stringify(
+				{
+					mcp: {
+						mcp0: {
+							type: "local",
+							command: [
+								"warmplane",
+								"mcp-server",
+								"--config",
+								globalWarmplanePath,
+							],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			join(directory, ".opencode", "opencode.json"),
+			JSON.stringify(
+				{
+					mcp: {
+						mcp0: {
+							type: "local",
+							command: [
+								"warmplane",
+								"mcp-server",
+								"--config",
+								projectWarmplanePath,
+							],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			globalWarmplanePath,
+			JSON.stringify(
+				{
+					mcpServers: {
+						figma: {
+							url: "https://mcp.figma.com/mcp",
+							auth: { type: "oauth" },
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			projectWarmplanePath,
+			JSON.stringify(
+				{
+					authStorePath: projectAuthStorePath,
+					mcpServers: {
+						figma: {
+							url: "https://mcp.figma.com/mcp",
+							auth: { type: "oauth" },
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			projectAuthStorePath,
+			JSON.stringify(
+				{
+					figma: {
+						tokens: {
+							accessToken: "token",
+							expiresAt: Math.floor(Date.now() / 1000) + 3600,
+						},
+						serverUrl: "https://mcp.figma.com/mcp",
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const snapshot = await buildMcpOAuthHelperSnapshot({
+			directory,
+			homeDirectory,
+		});
+
+		expect(snapshot.auth_store_path).toBe(projectAuthStorePath);
+		expect(snapshot.servers[0]?.auth_status).toBe("authenticated");
+		expect(snapshot.servers[0]?.warmplane_config_path).toBe(
+			projectWarmplanePath,
+		);
+	});
 });

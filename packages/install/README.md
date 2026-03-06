@@ -141,6 +141,51 @@ The installer intelligently preserves your settings:
 - ✅ Permission settings
 - ✅ MCP configurations
 
+## mcp0-Only Migration
+
+`mcp0 (Warmplane)` is now the recommended default MCP category in the installer. When selected, the installer converts OpenCode to a strict facade topology instead of keeping a mixed direct-MCP setup.
+
+On macOS, the installer now also manages a deterministic Warmplane binary path for this topology:
+
+- target binary path: `~/.local/share/opencode/bin/warmplane`
+- generated `mcp0` command uses that absolute path instead of relying on `warmplane` on `PATH`
+- local verification/development can override the source binary with `OP1_WARMPLANE_BIN_PATH`
+
+What the installer does deterministically:
+
+- Keeps only `mcp.mcp0` in `~/.config/opencode/opencode.json`
+- Writes the facade command as `[`"~/.local/share/opencode/bin/warmplane"`, `"mcp-server"`, `"--config"`, `"~/.config/opencode/mcp0/mcp_servers.json"`]`
+- Scaffolds `~/.config/opencode/mcp0/mcp_servers.json` from the downstream MCPs you selected during install
+- Removes stale direct MCP entries and matching global or per-agent tool grants so old direct tool rules do not linger
+- Points Warmplane-managed OAuth state at the shared auth store (`~/.local/share/opencode/mcp-auth.json` by default)
+
+After migration, use these runtime checks:
+
+- `mcp0_health` to confirm the Warmplane binary, config path, auth-store visibility, and downstream readiness
+- `mcp_oauth_helper` to inspect Warmplane-managed OAuth-capable downstream servers behind `mcp0`
+
+Recommended post-install OAuth bootstrap for any downstream server that reports `not_authenticated` or `expired`:
+
+1. `~/.local/share/opencode/bin/warmplane auth discover --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+2. `~/.local/share/opencode/bin/warmplane auth login --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+3. `~/.local/share/opencode/bin/warmplane auth status --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>`
+
+If integrated login is not possible in your environment, use `~/.local/share/opencode/bin/warmplane auth start` and `~/.local/share/opencode/bin/warmplane auth exchange` instead, then re-run `mcp0_health` and `mcp_oauth_helper`.
+
+Current provider notes:
+
+- Figma follows the native Warmplane discovery/login flow directly.
+- Linear uses native Warmplane OAuth with explicit fallback metadata in the generated config because its OAuth endpoints are documented but not exposed through MCP well-known discovery.
+- Notion remains an explicit compatibility exception until PKCE + loopback behavior is validated for the MCP path, so treat any generated wrapper-based path as intentional rather than architectural success.
+
+Troubleshooting and rollback:
+
+- `mcp0_health` to confirm binary/config/auth-store readiness
+- `mcp_oauth_helper` to inspect downstream OAuth state behind `mcp0`
+- `~/.local/share/opencode/bin/warmplane auth status --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>` for provider-specific auth diagnostics
+- `~/.local/share/opencode/bin/warmplane auth logout --config ~/.config/opencode/mcp0/mcp_servers.json --server <server>` to clear bad tokens before retrying login
+- Restore the installer-created `opencode.json.*.bak` and `workspace.json.*.bak` files if you need to roll back from strict `mcp0` mode to the previous local config state
+
 ## Workspace Defaults
 
 Installer writes workspace defaults to:

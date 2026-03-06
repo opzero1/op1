@@ -27,6 +27,10 @@ export interface BuilderMcpDefinition {
 	toolPattern: string;
 	required: McpPointerRequirement;
 	oauthCapable?: boolean;
+	authStatus?: McpPointerServerEntry["auth"]["auth_status"];
+	hasClientId?: boolean;
+	hasClientSecret?: boolean;
+	lastAuthErrorCode?: McpPointerServerEntry["auth"]["last_error_code"];
 	config: BuilderMcpConfig;
 	sourceConfigPath: string;
 }
@@ -179,9 +183,11 @@ function buildPointerServerEntry(
 		},
 		auth: {
 			oauth_capable: oauthCapable,
-			auth_status: oauthCapable ? "not_authenticated" : "unknown",
-			has_client_id: false,
-			has_client_secret: false,
+			auth_status:
+				mcp.authStatus ?? (oauthCapable ? "not_authenticated" : "unknown"),
+			has_client_id: mcp.hasClientId ?? false,
+			has_client_secret: mcp.hasClientSecret ?? false,
+			last_error_code: mcp.lastAuthErrorCode,
 		},
 	};
 }
