@@ -1,6 +1,17 @@
 import type { TaskRecord } from "./state.js";
 
 export interface DelegationClient {
+	app?: {
+		log?: (input: {
+			body: {
+				service: string;
+				level: string;
+				message: string;
+				extra?: Record<string, unknown>;
+			};
+		}) => Promise<unknown>;
+		agents?: () => Promise<{ data?: Array<{ name?: string; mode?: string }> }>;
+	};
 	session: {
 		get: (input: { path: { id: string } }) => Promise<{ data?: unknown }>;
 		create: (input: {
@@ -36,9 +47,6 @@ export interface DelegationClient {
 		status?: (input: {
 			path: { id: string };
 		}) => Promise<{ data?: Record<string, { type?: string }> }>;
-	};
-	app?: {
-		agents?: () => Promise<{ data?: Array<{ name?: string; mode?: string }> }>;
 	};
 }
 

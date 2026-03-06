@@ -318,7 +318,10 @@ function collectBlockingDependencies(
 	return blockers;
 }
 
-export function createTaskStateManager(workspaceDir: string) {
+export function createTaskStateManager(
+	workspaceDir: string,
+	logger = createLogger("delegation.state"),
+) {
 	const tasksPath = join(workspaceDir, TASKS_FILENAME);
 	const legacyTasksPath = join(workspaceDir, LEGACY_TASKS_FILENAME);
 	let mutationQueue: Promise<void> = Promise.resolve();
@@ -351,7 +354,8 @@ export function createTaskStateManager(workspaceDir: string) {
 		if (!legacy) return createEmptyStore();
 		if (Object.keys(legacy.delegations).length === 0) return createEmptyStore();
 
-		logger.warn("Loaded task records from legacy delegation store path", {
+		await writeStore(legacy);
+		logger.info("Migrated legacy task records store", {
 			source: legacyTasksPath,
 			target: tasksPath,
 		});

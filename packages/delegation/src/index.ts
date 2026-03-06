@@ -34,8 +34,6 @@ import type {
 } from "./types.js";
 import { sleep } from "./utils.js";
 
-const logger = createLogger("delegation.plugin");
-
 const MAX_RUNNING_PER_AGENT = 5;
 const DEFAULT_BLOCK_TIMEOUT_MS = 60_000;
 
@@ -431,7 +429,21 @@ export const DelegationPlugin: Plugin = async (ctx: {
 	await mkdir(workspaceDir, { recursive: true });
 
 	const client = ctx.client as unknown as DelegationClient;
-	const state = createTaskStateManager(workspaceDir);
+	const sink = async (entry: {
+		service: string;
+		level: string;
+		message: string;
+		extra?: Record<string, unknown>;
+	}) => {
+		await client.app?.log?.({
+			body: entry,
+		});
+	};
+	const logger = createLogger("delegation.plugin", sink);
+	const state = createTaskStateManager(
+		workspaceDir,
+		createLogger("delegation.state", sink),
+	);
 	const toolMetadata = createToolMetadataStore();
 
 	const event = async (payload: { event?: unknown }) => {

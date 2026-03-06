@@ -8,6 +8,15 @@ export enum LogLevel {
 
 type LogExtras = Record<string, unknown>;
 
+type LogSinkInput = {
+	service: string;
+	level: string;
+	message: string;
+	extra?: LogExtras;
+};
+
+type LogSink = (input: LogSinkInput) => Promise<void> | void;
+
 type Logger = {
 	debug: (message: string, extras?: LogExtras) => void;
 	info: (message: string, extras?: LogExtras) => void;
@@ -67,11 +76,26 @@ function serializeExtras(extras?: LogExtras): string {
 	return ` ${pairs.join(" ")}`;
 }
 
-export function createLogger(service: string): Logger {
+export function createLogger(service: string, sink?: LogSink): Logger {
 	const threshold = parseLogLevel(Bun.env.OP7_WORKSPACE_LOG_LEVEL);
 
 	function write(level: LogLevel, message: string, extras?: LogExtras): void {
 		if (!shouldLog(level, threshold)) return;
+		if (sink) {
+			void Promise.resolve(
+				sink({
+					service,
+					level: level.toLowerCase(),
+					message,
+					...(extras ? { extra: extras } : {}),
+				}),
+			).catch(() => undefined);
+			return;
+		}
+
+		if (Bun.env.OP1_PLUGIN_STDERR_LOGS !== "true") {
+			return;
+		}
 
 		const timestamp = new Date().toISOString();
 		const line = `${timestamp} ${level} service=${service} ${message}${serializeExtras(extras)}\n`;
