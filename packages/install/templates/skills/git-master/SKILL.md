@@ -107,15 +107,17 @@ In editor, change `pick` to:
 - `edit` (e) - stop to amend
 - `drop` (d) - delete commit
 
-### Rebase onto Main
+### Rebase onto Base Branch
 
 ```bash
 git fetch origin
-git rebase origin/main
+git rebase origin/<base-branch>
 # Resolve conflicts if any:
 git add <file>
 git rebase --continue
 ```
+
+Replace `<base-branch>` with the repository's actual target branch.
 
 ---
 
@@ -174,7 +176,7 @@ git push -u origin feature/my-feature
 ```bash
 # Ensure up to date
 git fetch origin
-git rebase origin/main
+git rebase origin/<base-branch>
 
 # Push branch
 git push -u origin feature/my-feature
@@ -184,3 +186,5 @@ gh pr create --title "feat: description" --body "## Summary
 - Change 1
 - Change 2"
 ```
+
+Again, replace `<base-branch>` with the repository's real PR target branch.

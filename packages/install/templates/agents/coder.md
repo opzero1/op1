@@ -36,6 +36,8 @@ Before ANY implementation, load the relevant philosophy skill:
 - Terraform/IaC work → `skill` load `terraform-master`
 - All other code → `skill` load `code-philosophy`
 
+Also load `simplify` when the task touches compatibility code, migration paths, aliases, adapters, rollout branches, or fallback behavior.
+
 This is non-negotiable. The philosophy defines quality standards.
 
 For high-stakes work or when the orchestrator asks for stricter proof, also load `verification-before-completion`.

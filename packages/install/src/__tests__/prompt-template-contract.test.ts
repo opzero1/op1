@@ -17,12 +17,17 @@ describe("prompt template contracts", () => {
 			"tool_persistence_rules",
 			"dependency_checks",
 			"completeness_contract",
+			"current_state_default",
 			"verification_loop",
 			"terminal_tool_hygiene",
 			"user_updates_spec",
 		]) {
 			expect(prompt).toContain(`<${tag}>`);
 		}
+
+		expect(prompt).toContain(
+			"compatibility shims, adapters, fallback branches",
+		);
 	});
 
 	test("plan agent defers schema details to plan-protocol", async () => {
@@ -55,14 +60,35 @@ describe("prompt template contracts", () => {
 		const planCommand = await readTemplate("commands", "plan.md");
 		const reviewCommand = await readTemplate("commands", "review.md");
 		const workCommand = await readTemplate("commands", "work.md");
+		const ulwCommand = await readTemplate("commands", "ulw.md");
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
+		expect(ulwCommand).toContain("- simplify");
 		expect(deslopCommand).toContain("analyze-mode");
+		expect(deslopCommand).toContain("simplify");
 		expect(deslopCommand).toContain("code-philosophy");
 		expect(deslopCommand).toContain("<output_contract>");
+		expect(deslopCommand).toContain("resolved base branch or fallback basis");
+		expect(deslopCommand).not.toContain("origin/main");
+	});
+
+	test("simplify keeps reusable no-compat rules in a skill", async () => {
+		const prompt = await readTemplate("skills", "simplify", "SKILL.md");
+
+		expect(prompt).toContain("name: simplify");
+		expect(prompt).toContain(
+			"Prefer one current path over dual-path compatibility scaffolding.",
+		);
+		expect(prompt).toContain(
+			"Keep compatibility glue only when at least one is true:",
+		);
+		expect(prompt).toContain("exact deletion criteria");
+		expect(prompt).toContain(
+			"Prefer fail-fast diagnostics and explicit recovery steps over silent fallback behavior.",
+		);
 	});
 
 	test("ulw defers detailed proof mechanics to verification-before-completion", async () => {

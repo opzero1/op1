@@ -46,7 +46,7 @@ bunx @op1/install --dry-run
 | `/plan` | Create implementation plan |
 | `/continue` | Resume unfinished work (uses continuation tools when enabled) |
 | `/work` | Start working on active plan (with ULW mode) |
-| `/deslop` | Run a strict de-slop review/fix loop on current work |
+| `/deslop` | Run a strict simplifier review/fix loop on current work |
 | `/review` | Run code review |
 | `/review-loop` | Iterate reviewer/oracle review and fixes until clean |
 | `/find` | Find code patterns |
@@ -55,7 +55,7 @@ bunx @op1/install --dry-run
 | `/research` | Research external topics |
 | `/ulw` | Activate ULTRAWORK mode |
 
-### Skills (35)
+### Skills (41)
 
 - `ulw` - ULTRAWORK maximum capability mode
 - `code-philosophy` - The 5 Laws of Elegant Defense
@@ -64,6 +64,7 @@ bunx @op1/install --dry-run
 - `terraform-master` - Infrastructure as Code mastery
 - `react-performance` - React/Next.js optimization
 - `analyze-mode` - Deep analysis protocols
+- `simplify` - Prefer current-state code over compatibility glue
 - `search-mode` - Maximum search effort
 - `plan-protocol` - Plan format guidelines
 - `code-review` - Review methodology

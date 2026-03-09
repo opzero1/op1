@@ -1,6 +1,9 @@
 ---
 description: Activate ULTRAWORK mode for maximum capability orchestration
 agent: build
+skill:
+  - ulw
+  - simplify
 ---
 
 Load the `ulw` skill immediately to enable ULTRAWORK mode.
