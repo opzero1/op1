@@ -2,6 +2,8 @@ type SourceMcpConfig = {
 	type: "local" | "remote";
 	command?: string[];
 	url?: string;
+	protocolVersion?: string;
+	allowStateless?: boolean;
 	headers?: Record<string, string>;
 	environment?: Record<string, string>;
 };
@@ -82,6 +84,8 @@ export interface WarmplaneServerConfig {
 	args?: string[];
 	env?: Record<string, string>;
 	url?: string;
+	protocolVersion?: string;
+	allowStateless?: boolean;
 	headers?: Record<string, string>;
 	auth?: WarmplaneAuthConfig;
 }
@@ -192,11 +196,13 @@ function buildRemoteServer(mcp: SourceMcpDefinition): WarmplaneServerConfig {
 	}
 
 	if (mcp.oauthCapable) {
-		return {
-			url: mcp.config.url,
-			headers,
-			auth: {
-				type: "oauth",
+	return {
+		url: mcp.config.url,
+		protocolVersion: mcp.config.protocolVersion,
+		allowStateless: mcp.config.allowStateless,
+		headers,
+		auth: {
+			type: "oauth",
 				...mcp.oauthConfig,
 				tokenStoreKey: mcp.id,
 			},
@@ -205,6 +211,8 @@ function buildRemoteServer(mcp: SourceMcpDefinition): WarmplaneServerConfig {
 
 	return {
 		url: mcp.config.url,
+		protocolVersion: mcp.config.protocolVersion,
+		allowStateless: mcp.config.allowStateless,
 		headers,
 		auth: translatedAuth || undefined,
 	};

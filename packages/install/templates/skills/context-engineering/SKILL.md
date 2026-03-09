@@ -1,6 +1,6 @@
 ---
 name: context-engineering
-description: Token optimization and context window management strategies. Load for long sessions, complex tasks, or when approaching context limits.
+description: Context and token management for long sessions. Load for complex work, heavy delegation, compaction safety, or when context bloat starts hurting signal quality.
 ---
 
 # Context Engineering
@@ -32,6 +32,7 @@ description: Token optimization and context window management strategies. Load f
 | Codebase | Use `grep`/`glob` first, `read` only what's needed |
 | Documentation | Summarize, don't dump entire docs |
 | Research | Delegate to `researcher` agent, get concise results |
+| Plan context | Use `plan_read` and trust `[context-scout]` injections before repeating broad searches |
 
 ### 2. U-Shaped Attention
 
@@ -80,6 +81,7 @@ The system may compress your history. Protect critical context:
 1. **Use the plan** - `plan_save` persists across compaction
 2. **Use notepads** - `notepad_write` for learnings/decisions
 3. **Use delegations** - Background tasks persist their results
+4. **Use linked docs** - `plan_doc_link` and `plan_doc_load` preserve deeper context for later phases
 
 ### What Survives Compaction
 
@@ -88,6 +90,7 @@ The system may compress your history. Protect critical context:
 | Plan (plan.md) | Old tool outputs |
 | Delegations | Conversation history |
 | Notepad entries | File contents read |
+| Linked plan docs | Intermediate reasoning |
 | System prompt | Intermediate reasoning |
 
 ---
@@ -149,6 +152,15 @@ Every tool in context should have clear:
 ✅ GOOD: Single glob("**/*.ts") → process results
 ❌ BAD: Multiple sequential reads of guessed paths
 ```
+
+### Runtime Reminder Awareness
+
+- `momentum` keeps plan-driven work moving
+- `verification` enforces evidence before completion
+- `autonomy-policy` suppresses low-value permission prompts
+- `context-scout` injects mined workspace patterns into `plan_read` and `plan_doc_load`
+
+Treat these as compact, authoritative reminders rather than prompts to restate the same rules.
 
 ---
 

@@ -150,13 +150,64 @@ describe("warmplane config helpers", () => {
 			tokenStoreKey: "figma",
 		});
 		expect(config.mcpServers["zai-vision"]?.command).toBe("bunx");
-		expect(config.mcpServers["zai-vision"]?.args).toEqual([
-			"-y",
-			"@z_ai/mcp-server",
-		]);
-		expect(config.mcpServers.newrelic?.headers).toEqual({
-			"api-key": "{env:NEW_RELIC_API_KEY}",
+			expect(config.mcpServers["zai-vision"]?.args).toEqual([
+				"-y",
+				"@z_ai/mcp-server",
+			]);
+			expect(config.mcpServers.newrelic?.allowStateless).toBeUndefined();
+			expect(config.mcpServers.newrelic?.headers).toEqual({
+				"api-key": "{env:NEW_RELIC_API_KEY}",
+			});
 		});
+
+	test("preserves allowStateless for remote downstream MCPs", () => {
+		const mcps: McpDefinition[] = [
+			{
+				id: "zai-search",
+				name: "Web Search",
+				description: "Stateless HTTP MCP",
+				config: {
+					type: "remote",
+					url: "https://api.z.ai/api/mcp/web_search_prime/mcp",
+					allowStateless: true,
+					headers: {
+						Authorization: "Bearer {env:Z_AI_API_KEY}",
+					},
+				},
+				toolPattern: "zai-search_*",
+				agentAccess: ["researcher"],
+			},
+		];
+
+		const config = buildWarmplaneConfig({ mcps });
+		expect(config.mcpServers["zai-search"]?.allowStateless).toBe(true);
+		expect(config.mcpServers["zai-search"]?.protocolVersion).toBeUndefined();
+		expect(config.mcpServers["zai-search"]?.auth).toEqual({
+			type: "bearer",
+			tokenEnv: "Z_AI_API_KEY",
+		});
+	});
+
+	test("preserves protocolVersion for remote downstream MCPs", () => {
+		const mcps: McpDefinition[] = [
+			{
+				id: "grep_app",
+				name: "grep.app",
+				description: "GitHub code search",
+				config: {
+					type: "remote",
+					url: "https://mcp.grep.app",
+					protocolVersion: "2024-11-05",
+					allowStateless: true,
+				},
+				toolPattern: "grep_app_*",
+				agentAccess: ["researcher"],
+			},
+		];
+
+		const config = buildWarmplaneConfig({ mcps });
+		expect(config.mcpServers.grep_app?.protocolVersion).toBe("2024-11-05");
+		expect(config.mcpServers.grep_app?.allowStateless).toBe(true);
 	});
 
 	test("rewrites merged config into strict mcp0-only mode", () => {

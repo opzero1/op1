@@ -38,7 +38,7 @@ bunx @op1/install --dry-run
 | `reviewer` | Code review specialist |
 | `scribe` | Documentation writer |
 
-### Commands (11)
+### Commands (12)
 
 | Command | Description |
 |---------|-------------|
@@ -46,6 +46,7 @@ bunx @op1/install --dry-run
 | `/plan` | Create implementation plan |
 | `/continue` | Resume unfinished work (uses continuation tools when enabled) |
 | `/work` | Start working on active plan (with ULW mode) |
+| `/deslop` | Run a strict de-slop review/fix loop on current work |
 | `/review` | Run code review |
 | `/review-loop` | Iterate reviewer/oracle review and fixes until clean |
 | `/find` | Find code patterns |

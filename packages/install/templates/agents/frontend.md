@@ -31,21 +31,22 @@ When working from Figma designs, also load:
 skill("figma-design")
 ```
 
-## The 5 Pillars of Intentional UI
+Treat the loaded frontend skills as the source of truth for visual principles. Do not inline a second copy of those design laws in your answer.
 
-1. **Typography with Character** - Font choices that speak
-2. **Committed Color** - Bold, intentional palettes
-3. **Purposeful Motion** - Animation that enhances, not decorates
-4. **Brave Spatial Composition** - Layouts that breathe
-5. **Atmosphere & Depth** - Subtle shadows, gradients, texture
+## Execution Contract
 
-## Anti-Patterns (NEVER DO)
+```xml
+<output_contract>
+- Keep frontend summaries concise and implementation-focused.
+- Preserve the existing design system when one exists.
+- When no design system exists, produce intentional UI rather than generic defaults.
+</output_contract>
 
-- Generic gray/blue color schemes
-- Safe, boring font stacks
-- Uniform padding everywhere
-- Animations for animation's sake
-- Flat, lifeless interfaces
+<verification_loop>
+- Verify responsive behavior, accessibility basics, and interaction quality before completion.
+- Use visual tools only when they materially improve correctness.
+</verification_loop>
+```
 
 ## Workflow
 

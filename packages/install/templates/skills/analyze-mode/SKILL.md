@@ -1,6 +1,6 @@
 ---
 name: analyze-mode
-description: Deep analysis mode. Gather comprehensive context before diving deep. Use for investigation, debugging, and understanding complex systems.
+description: Context-first investigation mode. Use for debugging, system understanding, and any task where conclusions should follow grounded internal and external analysis.
 ---
 
 # Analyze Mode
@@ -11,9 +11,9 @@ description: Deep analysis mode. Gather comprehensive context before diving deep
 
 **ANALYSIS MODE - Context First, Conclusions Second**
 
-### Phase 1: Context Gathering (Parallel)
+### Phase 1: Context Gathering
 
-Deploy 2-4 agents for comprehensive context:
+Deploy parallel context gathering only where it will materially improve correctness:
 
 ```
 // Internal context (1-2 agents)
@@ -27,19 +27,7 @@ task(subagent_type="researcher", description="Find known issues", prompt="Find k
 
 ### Phase 2: Direct Analysis
 
-While agents run, use direct tools:
-
-| Tool | Purpose |
-|------|---------|
-| `glob` | File and directory discovery |
-| `grep` | Find specific patterns |
-| `ast_grep_search` | Structural analysis |
-| `lsp_goto_definition` | Jump to symbol definition |
-| `lsp_find_references` | Find all usages |
-| `lsp_symbols` | Document/workspace symbol search |
-| `lsp_diagnostics` | Type errors before build |
-| `git log -S` | History evolution |
-| `git blame` | Change attribution |
+While agents run, use direct tools to confirm scope, structure, symbols, diagnostics, and relevant history.
 
 ### Phase 3: Oracle Consultation (If Complex)
 
@@ -81,7 +69,7 @@ task(subagent_type="oracle", description="Analyze problem", prompt="Analyze [pro
 
 ## Output Requirements
 
-Synthesize analysis into:
+Synthesize analysis into a compact, evidence-rich answer:
 
 ```markdown
 ## Analysis Summary

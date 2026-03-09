@@ -80,6 +80,19 @@ async function writeSkill(
 	await Bun.write(join(skillDir, "notes.txt"), `extra ${skillName}`);
 }
 
+async function writeSkillWithFrontmatter(
+	templateSkillsDir: string,
+	skillName: string,
+	description: string,
+): Promise<void> {
+	const skillDir = join(templateSkillsDir, skillName);
+	await ensureDirectory(skillDir);
+	await Bun.write(
+		join(skillDir, "SKILL.md"),
+		`---\nname: ${skillName}\ndescription: ${description}\n---\n\n# ${skillName}\n\nDetailed body for ${skillName}.\n`,
+	);
+}
+
 const cleanupTasks: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
@@ -171,6 +184,35 @@ describe("skill pointer installer artifacts", () => {
 			result.index.startup_load_estimate_ms.improvement_percent,
 		).toBeGreaterThanOrEqual(0);
 		expect(await Bun.file(result.indexPath).exists()).toBe(false);
+	});
+
+	test("indexes frontmatter descriptions instead of placeholder separators", async () => {
+		const temp = await createTempDir();
+		cleanupTasks.push(temp.cleanup);
+
+		const templateSkillsDir = join(temp.path, "templates", "skills");
+		const activeSkillsDir = join(temp.path, "opencode", "skills");
+		const vaultDir = join(temp.path, "opencode", "skill-vault");
+
+		await writeSkillWithFrontmatter(
+			templateSkillsDir,
+			"search-mode",
+			"Exhaustive search mode for broad codebase or documentation coverage.",
+		);
+
+		const result = await installSkillPointerArtifacts({
+			templateSkillsDir,
+			activeSkillsDir,
+			vaultDir,
+		});
+
+		const indexedSkill = result.index.categories
+			.flatMap((category) => category.skills)
+			.find((skill) => skill.name === "search-mode");
+
+		expect(indexedSkill?.description).toBe(
+			"Exhaustive search mode for broad codebase or documentation coverage.",
+		);
 	});
 
 	test("reports integrity failure when vault skill is missing", async () => {

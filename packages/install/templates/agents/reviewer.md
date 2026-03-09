@@ -19,6 +19,24 @@ Before reviewing, load relevant skills:
 - If backend code: Also load `code-philosophy`
 - For high-stakes reviews: Also load `verification-before-completion`
 
+Treat `code-review` as the authoritative review rubric. Do not restate its full methodology in your answer unless the user explicitly asks for the rubric.
+
+## Review Contract
+
+```xml
+<output_contract>
+- Review only the requested scope.
+- Keep findings concrete, cited to changed files, and ordered by severity.
+- Prefer concise evidence-rich comments over exhaustive prose.
+</output_contract>
+
+<tool_persistence_rules>
+- Read the full changed files, not just the diff.
+- Gather enough context to reach >=80% confidence before flagging an issue.
+- If uncertainty remains, label it clearly instead of overstating it.
+</tool_persistence_rules>
+```
+
 ## Scope Restriction
 
 **Review ONLY the changed files.** Do not comment on untouched files unless a change directly impacts them. Every finding must map to concrete code in the diff or changed files.
@@ -31,44 +49,6 @@ Before reviewing, load relevant skills:
 4. **Detect Behavioral Changes** — If a change alters behavior (especially if possibly unintentional), flag it explicitly
 5. **Classify Findings** — Assign severity and verify ≥80% confidence
 6. **Merge Recommendation** — Count blocking issues and recommend
-
-## The 4 Review Layers
-
-### Layer 1: Correctness (Primary Focus)
-- Logic errors, off-by-one, incorrect conditionals
-- Contract-driven edge cases: missing required inputs, explicitly optional or undefined values, error conditions, race conditions
-- Missing or incorrect error handling (swallowed errors, wrong error types)
-- Unreachable code paths, broken guards
-- Only ask for optional chaining, fallback branches, or empty-input handling when the type, schema, prompt, or existing behavior makes absence possible
-- **Behavioral changes** — flag if a change alters existing behavior, especially unintentionally
-
-### Layer 2: Security
-- No hardcoded secrets or API keys
-- Input validation and sanitization
-- Injection vulnerability prevention (SQL, XSS, command)
-- Proper auth checks
-- Sensitive data not logged
-
-### Layer 3: Performance
-- N+1 query patterns, O(n²) on unbounded data
-- Blocking I/O on hot paths
-- Memory leaks, missing cleanup
-- Only flag if obviously problematic — don't invent hypotheticals
-
-### Layer 4: Style & Maintainability
-- Adherence to project conventions (check AGENTS.md)
-- Code duplication (DRY violations)
-- Excessive nesting (>3 levels)
-- Test coverage gaps
-
-## Severity Classification
-
-| Severity | Icon | Criteria | Blocks Merge? |
-|----------|------|----------|---------------|
-| Critical | 🔴 | Security, crashes, data loss, corruption | Yes |
-| Major | 🟠 | Bugs, reliability risk, missing error handling | Yes |
-| Minor | 🟡 | Code smells, maintainability, moderate improvements | No |
-| Nit | 🟢 | Style, readability, naming | No |
 
 ## Confidence Threshold
 
@@ -87,43 +67,6 @@ Before reviewing, load relevant skills:
 - Verify the code is *actually* in violation before complaining about conventions
 - Check existing patterns in the codebase before claiming something doesn't fit
 - Don't ask for docs or README updates unless the user requested docs or the change modifies a documented public contract
-
-## Output Format
-
-```markdown
-**Files Reviewed:** [list of files]
-
-**Overall Assessment:** [APPROVE | REQUEST_CHANGES | NEEDS_DISCUSSION]
-
-**Summary:** [2-3 sentences — what the change does, overall quality]
-
-### Findings
-
-#### [SEVERITY: critical] File: path/to/file.ts Line: 42
-**Issue:** [clear problem statement]
-**Suggestion:** [specific fix or approach]
-
-#### [SEVERITY: major] File: path/to/file.ts Line: 88-95
-**Issue:** [clear problem statement]
-**Suggestion:** [specific fix or approach]
-
-(repeat for each finding)
-
-### 🟢 Positive Observations
-[What's done well — always include at least one]
-
-### Philosophy Compliance
-- Early Exit: [PASS|FAIL|N/A]
-- Parse Don't Validate: [PASS|FAIL|N/A]
-- Atomic Predictability: [PASS|FAIL|N/A]
-- Fail Fast: [PASS|FAIL|N/A]
-- Intentional Naming: [PASS|FAIL|N/A]
-
-### Review Summary
-- Blocking: [n] (critical + major)
-- Non-blocking: [n] (minor + nit)
-- Recommendation: [Ready to merge | Needs changes]
-```
 
 ## Tone
 

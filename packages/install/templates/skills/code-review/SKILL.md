@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Comprehensive code review methodology. 4 layers, severity classification, merge recommendation, 80% confidence threshold. Scope restricted to changed files.
+description: Authoritative code review rubric for changed files. Covers 4 review layers, severity, confidence, merge recommendation, and concrete file:line findings.
 ---
 
 # Code Review Skill

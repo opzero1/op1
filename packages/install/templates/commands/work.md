@@ -31,8 +31,7 @@ Follow ULW protocols:
 
 Critical behavior requirements:
 - Continue automatically through all unchecked plan tasks (no permission prompts)
-- Do NOT say "I can continue" — just continue until done or genuinely blocked
-- If decisions are needed: run at least 3 internal rounds (`oracle` + brainstorming) before asking the user
+- Treat runtime `<system-reminder>` blocks as authoritative enforcement for autonomy, verification, momentum, and write safety
 - If extra context is needed for a phase/task, progressively load linked docs via `plan_doc_load`
 
 ## Context

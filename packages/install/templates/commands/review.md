@@ -1,6 +1,8 @@
 ---
 description: Run comprehensive code review on specified files or recent changes
 agent: reviewer
+skill:
+  - code-review
 ---
 
 Perform a comprehensive code review following the code-review skill methodology.
@@ -45,11 +47,9 @@ Use best judgement when the input is ambiguous.
 
 ## Steps
 
-1. Load the `code-review` skill
+1. Use `code-review` as the authoritative review rubric
 2. If reviewing frontend code, also load `frontend-philosophy`
 3. If reviewing backend code, also load `code-philosophy`
-4. Apply the 4 Review Layers (Correctness, Security, Performance, Style)
-5. Classify findings by severity (Critical → Major → Minor → Nit)
-6. Only report findings with ≥80% confidence
-7. Include a Merge Recommendation (Ready / Needs Changes)
-8. Provide Philosophy Compliance checklist results
+4. Read full changed files before forming conclusions
+5. Only report findings with ≥80% confidence
+6. Include merge recommendation, positive observations, and philosophy compliance

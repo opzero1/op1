@@ -214,15 +214,53 @@ function sanitizeLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
+function stripWrappingQuotes(value: string): string {
+	if (value.length >= 2) {
+		const first = value[0];
+		const last = value[value.length - 1];
+		if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+			return value.slice(1, -1);
+		}
+	}
+	return value;
+}
+
 function estimateTokens(text: string): number {
 	return Math.max(1, Math.ceil(text.length / 4));
 }
 
 function extractSkillDescription(content: string): string {
 	const lines = content.split("\n");
-	for (const rawLine of lines) {
+	let startIndex = 0;
+
+	if (sanitizeLine(lines[0] ?? "") === "---") {
+		for (let index = 1; index < lines.length; index += 1) {
+			const rawLine = lines[index] ?? "";
+			const line = sanitizeLine(rawLine);
+			if (!line) continue;
+			if (line === "---") {
+				startIndex = index + 1;
+				break;
+			}
+
+			const descriptionMatch = rawLine.match(/^description\s*:\s*(.+)$/i);
+			if (descriptionMatch) {
+				const description = sanitizeLine(
+					stripWrappingQuotes(descriptionMatch[1]?.trim() ?? ""),
+				);
+				if (description) {
+					return description.length > 140
+						? `${description.slice(0, 137)}...`
+						: description;
+				}
+			}
+		}
+	}
+
+	for (const rawLine of lines.slice(startIndex)) {
 		const line = sanitizeLine(rawLine);
 		if (!line) continue;
+		if (line === "---") continue;
 		if (line.startsWith("#")) continue;
 		if (line.startsWith("```")) continue;
 		return line.length > 140 ? `${line.slice(0, 137)}...` : line;

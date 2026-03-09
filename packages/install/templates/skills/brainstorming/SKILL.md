@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "MANDATORY before creative work - exploring user intent, requirements and design before implementation. Use for feature design, component planning, or any creative development work."
+description: MANDATORY before creative or design-heavy work. Use to clarify intent, compare approaches, and shape implementation-ready designs one question at a time.
 ---
 
 # Brainstorming Ideas Into Designs

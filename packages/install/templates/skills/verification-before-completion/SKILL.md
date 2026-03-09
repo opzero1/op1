@@ -11,45 +11,18 @@ description: Forces agents to run verification commands and show evidence before
 
 **NOTHING is "done" without PROOF it works.**
 
-Claims without evidence are worthless. Every completion claim must be backed by:
-- Command output showing success
-- Test results showing pass
-- Build output showing no errors
-- Observable behavior matching requirements
+Claims without evidence are worthless. Every completion claim must be backed by diagnostics, command output, or a direct manual observation.
 
 ---
 
 ## Verification Checklist
 
-Before marking ANY task complete, verify:
+Before marking ANY task complete, verify the changed area with the smallest set of checks that can still prove correctness:
 
-### 1. Type Safety
-```bash
-# Run LSP diagnostics on changed files
-lsp_diagnostics(filePath="path/to/changed/file.ts")
-```
-**Required Evidence:** Clean output (no errors)
-
-### 2. Build Success
-```bash
-# Run project build command
-bun run build  # or npm run build, etc.
-```
-**Required Evidence:** Exit code 0, no error messages
-
-### 3. Test Passage
-```bash
-# Run relevant tests
-bun test  # or npm test, pytest, etc.
-```
-**Required Evidence:** All tests pass (or document pre-existing failures)
-
-### 4. Manual Verification
-- Read the changed files
-- Verify changes match requirements
-- Check edge cases
-
-**Required Evidence:** Describe what you observed
+1. **Changed-file diagnostics** - Run `lsp_diagnostics` on changed files when supported.
+2. **Relevant automation** - Run targeted tests first, then broader test/build/typecheck commands as needed.
+3. **Manual confirmation** - Confirm the behavior and key edge cases in words when automation does not fully prove it.
+4. **Regression check** - Note any pre-existing failures instead of hiding them.
 
 ---
 
@@ -79,7 +52,7 @@ Output: [paste relevant output]
 
 ### Tests
 ✅ `bun test` - 42 tests passed
-Output: [paste test summary]
+Output: [relevant summary only]
 
 ### Type Check
 ✅ `lsp_diagnostics` - No errors in changed files

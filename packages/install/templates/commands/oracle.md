@@ -7,12 +7,13 @@ Consult the Oracle for strategic guidance on a complex decision or debugging cha
 
 **Consultation:** $ARGUMENTS
 
-The Oracle will:
-1. Analyze the problem and constraints
-2. List all viable approaches with trade-offs
-3. Provide a clear recommendation with reasoning
-4. Outline implementation steps
-5. Identify potential pitfalls
+If `$ARGUMENTS` is empty, infer the active decision or debugging topic from context. If no concrete consultation target exists, ask one focused clarification question.
+
+Return exactly:
+1. Problem analysis
+2. Options considered
+3. Recommendation
+4. Watch-outs
 
 Use Oracle when:
 - Architecture decisions have significant trade-offs

@@ -150,6 +150,51 @@ describe("delegation router", () => {
 				prompt: "inspect performance bottlenecks",
 				expectedCategory: "review",
 			},
+			{
+				description: "Frontend polish",
+				prompt: "frontend ui layout cleanup",
+				expectedCategory: "visual",
+			},
+			{
+				description: "Docs research",
+				prompt: "research official docs and compare approaches",
+				expectedCategory: "research",
+			},
+			{
+				description: "Security review",
+				prompt: "security audit for auth flow",
+				expectedCategory: "review",
+			},
+			{
+				description: "Phase roadmap",
+				prompt: "create a phase by phase roadmap and strategy",
+				expectedCategory: "planning",
+			},
+			{
+				description: "Root cause hunt",
+				prompt: "debug complex root cause in system",
+				expectedCategory: "deep",
+			},
+			{
+				description: "Tiny rename",
+				prompt: "small minor one-line rename",
+				expectedCategory: "quick",
+			},
+			{
+				description: "Ship feature",
+				prompt: "implement feature and refactor code path",
+				expectedCategory: "build",
+			},
+			{
+				description: "Investigate design system",
+				prompt: "analyze design tokens and compare component ux",
+				expectedCategory: "research",
+			},
+			{
+				description: "Architecture review",
+				prompt: "architecture strategy for complex service",
+				expectedCategory: "deep",
+			},
 		];
 
 		let exactMatches = 0;

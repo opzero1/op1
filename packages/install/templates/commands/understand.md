@@ -9,31 +9,14 @@ Provide a comprehensive explanation of the specified codebase component, file, o
 
 **Topic:** $ARGUMENTS
 
+If `$ARGUMENTS` is empty, infer the most recent concrete component or concept from context. If no target exists, ask one focused clarification question.
+
 ## Workflow
 
-1. **Scope Discovery** - Use `glob` and `grep` to identify relevant files quickly:
-   ```
-   glob(pattern="**/*keyword*")
-   grep(pattern="$ARGUMENTS|related_term", include="*.{ts,tsx,js,jsx}")
-   ```
-
-2. **Symbol Mapping** - Use LSP to understand exports, definitions, and usage:
-   ```
-   lsp_symbols(filePath="[discovered file]", scope="document")
-   lsp_goto_definition(filePath="[discovered file]", line=[key line], character=[col])
-   lsp_find_references(filePath="[discovered file]", line=[key line], character=[col])
-   ```
-
-3. **Structural Confirmation** - Verify implementation patterns:
-   ```
-   ast_grep_search(pattern="[relevant structural pattern]", lang="typescript")
-   ```
-
-4. **History Context** - Check evolution of critical files when needed:
-   ```
-   git log -- [path/to/file]
-   git blame [path/to/file]
-   ```
+1. **Scope Discovery** - Start with the `explore` agent's scope-first search pattern.
+2. **Symbol Mapping** - Use LSP to understand exports, definitions, and usage.
+3. **Structural Confirmation** - Verify implementation patterns with AST search when needed.
+4. **History Context** - Add git context only when evolution matters to the explanation.
 
 ## Output Format
 

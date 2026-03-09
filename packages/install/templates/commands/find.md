@@ -7,15 +7,13 @@ Search the codebase for the specified pattern, file, or implementation.
 
 **Search Query:** $ARGUMENTS
 
-Use appropriate tools based on query type:
-- Natural language → `grep` with focused terms, then refine with `ast_grep_search`
-- Symbol names → `lsp_symbols`, then `lsp_goto_definition` / `lsp_find_references`
-- File patterns → `glob`
-- Text patterns → `grep`
-- Structural patterns → `ast_grep_search`
-- Symbol navigation → `lsp_goto_definition`, `lsp_find_references`
-- Impact analysis → `lsp_find_references` + targeted `grep` to map dependents
-- History/evolution → git commands
+If `$ARGUMENTS` is empty, infer the most recent concrete search target from context. If no search target exists, ask one focused clarification question.
+
+Use the `explore` agent's tool hierarchy:
+- Natural language queries: scope first, then text, structural, and symbol-aware tools
+- Symbol queries: `lsp_symbols` first, then definition and references
+- File queries: `glob`
+- Impact or history queries: combine symbol tools with targeted search and git context when needed
 
 Return structured findings with:
 - Absolute file paths with relevance explanation

@@ -1,6 +1,6 @@
 ---
 name: ulw
-description: ULTRAWORK MODE - Maximum capability activation. Use when you need parallel agent orchestration, strict verification, and zero tolerance for incomplete work. Prefer explicit activation via `/ulw`, `/work`, `/continue`, or a clear user request for ultrawork mode.
+description: ULTRAWORK MODE for high-stakes execution. Use for plan-driven work that needs parallel delegation, strict verification, and automatic follow-through. Prefer `/ulw`, `/work`, `/continue`, or an explicit ultrawork request.
 ---
 
 # ULTRAWORK MODE (ULW)
@@ -35,55 +35,12 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 - Mark complete IMMEDIATELY after each step
 - Never batch completions
 
-### Parallel Execution (THREE TIERS)
+### Parallelism
 
-**Tier 1: Agent-Level Parallelism**
-```
-// Fire 3-10+ background agents simultaneously
-task(subagent_type="explore", description="Find X", prompt="Find X...", run_in_background=true)
-task(subagent_type="explore", description="Find Y", prompt="Find Y...", run_in_background=true)
-task(subagent_type="researcher", description="Find docs", prompt="Find Z docs...", run_in_background=true)
-// Continue working, collect with background_output when needed
-```
-
-**Tier 2: Tool-Level Parallelism (BATCH)**
-
-Use the `batch` tool for 2-25 independent tool operations:
-
-```json
-{
-  "tool": "batch",
-  "parameters": {
-    "tool_calls": [
-      {"tool": "read", "parameters": {"filePath": "src/file1.ts"}},
-      {"tool": "read", "parameters": {"filePath": "src/file2.ts"}},
-      {"tool": "grep", "parameters": {"pattern": "import", "include": "*.ts"}},
-      {"tool": "bash", "parameters": {"command": "git status"}}
-    ]
-  }
-}
-```
-
-| ✅ GOOD TO BATCH | ❌ DO NOT BATCH |
-|------------------|-----------------|
-| Read multiple files | Tools that depend on prior output |
-| grep + glob + read combos | Sequential mutations (create → read) |
-| Multiple bash commands | The `batch` tool itself |
-| Multi-file edits (independent) | MCP/environment tools |
-| LSP tools on different files | Ordered stateful operations |
-
-**Limits**: Max 25 tools per batch. Partial failures don't stop others.
-**Impact**: 2-5x speedup for independent operations.
-
-**Tier 3: Combined (MAXIMUM THROUGHPUT)**
-```
-// Spawn agents + batch tools simultaneously
-task(subagent_type="explore", description="Explore code", prompt="Find the needed code paths", run_in_background=true)
-task(subagent_type="researcher", description="Research docs", prompt="Find the relevant documentation", run_in_background=true)
-batch([read(5 files), grep(3 patterns), glob(2 paths)])
-```
-
-**Priority**: Batch tools FIRST when possible. Spawn agents SECOND for cognitive tasks.
+- Parallelize independent reads, lookups, and delegations.
+- Keep dependent steps sequential when one result determines the next action.
+- Prefer compact batches over long serial search chains.
+- Use `explore` for local breadth, `researcher` for external breadth, and `oracle` only when a real decision remains.
 
 ### Momentum & Completion Promise
 
@@ -95,86 +52,9 @@ The `@op1/workspace` plugin provides automatic momentum:
 ### Verification Loop
 - Re-read original request after completion
 - Check ALL requirements met before reporting done
-- Run build/test commands and show output
+- Load `verification-before-completion` or run an equivalent evidence-backed verification pass before final completion
 
 ---
-
-## Verification Guarantee (NON-NEGOTIABLE)
-
-**NOTHING is "done" without PROOF it works.**
-
-### Pre-Implementation: Define Success Criteria
-
-| Criteria Type | Description | Example |
-|---------------|-------------|---------|
-| **Functional** | What behavior must work | "Button triggers API call" |
-| **Observable** | What can be measured | "Console shows 'success'" |
-| **Pass/Fail** | Binary, no ambiguity | "Returns 200 OK" |
-
-### Execution & Evidence Requirements
-
-| Phase | Action | Required Evidence |
-|-------|--------|-------------------|
-| **Build** | Run build command | Exit code 0, no errors |
-| **Test** | Execute test suite | All tests pass |
-| **Manual Verify** | Test the actual feature | Describe what you observed |
-| **Regression** | Ensure nothing broke | Existing tests still pass |
-
-**WITHOUT evidence = NOT verified = NOT done.**
-
-### Verification Phase Batching
-
-Use batch tool during verification for efficiency:
-
-```json
-{
-  "tool": "batch",
-  "parameters": {
-    "tool_calls": [
-      {"tool": "bash", "parameters": {"command": "bun run build", "description": "Build project"}},
-      {"tool": "bash", "parameters": {"command": "bun test", "description": "Run tests"}},
-      {"tool": "bash", "parameters": {"command": "bun run typecheck", "description": "Type check"}}
-    ]
-  }
-}
-```
-
-**Verification checklist batch:**
-```json
-{
-  "tool": "batch", 
-  "parameters": {
-    "tool_calls": [
-      {"tool": "lsp_diagnostics", "parameters": {"filePath": "src/changed-file-1.ts"}},
-      {"tool": "lsp_diagnostics", "parameters": {"filePath": "src/changed-file-2.ts"}},
-      {"tool": "grep", "parameters": {"pattern": "TODO|FIXME|XXX", "include": "src/**/*.ts"}}
-    ]
-  }
-}
-```
-
-### TDD Workflow (when test infrastructure exists)
-
-1. **SPEC**: Define success criteria
-2. **RED**: Write failing test → Run → Confirm FAILS
-3. **GREEN**: Write code → Run test → Confirm PASSES
-4. **REFACTOR**: Clean up → Tests STAY green
-5. **VERIFY**: Full test suite, no regressions
-6. **EVIDENCE**: Report what you ran and output seen
-
----
-
-## Verification Anti-Patterns (BLOCKING)
-
-| Violation | Why It Fails |
-|-----------|--------------|
-| "It should work now" | No evidence. Run it. |
-| "I added the tests" | Did they pass? Show output. |
-| "Fixed the bug" | How do you know? What did you test? |
-| "Implementation complete" | Did you verify against success criteria? |
-| Skipping test execution | Tests exist to be RUN |
-
-**CLAIM NOTHING WITHOUT PROOF. EXECUTE. VERIFY. SHOW EVIDENCE.**
 
 ---
 
@@ -196,11 +76,11 @@ Use batch tool during verification for efficiency:
 ## Workflow Summary
 
 1. **Analyze** the request, identify required capabilities
-2. **Spawn** explore/researcher agents in PARALLEL (3-10+ if needed)
-3. **Plan** with gathered context (use `plan` agent for complex work)
+2. **Spawn** `explore` and `researcher` work in parallel when it will materially improve correctness
+3. **Plan** with gathered context when the work is complex
 4. **Execute** with continuous verification against original requirements
-5. **Review** hand off to `reviewer` before completion
-6. **Verify** build, test, show evidence
+5. **Review** with `reviewer` before completion for non-trivial changes
+6. **Verify** with evidence, not assumptions
 7. **Complete** only when ALL requirements proven to work
 
 ---

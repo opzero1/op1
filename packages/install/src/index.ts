@@ -282,6 +282,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				config: {
 					type: "remote",
 					url: "https://api.z.ai/api/mcp/web_search_prime/mcp",
+					allowStateless: true,
 					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
 				},
 				toolPattern: "zai-search_*",
@@ -294,6 +295,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				config: {
 					type: "remote",
 					url: "https://api.z.ai/api/mcp/web_reader/mcp",
+					allowStateless: true,
 					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
 				},
 				toolPattern: "zai-reader_*",
@@ -306,6 +308,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 				config: {
 					type: "remote",
 					url: "https://api.z.ai/api/mcp/zread/mcp",
+					allowStateless: true,
 					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
 				},
 				toolPattern: "zai-zread_*",
@@ -439,6 +442,8 @@ const MCP_CATEGORIES: McpCategory[] = [
 				config: {
 					type: "remote",
 					url: "https://mcp.grep.app",
+					protocolVersion: "2024-11-05",
+					allowStateless: true,
 				},
 				toolPattern: "grep_app_*",
 				agentAccess: ["researcher"],

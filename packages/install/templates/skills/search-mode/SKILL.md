@@ -1,6 +1,6 @@
 ---
 name: search-mode
-description: Maximum search effort mode. Launch multiple parallel agents for exhaustive codebase and documentation search. Use when you need comprehensive search results.
+description: Exhaustive search mode. Use when you need broad codebase or documentation coverage, multiple parallel searches, and a synthesized inventory of findings.
 ---
 
 # Search Mode
@@ -11,7 +11,7 @@ description: Maximum search effort mode. Launch multiple parallel agents for exh
 
 **MAXIMIZE SEARCH EFFORT**
 
-Launch multiple background agents IN PARALLEL:
+Launch multiple background agents in parallel only when the extra coverage is worth the context and wall-clock cost.
 
 ### Agent Deployment
 
@@ -26,17 +26,9 @@ task(subagent_type="researcher", description="Find docs", prompt="Find docs for.
 task(subagent_type="researcher", description="Find examples", prompt="Find GitHub examples...", run_in_background=true)
 ```
 
-### Direct Tools (Use in Parallel)
+### Direct Tools
 
-| Tool | Purpose |
-|------|---------|
-| `glob` | File and directory discovery |
-| `grep` | Text pattern search |
-| `ast_grep_search` | Structural code patterns |
-| `lsp_goto_definition` | Jump to symbol definition |
-| `lsp_find_references` | Symbol usage across codebase |
-| `lsp_symbols` | Document/workspace symbol search |
-| `lsp_diagnostics` | Get errors/warnings before build |
+Use the `explore` agent's scope-first tool hierarchy for local search, then add external research only when the task crosses into documentation or OSS examples.
 
 ### Search Strategy
 
