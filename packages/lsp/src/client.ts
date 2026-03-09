@@ -527,7 +527,11 @@ export class LSPClient {
 		});
 	}
 
-	async workspaceSymbols(query: string): Promise<unknown> {
+	async workspaceSymbols(query: string, filePath?: string): Promise<unknown> {
+		if (filePath) {
+			const absPath = resolvePath(filePath);
+			await this.openFile(absPath);
+		}
 		return this.send("workspace/symbol", { query });
 	}
 
