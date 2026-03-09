@@ -90,6 +90,16 @@ export interface WarmplaneBinaryRelease {
 	sha256?: string;
 }
 
+const DEFAULT_WARMPLANE_GITHUB_REPO = "opzero1/warmplane";
+
+function buildWarmplaneGithubReleaseUrl(input: {
+	repo: string;
+	version: string;
+	assetName: string;
+}): string {
+	return `https://github.com/${input.repo}/releases/download/v${input.version}/${input.assetName}`;
+}
+
 interface WarmplaneBinaryInstallMetadata {
 	version?: string;
 	platform: string;
@@ -129,14 +139,22 @@ const DEFAULT_WARMPLANE_MAC_RELEASES: Record<
 	WarmplaneBinaryRelease
 > = {
 	"darwin-arm64": {
-		version: "0.1.0",
+		version: "0.1.1",
 		platform: "darwin-arm64",
-		url: "https://github.com/Warmplane/warmplane/releases/download/v0.1.0/warmplane-aarch64-apple-darwin",
+		url: buildWarmplaneGithubReleaseUrl({
+			repo: DEFAULT_WARMPLANE_GITHUB_REPO,
+			version: "0.1.1",
+			assetName: "warmplane-aarch64-apple-darwin",
+		}),
 	},
 	"darwin-x64": {
-		version: "0.1.0",
+		version: "0.1.1",
 		platform: "darwin-x64",
-		url: "https://github.com/Warmplane/warmplane/releases/download/v0.1.0/warmplane-x86_64-apple-darwin",
+		url: buildWarmplaneGithubReleaseUrl({
+			repo: DEFAULT_WARMPLANE_GITHUB_REPO,
+			version: "0.1.1",
+			assetName: "warmplane-x86_64-apple-darwin",
+		}),
 	},
 };
 
@@ -160,6 +178,8 @@ export function resolveWarmplaneBinaryRelease(input?: {
 	const platform = input?.platform ?? process.platform;
 	const arch = input?.arch ?? process.arch;
 	const env = input?.env ?? Bun.env;
+	const releaseRepo =
+		env.OP1_WARMPLANE_GITHUB_REPO || DEFAULT_WARMPLANE_GITHUB_REPO;
 
 	if (platform !== "darwin") {
 		return null;
@@ -173,7 +193,15 @@ export function resolveWarmplaneBinaryRelease(input?: {
 
 	const defaultRelease = DEFAULT_WARMPLANE_MAC_RELEASES[releasePlatform];
 	const version = env.OP1_WARMPLANE_VERSION || defaultRelease.version;
-	const url = env.OP1_WARMPLANE_BIN_URL || defaultRelease.url;
+	const defaultUrl = buildWarmplaneGithubReleaseUrl({
+		repo: releaseRepo,
+		version,
+		assetName:
+			releasePlatform === "darwin-arm64"
+				? "warmplane-aarch64-apple-darwin"
+				: "warmplane-x86_64-apple-darwin",
+	});
+	const url = env.OP1_WARMPLANE_BIN_URL || defaultUrl;
 	const sha256 = env.OP1_WARMPLANE_BIN_SHA256 || defaultRelease.sha256;
 
 	return {

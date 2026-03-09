@@ -80,6 +80,38 @@ describe("warmplane binary helpers", () => {
 		});
 	});
 
+	test("defaults mac release metadata to the forked warmplane repo", () => {
+		const release = resolveWarmplaneBinaryRelease({
+			platform: "darwin",
+			arch: "arm64",
+			env: {},
+		});
+
+		expect(release).toEqual({
+			version: "0.1.1",
+			platform: "darwin-arm64",
+			url: "https://github.com/opzero1/warmplane/releases/download/v0.1.1/warmplane-aarch64-apple-darwin",
+			sha256: undefined,
+		});
+	});
+
+	test("supports overriding the warmplane GitHub release repo", () => {
+		const release = resolveWarmplaneBinaryRelease({
+			platform: "darwin",
+			arch: "x64",
+			env: {
+				OP1_WARMPLANE_GITHUB_REPO: "someone-else/warmplane",
+			},
+		});
+
+		expect(release).toEqual({
+			version: "0.1.1",
+			platform: "darwin-x64",
+			url: "https://github.com/someone-else/warmplane/releases/download/v0.1.1/warmplane-x86_64-apple-darwin",
+			sha256: undefined,
+		});
+	});
+
 	test("installs warmplane from local override path", async () => {
 		const root = await createTempDir();
 		const homeDir = join(root, "home");

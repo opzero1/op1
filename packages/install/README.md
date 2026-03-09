@@ -152,6 +152,7 @@ On macOS, the installer now also manages a deterministic Warmplane binary path f
 - target binary path: `~/.local/share/opencode/bin/warmplane`
 - generated `mcp0` command uses that absolute path instead of relying on `warmplane` on `PATH`
 - local verification/development can override the source binary with `OP1_WARMPLANE_BIN_PATH`
+- release downloads default to the forked GitHub repo `opzero1/warmplane` and can be redirected with `OP1_WARMPLANE_GITHUB_REPO`
 
 What the installer does deterministically:
 
