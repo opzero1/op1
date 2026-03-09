@@ -139,20 +139,20 @@ const DEFAULT_WARMPLANE_MAC_RELEASES: Record<
 	WarmplaneBinaryRelease
 > = {
 	"darwin-arm64": {
-		version: "0.1.1",
+		version: "0.1.3",
 		platform: "darwin-arm64",
 		url: buildWarmplaneGithubReleaseUrl({
 			repo: DEFAULT_WARMPLANE_GITHUB_REPO,
-			version: "0.1.1",
+			version: "0.1.3",
 			assetName: "warmplane-aarch64-apple-darwin",
 		}),
 	},
 	"darwin-x64": {
-		version: "0.1.1",
+		version: "0.1.3",
 		platform: "darwin-x64",
 		url: buildWarmplaneGithubReleaseUrl({
 			repo: DEFAULT_WARMPLANE_GITHUB_REPO,
-			version: "0.1.1",
+			version: "0.1.3",
 			assetName: "warmplane-x86_64-apple-darwin",
 		}),
 	},

@@ -88,9 +88,9 @@ describe("warmplane binary helpers", () => {
 		});
 
 		expect(release).toEqual({
-			version: "0.1.1",
+			version: "0.1.3",
 			platform: "darwin-arm64",
-			url: "https://github.com/opzero1/warmplane/releases/download/v0.1.1/warmplane-aarch64-apple-darwin",
+			url: "https://github.com/opzero1/warmplane/releases/download/v0.1.3/warmplane-aarch64-apple-darwin",
 			sha256: undefined,
 		});
 	});
@@ -105,9 +105,9 @@ describe("warmplane binary helpers", () => {
 		});
 
 		expect(release).toEqual({
-			version: "0.1.1",
+			version: "0.1.3",
 			platform: "darwin-x64",
-			url: "https://github.com/someone-else/warmplane/releases/download/v0.1.1/warmplane-x86_64-apple-darwin",
+			url: "https://github.com/someone-else/warmplane/releases/download/v0.1.3/warmplane-x86_64-apple-darwin",
 			sha256: undefined,
 		});
 	});
