@@ -392,6 +392,43 @@ describe("mergeConfig", () => {
 		expect(result.compaction).toEqual({ auto: false, prune: false });
 	});
 
+	test("adds the default skill vault path for skill-pointer installs", () => {
+		const result = mergeConfig(
+			null,
+			null,
+			[],
+			DEFAULT_PLUGIN_CHOICES,
+			{},
+			null,
+			allAgents,
+		);
+
+		expect(result.skills?.paths).toContain("~/.config/opencode/skill-vault");
+	});
+
+	test("preserves existing skill paths while adding the default vault path", () => {
+		const existing: OpenCodeConfig = {
+			skills: {
+				paths: ["~/custom-skills"],
+			},
+		};
+
+		const result = mergeConfig(
+			existing,
+			null,
+			[],
+			DEFAULT_PLUGIN_CHOICES,
+			{},
+			null,
+			allAgents,
+		);
+
+		expect(result.skills?.paths).toEqual([
+			"~/custom-skills",
+			"~/.config/opencode/skill-vault",
+		]);
+	});
+
 	test("mergeWorkspaceConfig adds defaults", () => {
 		const result = mergeWorkspaceConfig(undefined);
 

@@ -150,15 +150,15 @@ describe("warmplane config helpers", () => {
 			tokenStoreKey: "figma",
 		});
 		expect(config.mcpServers["zai-vision"]?.command).toBe("bunx");
-			expect(config.mcpServers["zai-vision"]?.args).toEqual([
-				"-y",
-				"@z_ai/mcp-server",
-			]);
-			expect(config.mcpServers.newrelic?.allowStateless).toBeUndefined();
-			expect(config.mcpServers.newrelic?.headers).toEqual({
-				"api-key": "{env:NEW_RELIC_API_KEY}",
-			});
+		expect(config.mcpServers["zai-vision"]?.args).toEqual([
+			"-y",
+			"@z_ai/mcp-server",
+		]);
+		expect(config.mcpServers.newrelic?.allowStateless).toBeUndefined();
+		expect(config.mcpServers.newrelic?.headers).toEqual({
+			"api-key": "{env:NEW_RELIC_API_KEY}",
 		});
+	});
 
 	test("preserves allowStateless for remote downstream MCPs", () => {
 		const mcps: McpDefinition[] = [

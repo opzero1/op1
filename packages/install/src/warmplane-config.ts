@@ -196,13 +196,13 @@ function buildRemoteServer(mcp: SourceMcpDefinition): WarmplaneServerConfig {
 	}
 
 	if (mcp.oauthCapable) {
-	return {
-		url: mcp.config.url,
-		protocolVersion: mcp.config.protocolVersion,
-		allowStateless: mcp.config.allowStateless,
-		headers,
-		auth: {
-			type: "oauth",
+		return {
+			url: mcp.config.url,
+			protocolVersion: mcp.config.protocolVersion,
+			allowStateless: mcp.config.allowStateless,
+			headers,
+			auth: {
+				type: "oauth",
 				...mcp.oauthConfig,
 				tokenStoreKey: mcp.id,
 			},

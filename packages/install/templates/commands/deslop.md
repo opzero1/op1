@@ -19,7 +19,7 @@ If that diff is unavailable or empty, fall back to the current uncommitted workt
 
 1. Resolve the review scope before making changes.
 2. If `$ARGUMENTS` names files, directories, commits, or a branch, use that exact scope first.
-3. Otherwise resolve the base branch in this order: explicit user mention, PR/base-branch context, remote default branch, upstream tracking metadata only when it clearly points to the target branch rather than the current feature branch, then a clearly stated last-resort repo heuristic.
+3. Otherwise resolve the base branch in this order: explicit user mention, PR/base-branch context, upstream tracking metadata, remote default branch, then a clearly stated last-resort repo heuristic.
 4. Prefer `git diff --name-only <resolved-base>...HEAD` for branch-owned work.
 5. Ignore unrelated dirty files outside scope unless the user explicitly includes them.
 6. If a file is ambiguous, keep it in scope only when it materially affects the current work.
@@ -59,9 +59,9 @@ Audit the scoped files for these hygiene issues:
    - Keep lower-confidence candidates unless they become clearly safe.
 
 3. **Current-state simplification**
-    - Prefer today's implementation path over compatibility adapters, aliases, fallback branches, and migration glue.
-    - Keep compatibility code only when an active external or documented contract still requires it.
-    - If temporary compatibility code survives, require explicit deletion criteria and a tracking task or rationale in the same diff.
+   - Prefer today's implementation path over compatibility adapters, aliases, fallback branches, and migration glue.
+   - Keep compatibility code only when an active external or documented contract still requires it.
+   - If temporary compatibility code survives, require explicit deletion criteria and a tracking task or rationale in the same diff.
 
 4. **Hook overuse**
    - Review `useMemo`, `useCallback`, and similar memoization.
@@ -80,20 +80,40 @@ Audit the scoped files for these hygiene issues:
 
 8. **Boolean default noise**
    - Remove needless boolean defaults only when behavior stays unchanged and fail-closed.
+   - For optional values used only as presence gates, prefer one canonical presence variable over repeated `!= null` / `!== null` checks.
+   - Prefer positive render conditions; do not invert business intent just to mirror a review suggestion.
 
 9. **Type inference noise**
    - Prefer inference for obvious local implementation details.
    - Keep explicit types for public contracts, widening control, and non-obvious boundaries.
 
 10. **Extraction opportunities**
-   - Extract pure helpers, schemas, or form types when a file mixes concerns or grows too noisy.
-   - Do not create tiny abstractions unless they remove real duplication or clutter.
+
+- Extract pure helpers, schemas, or form types when a file mixes concerns or grows too noisy.
+- Do not create tiny abstractions unless they remove real duplication or clutter.
 
 11. **Asset placement**
-     - Keep assets in the right local module structure and preserve the required import mode.
+
+- Keep assets in the right local module structure and preserve the required import mode.
 
 12. **Temporary artifacts**
-     - Remove parity matrices, audit notes, or implementation-only artifacts that are no longer needed by runtime code or tests.
+
+- Remove parity matrices, audit notes, or implementation-only artifacts that are no longer needed by runtime code or tests.
+
+13. **JSX render-branch cleanup**
+
+- Replace render-only `condition ? (...) : null` branches with `condition && (...)` when the condition is already boolean-ish and there is no meaningful else branch.
+- Keep ternaries when both branches render real UI or when `0` / empty-string semantics matter.
+
+14. **Async call-site noise**
+
+- Remove `void someAsyncCall()` when returning the promise directly or attaching an explicit `.catch(...)` is clearer.
+- Keep fire-and-forget calls only when the ignored result is intentional and the error path is handled explicitly.
+
+15. **Review-follow-through hygiene**
+
+- When a review suggestion is directionally right but the literal code would change behavior, apply the safe intent instead of the exact snippet.
+- In the final report, call out which suggestions were applied verbatim versus adapted for correctness.
 
 ## Execution Protocol
 

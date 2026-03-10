@@ -53,6 +53,13 @@ Call it out in the same diff with:
 - Fail clearly at the boundary instead of silently translating obsolete inputs forever.
 - Replace silent fallbacks with explicit operator or caller recovery steps when recovery is still needed.
 
+## Related Hygiene Patterns
+
+- For optional values used only as presence gates, prefer one canonical presence variable over repeated `!= null` or `!== null` checks.
+- Prefer positive render conditions. Replace render-only `condition ? (...) : null` branches with `condition && (...)` when the condition is already boolean-ish and there is no meaningful else branch.
+- Remove `void someAsyncCall()` when returning the promise directly or attaching an explicit `.catch(...)` is clearer. Keep fire-and-forget calls only when the ignored result is intentional and the error path is handled explicitly.
+- When a review suggestion is directionally right but the literal code would change behavior, apply the safe intent instead of the exact snippet.
+
 ## Review Questions
 
 - Does this code exist to serve today's contract or yesterday's migration?

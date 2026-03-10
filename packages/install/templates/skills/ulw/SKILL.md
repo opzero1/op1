@@ -56,8 +56,6 @@ The `@op1/workspace` plugin provides automatic momentum:
 
 ---
 
----
-
 ## Zero Tolerance Failures
 
 | Violation | Consequence |

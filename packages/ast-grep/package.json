@@ -1,6 +1,6 @@
 {
 	"name": "@op1/ast-grep",
-	"version": "0.3.0",
+	"version": "0.5.1",
 	"description": "AST-aware code search and replace tools for OpenCode - powered by ast-grep",
 	"type": "module",
 	"main": "dist/ast-grep.js",

@@ -122,16 +122,15 @@ not-started → in-progress → complete
 
 ---
 
-## Citations & Task Records
+## Citations & Delegations
 
 ### Where Citations Come From
 
-Citations reference durable task records. The flow is:
+Citations reference delegation research. The flow is:
 
-1. Launch research with `task(subagent_type="researcher"|"explore", run_in_background=true, ...)`
-2. The task returns a readable `task_id` (e.g., `swift-amber-falcon`)
-3. You inspect the result with `background_output(task_id="swift-amber-falcon")`
-4. You cite that research in the plan: `ref:swift-amber-falcon`
+1. You delegate research: `delegate` to `researcher` or `explore`
+2. Delegation completes with a readable ID (e.g., `swift-amber-falcon`)
+3. You cite that research in the plan: `ref:swift-amber-falcon`
 
 ### When to Cite
 
@@ -141,15 +140,15 @@ Citations reference durable task records. The flow is:
 | Task informed by research | Append `→ ref:id` to task line |
 | Implementation detail from research | Inline citation in Notes |
 
-### How to Find Task IDs
+### How to Find Delegation IDs
 
-- Read the `task_id` from task output
-- Use `background_output(task_id="id")` to verify content before citing
+- Use `delegation_list()` to see all delegations
+- Use `delegation_read("id")` to verify content before citing
 
 ### ❌ NEVER
 
-- Make up task IDs
-- Cite without actually reading the task result
+- Make up delegation IDs
+- Cite without actually reading the delegation
 - Skip citations for research-based decisions
 
 ---

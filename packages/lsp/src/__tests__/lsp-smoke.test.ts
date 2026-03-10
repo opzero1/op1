@@ -9,7 +9,9 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
 	await lspManager.stopAll();
-	await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+	await Promise.all(
+		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+	);
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,29 +80,41 @@ async function createTsProject(): Promise<{
 }
 
 describe("@op1/lsp smoke", () => {
-	test(
-		"workspace symbols bootstrap the project and core methods work on TypeScript",
-		async () => {
+	test("workspace symbols bootstrap the project and core methods work on TypeScript", async () => {
 		const { brokenPath, defsPath, usePath } = await createTsProject();
 
 		const workspaceSymbolResult = await withLspClient(usePath, (client) =>
 			client.workspaceSymbols("sharedValue", usePath),
 		);
 		expect(Array.isArray(workspaceSymbolResult)).toBe(true);
-		if (!Array.isArray(workspaceSymbolResult) || workspaceSymbolResult.length === 0) {
-			throw new Error("Expected workspace symbols to return at least one result");
+		if (
+			!Array.isArray(workspaceSymbolResult) ||
+			workspaceSymbolResult.length === 0
+		) {
+			throw new Error(
+				"Expected workspace symbols to return at least one result",
+			);
 		}
 		const workspaceSymbol = workspaceSymbolResult.find(
-			(item) => isRecord(item) && hasStringField(item, "name") && item.name === "sharedValue",
+			(item) =>
+				isRecord(item) &&
+				hasStringField(item, "name") &&
+				item.name === "sharedValue",
 		);
 		expect(workspaceSymbol).toBeDefined();
 
 		const useLines = (await Bun.file(usePath).text()).split("\n");
 		const defsLines = (await Bun.file(defsPath).text()).split("\n");
 
-		const importedSharedValueChar = positionOf(useLines[0] ?? "", "sharedValue");
+		const importedSharedValueChar = positionOf(
+			useLines[0] ?? "",
+			"sharedValue",
+		);
 		const inlineSharedValueChar = positionOf(useLines[3] ?? "", "sharedValue");
-		const declaredSharedValueChar = positionOf(defsLines[0] ?? "", "sharedValue");
+		const declaredSharedValueChar = positionOf(
+			defsLines[0] ?? "",
+			"sharedValue",
+		);
 
 		const definitionResult = await withLspClient(usePath, (client) =>
 			client.definition(usePath, 4, inlineSharedValueChar),
@@ -120,8 +134,13 @@ describe("@op1/lsp smoke", () => {
 			client.documentSymbols(usePath),
 		);
 		expect(Array.isArray(documentSymbolsResult)).toBe(true);
-		if (!Array.isArray(documentSymbolsResult) || documentSymbolsResult.length === 0) {
-			throw new Error("Expected document symbols to return at least one result");
+		if (
+			!Array.isArray(documentSymbolsResult) ||
+			documentSymbolsResult.length === 0
+		) {
+			throw new Error(
+				"Expected document symbols to return at least one result",
+			);
 		}
 
 		const diagnosticsResult = await withLspClient(brokenPath, (client) =>
@@ -156,8 +175,13 @@ describe("@op1/lsp smoke", () => {
 			client.workspaceSymbols("sharedValueRenamed", usePath),
 		);
 		expect(Array.isArray(renamedSymbolResult)).toBe(true);
-		if (!Array.isArray(renamedSymbolResult) || renamedSymbolResult.length === 0) {
-			throw new Error("Expected renamed workspace symbols to return at least one result");
+		if (
+			!Array.isArray(renamedSymbolResult) ||
+			renamedSymbolResult.length === 0
+		) {
+			throw new Error(
+				"Expected renamed workspace symbols to return at least one result",
+			);
 		}
 
 		const renamedImportedChar = positionOf(
@@ -169,8 +193,6 @@ describe("@op1/lsp smoke", () => {
 		);
 		expect(renamedDefinitionResult).toBeTruthy();
 
-			expect(importedSharedValueChar).toBeGreaterThanOrEqual(0);
-		},
-		20000,
-	);
+		expect(importedSharedValueChar).toBeGreaterThanOrEqual(0);
+	}, 20000);
 });

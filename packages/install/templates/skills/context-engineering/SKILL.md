@@ -108,7 +108,7 @@ for (const file of files) {
 }
 
 // ✅ GOOD: Delegate to explorer
-task(subagent_type="explore", description="Find usages", prompt="Find all usages of X and summarize")
+task(agent="explore", prompt="Find all usages of X and summarize")
 // Returns: concise summary, main context stays clean
 ```
 

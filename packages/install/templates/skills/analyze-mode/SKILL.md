@@ -17,12 +17,12 @@ Deploy parallel context gathering only where it will materially improve correctn
 
 ```
 // Internal context (1-2 agents)
-task(subagent_type="explore", description="Find implementations", prompt="Find all implementations of [topic]", run_in_background=true)
-task(subagent_type="explore", description="Find tests", prompt="Find tests and usage patterns for [topic]", run_in_background=true)
+task(agent="explore", prompt="Find all implementations of [topic]", background=true)
+task(agent="explore", prompt="Find tests and usage patterns for [topic]", background=true)
 
 // External context (if libraries involved)
-task(subagent_type="researcher", description="Find official docs", prompt="Find official docs for [library]", run_in_background=true)
-task(subagent_type="researcher", description="Find known issues", prompt="Find known issues and solutions", run_in_background=true)
+task(agent="researcher", prompt="Find official docs for [library]", background=true)
+task(agent="researcher", prompt="Find known issues and solutions", background=true)
 ```
 
 ### Phase 2: Direct Analysis
@@ -38,7 +38,7 @@ While agents run, use direct tools to confirm scope, structure, symbols, diagnos
 - Root cause remains unclear
 
 ```
-task(subagent_type="oracle", description="Analyze problem", prompt="Analyze [problem] given context...")
+task(agent="oracle", prompt="Analyze [problem] given context...")
 ```
 
 ## Analysis Framework

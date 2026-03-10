@@ -55,7 +55,7 @@ bunx @op1/install --dry-run
 | `/research` | Research external topics |
 | `/ulw` | Activate ULTRAWORK mode |
 
-### Skills (41)
+### Skills (42)
 
 - `ulw` - ULTRAWORK maximum capability mode
 - `code-philosophy` - The 5 Laws of Elegant Defense
@@ -75,6 +75,7 @@ bunx @op1/install --dry-run
 - `linear` - Linear issue tracking
 - `figma-design` - Figma integration
 - `newrelic` - Observability
+- `mcp0-navigation` - Warmplane `mcp0` facade routing
 - And more...
 
 ### Plugins (3)

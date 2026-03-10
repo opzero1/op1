@@ -19,6 +19,11 @@
 	// Default agent when none specified
 	"default_agent": "build",
 
+	// Keep full skill bodies discoverable even when SkillPointer writes category pointers.
+	"skills": {
+		"paths": ["~/.config/opencode/skill-vault"]
+	},
+
 	// =============================================
 	// PERMISSION DEFAULTS
 	// =============================================

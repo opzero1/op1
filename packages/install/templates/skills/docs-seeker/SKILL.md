@@ -137,9 +137,9 @@ webfetch(url="https://example.com/llms.txt")
 For comprehensive research, fire multiple agents:
 
 ```
-task(subagent_type="researcher", description="Find app-router docs", prompt="Find Next.js app router docs via context7")
-task(subagent_type="researcher", description="Find auth patterns", prompt="Find authentication patterns for Next.js")
-task(subagent_type="explore", description="Inspect local auth", prompt="Find how auth is implemented in this codebase")
+task(agent="researcher", prompt="Find Next.js app router docs via context7")
+task(agent="researcher", prompt="Find authentication patterns for Next.js")
+task(agent="explore", prompt="Find how auth is implemented in this codebase")
 ```
 
 Combine external docs with internal patterns for best results.

@@ -86,7 +86,7 @@ For issues spanning services/modules:
 - Are you fixing the symptom or root cause?
 - Do you fully understand the system?
 
-Consider escalating: `task(subagent_type="oracle", description="Debug analysis", prompt="Debug analysis...")`
+Consider escalating: `task(agent="oracle", prompt="Debug analysis...")`
 
 ---
 

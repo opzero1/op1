@@ -144,10 +144,9 @@ export const lsp_symbols: ToolDefinition = tool({
 				}
 
 				const result = await withLspClient(args.filePath, async (client) => {
-					return (await client.workspaceSymbols(
-						query,
-						args.filePath,
-					)) as SymbolInfo[] | null;
+					return (await client.workspaceSymbols(query, args.filePath)) as
+						| SymbolInfo[]
+						| null;
 				});
 
 				if (!result || result.length === 0) {

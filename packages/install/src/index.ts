@@ -136,6 +136,7 @@ const MODEL_OPTION_CUSTOM = "__op7_custom_model__";
 const MODEL_FAMILY_ALL = "__op7_all_families__";
 const WORKSPACE_CONFIG_FILENAME = "workspace.json";
 const SKILL_POINTER_MIN_REDUCTION_PERCENT = 30;
+const DEFAULT_SKILL_VAULT_PATH = "~/.config/opencode/skill-vault";
 
 // =========================================
 // MCP DEFINITIONS BY CATEGORY
@@ -145,6 +146,8 @@ interface McpConfig {
 	type: "local" | "remote";
 	command?: string[];
 	url?: string;
+	protocolVersion?: string;
+	allowStateless?: boolean;
 	headers?: Record<string, string>;
 	environment?: Record<string, string>;
 }
@@ -584,6 +587,10 @@ interface OpenCodeConfig {
 	default_agent?: string;
 	permission?: Record<string, string>;
 	mcp?: Record<string, McpConfig>;
+	skills?: {
+		paths?: string[];
+		urls?: string[];
+	};
 	tools?: Record<string, boolean>;
 	agent?: Record<string, AgentConfig>;
 	compaction?: { auto?: boolean; prune?: boolean };
@@ -1231,6 +1238,17 @@ function mergeConfig(
 		if (originalConfig.tools && !base.tools) {
 			base.tools = { ...originalConfig.tools };
 		}
+		// Preserve existing skill sources
+		if (originalConfig.skills && !base.skills) {
+			base.skills = {
+				paths: originalConfig.skills.paths
+					? [...originalConfig.skills.paths]
+					: undefined,
+				urls: originalConfig.skills.urls
+					? [...originalConfig.skills.urls]
+					: undefined,
+			};
+		}
 		// Preserve existing agent config (deep-merge per-agent properties)
 		if (originalConfig.agent && !base.agent) {
 			base.agent = {};
@@ -1399,6 +1417,16 @@ function mergeConfig(
 	if (!base.compaction) {
 		base.compaction = { auto: true, prune: true };
 	}
+
+	// 10. Ensure vault-backed skills remain discoverable with SkillPointer layouts
+	const paths = [...(base.skills?.paths || [])];
+	if (!paths.includes(DEFAULT_SKILL_VAULT_PATH)) {
+		paths.push(DEFAULT_SKILL_VAULT_PATH);
+	}
+	base.skills = {
+		...(base.skills || {}),
+		paths,
+	};
 
 	return base;
 }
