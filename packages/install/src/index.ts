@@ -521,7 +521,6 @@ interface WorkspaceFeatureFlags {
 	continuationCommands?: boolean;
 	tmuxOrchestration?: boolean;
 	boundaryPolicyV2?: boolean;
-	claudeCompatibility?: boolean;
 	mcpOAuthHelper?: boolean;
 }
 
@@ -668,7 +667,6 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
 		continuationCommands: true,
 		tmuxOrchestration: true,
 		boundaryPolicyV2: true,
-		claudeCompatibility: true,
 		mcpOAuthHelper: true,
 	},
 	thresholds: {
@@ -720,7 +718,6 @@ const INSTALLER_PROFILE_DEFAULTS: Record<
 				...(DEFAULT_WORKSPACE_CONFIG.features || {}),
 				taskGraph: true,
 				continuationCommands: true,
-				claudeCompatibility: false,
 				mcpOAuthHelper: false,
 			},
 		},

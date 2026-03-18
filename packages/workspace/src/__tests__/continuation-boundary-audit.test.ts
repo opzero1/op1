@@ -37,13 +37,6 @@ type ContinuationStopTool = {
 	) => Promise<string>;
 };
 
-type BoundaryPolicyStatusTool = {
-	execute: (
-		args: { include_audit_summary?: boolean },
-		toolCtx: { sessionID?: string },
-	) => Promise<string>;
-};
-
 afterEach(async () => {
 	for (const root of tempRoots) {
 		await rm(root, { recursive: true, force: true });
@@ -73,7 +66,6 @@ async function createHarness(input?: { boundaryPolicyV2?: boolean }): Promise<{
 	continuationContinue: ContinuationContinueTool;
 	continuationHandoff: ContinuationHandoffTool;
 	continuationStop: ContinuationStopTool;
-	boundaryPolicyStatus: BoundaryPolicyStatusTool;
 }> {
 	const root = await mkdtemp(join(tmpdir(), "op1-continuation-boundary-test-"));
 	tempRoots.push(root);
@@ -111,9 +103,6 @@ async function createHarness(input?: { boundaryPolicyV2?: boolean }): Promise<{
 	const continuationStop = plugin.tool?.continuation_stop as unknown as
 		| ContinuationStopTool
 		| undefined;
-	const boundaryPolicyStatus = plugin.tool?.boundary_policy_status as unknown as
-		| BoundaryPolicyStatusTool
-		| undefined;
 	if (!continuationContinue) {
 		throw new Error("continuation_continue tool is missing");
 	}
@@ -123,16 +112,12 @@ async function createHarness(input?: { boundaryPolicyV2?: boolean }): Promise<{
 	if (!continuationStop) {
 		throw new Error("continuation_stop tool is missing");
 	}
-	if (!boundaryPolicyStatus) {
-		throw new Error("boundary_policy_status tool is missing");
-	}
 
 	return {
 		root,
 		continuationContinue,
 		continuationHandoff,
 		continuationStop,
-		boundaryPolicyStatus,
 	};
 }
 
@@ -172,36 +157,5 @@ describe("continuation boundary audit", () => {
 		expect(continueResult).toContain('"mode": "running"');
 		expect(handoffResult).toContain('"mode": "handoff"');
 		expect(stopResult).toContain('"mode": "stopped"');
-	});
-
-	test("reports boundary diagnostics and gated-path inventory", async () => {
-		const harness = await createHarness();
-
-		await harness.continuationContinue.execute(
-			{},
-			{ sessionID: "session-diagnostics" },
-		);
-
-		const payload = await harness.boundaryPolicyStatus.execute(
-			{},
-			{ sessionID: "session-diagnostics" },
-		);
-		const parsed = JSON.parse(payload) as {
-			feature_flags?: { boundaryPolicyV2?: boolean };
-			contracts?: {
-				orchestrator_agents?: string[];
-				implementer_agents?: string[];
-			};
-			gated_paths?: {
-				continuation_idempotency_required_when_boundary_v2?: string[];
-			};
-		};
-
-		expect(parsed.feature_flags?.boundaryPolicyV2).toBe(true);
-		expect(parsed.contracts?.orchestrator_agents).toContain("build");
-		expect(parsed.contracts?.implementer_agents).toContain("coder");
-		expect(
-			parsed.gated_paths?.continuation_idempotency_required_when_boundary_v2,
-		).toContain("continuation_continue");
 	});
 });

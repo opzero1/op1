@@ -65,7 +65,6 @@ All operational improvements are on by default. Tool approval is delegated to na
 		"continuationCommands": true,
     "tmuxOrchestration": true,
     "boundaryPolicyV2": true,
-    "claudeCompatibility": true,
     "mcpOAuthHelper": true
   },
   "thresholds": {

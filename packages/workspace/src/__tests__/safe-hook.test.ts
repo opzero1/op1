@@ -61,7 +61,6 @@ describe("safe-hook config", () => {
 		expect(config.features.continuationCommands).toBe(true);
 		expect(config.features.tmuxOrchestration).toBe(true);
 		expect(config.features.boundaryPolicyV2).toBe(true);
-		expect(config.features.claudeCompatibility).toBe(true);
 		expect(config.features.mcpOAuthHelper).toBe(true);
 		expect(config.thresholds.taskReminderThreshold).toBe(20);
 		expect(config.thresholds.contextLimit).toBe(200000);

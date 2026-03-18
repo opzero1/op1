@@ -1,6 +1,6 @@
 ---
 name: ulw
-description: ULTRAWORK MODE for high-stakes execution. Use for plan-driven work that needs parallel delegation, strict verification, and automatic follow-through. Prefer `/ulw`, `/work`, `/continue`, or an explicit ultrawork request.
+description: ULTRAWORK MODE for high-stakes execution. Use for plan-driven work that needs parallel delegation, strict verification, and automatic follow-through. Prefer `/work`, `/continue`, or an explicit ultrawork request.
 ---
 
 # ULTRAWORK MODE (ULW)

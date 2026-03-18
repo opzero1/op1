@@ -2,6 +2,7 @@ import { relative, resolve } from "./bun-compat.js";
 import { redactText, redactUnknown } from "./redaction.js";
 
 type UnknownRecord = Record<string, unknown>;
+type SessionResponse<T> = { data?: T } | undefined;
 
 export interface SessionListArgs {
 	limit?: number;
@@ -42,6 +43,36 @@ export interface SessionToolRuntime {
 	projectDirectory: string;
 }
 
+interface SessionApi {
+	list?: (input?: {
+		directory?: string;
+		roots?: boolean;
+		start?: number;
+		search?: string;
+		limit?: number;
+	}) => Promise<SessionResponse<unknown[]>>;
+	get?: (input: {
+		sessionID: string;
+		directory?: string;
+	}) => Promise<SessionResponse<unknown>>;
+	messages?: (input: {
+		sessionID: string;
+		directory?: string;
+		limit?: number;
+	}) => Promise<SessionResponse<unknown[]>>;
+	todo?: (input: {
+		sessionID: string;
+		directory?: string;
+	}) => Promise<SessionResponse<unknown[]>>;
+	children?: (input: {
+		sessionID: string;
+		directory?: string;
+	}) => Promise<SessionResponse<unknown[]>>;
+	status?: (input?: {
+		directory?: string;
+	}) => Promise<SessionResponse<UnknownRecord>>;
+}
+
 interface SessionRecord {
 	id: string;
 	title: string;
@@ -79,49 +110,12 @@ function getNestedRecord(
 	return asRecord(current);
 }
 
-function getNestedMethod(
-	source: unknown,
-	path: readonly string[],
-): ((input?: unknown) => Promise<unknown>) | null {
-	let current = source;
-	for (const key of path) {
-		const record = asRecord(current);
-		if (!record) return null;
-		current = record[key];
+function getSessionApi(client: unknown): SessionApi {
+	const session = asRecord(asRecord(client)?.session);
+	if (!session) {
+		throw new Error("Session API is unavailable");
 	}
-	if (typeof current !== "function") return null;
-	return current as (input?: unknown) => Promise<unknown>;
-}
-
-function normalizeResponseData<T>(response: unknown, fallback: T): T {
-	const record = asRecord(response);
-	if (!record) return fallback;
-	if (!("data" in record)) return (response as T) ?? fallback;
-	return (record.data as T) ?? fallback;
-}
-
-async function invokeWithFallbacks(
-	method: ((input?: unknown) => Promise<unknown>) | null,
-	inputs: unknown[],
-	failureMessage: string,
-): Promise<unknown> {
-	if (!method) {
-		throw new Error(failureMessage);
-	}
-
-	let lastError: unknown;
-	for (const input of inputs) {
-		try {
-			return await method(input);
-		} catch (error) {
-			lastError = error;
-		}
-	}
-
-	if (lastError instanceof Error) {
-		throw new Error(`${failureMessage}: ${lastError.message}`);
-	}
-	throw new Error(failureMessage);
+	return session as unknown as SessionApi;
 }
 
 function normalizeSession(value: unknown): SessionRecord | null {
@@ -325,17 +319,12 @@ async function listSessions(
 		limit?: number;
 	},
 ): Promise<SessionRecord[]> {
-	const method =
-		getNestedMethod(client, ["session", "list"]) ??
-		getNestedMethod(client, ["experimental", "session", "list"]);
-
-	const response = await invokeWithFallbacks(
-		method,
-		[{ query }, query],
-		"Session list API is unavailable",
-	);
-
-	return normalizeSessionList(normalizeResponseData(response, [] as unknown[]));
+	const session = getSessionApi(client);
+	if (!session.list) {
+		throw new Error("Session list API is unavailable");
+	}
+	const response = await session.list(query);
+	return normalizeSessionList(response?.data ?? []);
 }
 
 async function getSession(
@@ -343,19 +332,12 @@ async function getSession(
 	sessionID: string,
 	directory?: string,
 ): Promise<SessionRecord | null> {
-	const method = getNestedMethod(client, ["session", "get"]);
-	const response = await invokeWithFallbacks(
-		method,
-		[
-			{ path: { id: sessionID }, query: directory ? { directory } : undefined },
-			{ path: { id: sessionID } },
-			{ sessionID, directory },
-			{ sessionID },
-		],
-		"Session get API is unavailable",
-	);
-
-	return normalizeSession(normalizeResponseData(response, null));
+	const session = getSessionApi(client);
+	if (!session.get) {
+		throw new Error("Session get API is unavailable");
+	}
+	const response = await session.get({ sessionID, directory });
+	return normalizeSession(response?.data ?? null);
 }
 
 function extractMessageText(parts: unknown): string {
@@ -422,22 +404,12 @@ async function getSessionMessages(
 		partsCount: number;
 	}>
 > {
-	const method = getNestedMethod(client, ["session", "messages"]);
-	const response = await invokeWithFallbacks(
-		method,
-		[
-			{
-				path: { id: sessionID },
-				query: { limit, ...(directory ? { directory } : {}) },
-			},
-			{ path: { id: sessionID }, query: { limit } },
-			{ sessionID, directory, limit },
-			{ sessionID, limit },
-		],
-		"Session messages API is unavailable",
-	);
-
-	return normalizeMessages(normalizeResponseData(response, [] as unknown[]));
+	const session = getSessionApi(client);
+	if (!session.messages) {
+		throw new Error("Session messages API is unavailable");
+	}
+	const response = await session.messages({ sessionID, directory, limit });
+	return normalizeMessages(response?.data ?? []);
 }
 
 async function getSessionTodos(
@@ -445,23 +417,11 @@ async function getSessionTodos(
 	sessionID: string,
 	directory?: string,
 ): Promise<unknown[]> {
-	const method = getNestedMethod(client, ["session", "todo"]);
-	if (!method) return [];
+	const session = getSessionApi(client);
+	if (!session.todo) return [];
 	try {
-		const response = await invokeWithFallbacks(
-			method,
-			[
-				{
-					path: { id: sessionID },
-					query: directory ? { directory } : undefined,
-				},
-				{ sessionID, directory },
-				{ path: { id: sessionID } },
-				{ sessionID },
-			],
-			"Session todo API is unavailable",
-		);
-		const data = normalizeResponseData(response, [] as unknown[]);
+		const response = await session.todo({ sessionID, directory });
+		const data = response?.data ?? [];
 		return Array.isArray(data) ? data : [];
 	} catch {
 		return [];
@@ -473,25 +433,11 @@ async function getSessionChildren(
 	sessionID: string,
 	directory?: string,
 ): Promise<SessionRecord[]> {
-	const method = getNestedMethod(client, ["session", "children"]);
-	if (!method) return [];
+	const session = getSessionApi(client);
+	if (!session.children) return [];
 	try {
-		const response = await invokeWithFallbacks(
-			method,
-			[
-				{
-					path: { id: sessionID },
-					query: directory ? { directory } : undefined,
-				},
-				{ sessionID, directory },
-				{ path: { id: sessionID } },
-				{ sessionID },
-			],
-			"Session children API is unavailable",
-		);
-		return normalizeSessionList(
-			normalizeResponseData(response, [] as unknown[]),
-		);
+		const response = await session.children({ sessionID, directory });
+		return normalizeSessionList(response?.data ?? []);
 	} catch {
 		return [];
 	}
@@ -501,20 +447,13 @@ async function getSessionStatusSnapshot(
 	client: unknown,
 	directory?: string,
 ): Promise<UnknownRecord | null> {
-	const method = getNestedMethod(client, ["session", "status"]);
-	if (!method) return null;
+	const session = getSessionApi(client);
+	if (!session.status) return null;
 	try {
-		const response = await invokeWithFallbacks(
-			method,
-			[
-				{ query: directory ? { directory } : undefined },
-				{ directory },
-				undefined,
-			],
-			"Session status API is unavailable",
+		const response = await session.status(
+			directory ? { directory } : undefined,
 		);
-		const data = normalizeResponseData(response, {} as UnknownRecord);
-		return asRecord(data);
+		return asRecord(response?.data ?? null);
 	} catch {
 		return null;
 	}
@@ -740,31 +679,6 @@ export async function executeSessionSearch(
 				});
 			}
 			if (matches.size >= normalized.limit) break;
-		}
-
-		if (matches.size < normalized.limit) {
-			for (const session of fallbackPool.slice(0, 10)) {
-				if (matches.has(session.id)) continue;
-				const messages = await getSessionMessages(
-					runtime.client,
-					session.id,
-					30,
-					scope.directory,
-				);
-				const hasContentMatch = messages.some((message) =>
-					includesQuery(
-						message.text,
-						normalized.query,
-						normalized.caseSensitive,
-					),
-				);
-				if (!hasContentMatch) continue;
-				matches.set(session.id, {
-					session,
-					matchedBy: "content-local",
-				});
-				if (matches.size >= normalized.limit) break;
-			}
 		}
 	}
 

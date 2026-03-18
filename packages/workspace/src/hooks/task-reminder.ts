@@ -17,7 +17,6 @@ const PLAN_TOOLS = new Set([
 	"plan_read",
 	"plan_list",
 	"plan_set_active",
-	"plan_enter",
 	"plan_exit",
 	"plan_doc_link",
 	"plan_doc_list",

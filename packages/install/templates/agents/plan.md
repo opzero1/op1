@@ -125,7 +125,6 @@ After plan approval and save, the build agent receives **momentum prompts** from
 
 **After plan is finalized and approved:**
 1. Call `plan_save` to persist the plan
-2. Call `plan_exit` with a brief summary
-3. Inform user: "Plan saved. Run `/work` to start implementation."
+2. Inform user: "Plan saved. Run `/work` to start implementation."
 
-This signals the transition from planning to implementation mode.
+Do not depend on `plan_exit` for the handoff. Treat `plan_save` plus explicit `/work` guidance as the transition to implementation mode.

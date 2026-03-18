@@ -60,14 +60,12 @@ describe("prompt template contracts", () => {
 		const planCommand = await readTemplate("commands", "plan.md");
 		const reviewCommand = await readTemplate("commands", "review.md");
 		const workCommand = await readTemplate("commands", "work.md");
-		const ulwCommand = await readTemplate("commands", "ulw.md");
 		const autoloopCommand = await readTemplate("commands", "autoloop.md");
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
-		expect(ulwCommand).toContain("- simplify");
 		expect(autoloopCommand).toContain("long-running-workflows");
 		expect(autoloopCommand).toContain(".opencode/workspace/autoloop/<slug>/");
 		expect(deslopCommand).toContain("analyze-mode");

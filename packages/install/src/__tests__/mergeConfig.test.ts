@@ -506,14 +506,12 @@ describe("mergeConfig", () => {
 		expect(result.features?.taskGraph).toBe(true);
 		expect(result.features?.continuationCommands).toBe(true);
 		expect(result.features?.mcpOAuthHelper).toBe(false);
-		expect(result.features?.claudeCompatibility).toBe(false);
 	});
 
 	test("mergeWorkspaceConfig keeps explicit overrides over beta-lean defaults", () => {
 		const existing: WorkspacePluginConfig = {
 			features: {
 				mcpOAuthHelper: true,
-				claudeCompatibility: true,
 				taskGraph: false,
 			},
 		};
@@ -521,7 +519,6 @@ describe("mergeConfig", () => {
 		const result = mergeWorkspaceConfig(existing, BETA_LEAN_PROFILE);
 
 		expect(result.features?.mcpOAuthHelper).toBe(true);
-		expect(result.features?.claudeCompatibility).toBe(true);
 		expect(result.features?.taskGraph).toBe(false);
 		expect(result.features?.continuationCommands).toBe(true);
 	});

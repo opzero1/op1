@@ -81,7 +81,6 @@ opencode debug config
 | `/understand` | Explain codebase components |
 | `/oracle` | Consult oracle agent |
 | `/research` | Research external topics |
-| `/ulw` | Activate ULTRAWORK mode |
 
 ### Skills
 
@@ -227,7 +226,6 @@ Key defaults for runtime safeguards:
 - `features.continuationCommands: true`
 - `features.tmuxOrchestration: true`
 - `features.boundaryPolicyV2: true`
-- `features.claudeCompatibility: true`
 - `features.mcpOAuthHelper: true`
 - `features.notifications: true`
 - `notifications.enabled: true`

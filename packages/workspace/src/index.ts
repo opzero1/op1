@@ -56,7 +56,6 @@ import { createTaskReminderHook } from "./hooks/task-reminder.js";
 import { handleToolOutputSafetyDynamic } from "./hooks/tool-output-safety.js";
 import { handleVerification } from "./hooks/verification.js";
 import { createWritePolicyHook } from "./hooks/write-policy.js";
-import { discoverClaudeCompatAssets } from "./interop/claude-compat.js";
 import { buildMcpOAuthHelperSnapshot } from "./interop/mcp-oauth-helper.js";
 import { buildMcp0HealthSnapshot } from "./interop/mcp0-health.js";
 
@@ -1023,105 +1022,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 			// ── Mode Transition Tools ──────────────────────────
 
-			plan_enter: tool({
-				description:
-					"Signal intent to enter planning mode. Returns instructions for creating a structured implementation plan. Use when a task is complex and requires upfront planning before implementation.",
-				args: {
-					reason: tool.schema
-						.string()
-						.describe(
-							"Why planning mode is needed (e.g., 'complex multi-step feature', 'architectural decision')",
-						),
-				},
-				async execute(args) {
-					const activePlan = await sm.readActivePlanState();
-
-					if (activePlan) {
-						const relativePath = relative(directory, activePlan.active_plan);
-						return `📋 Active plan already exists: ${relativePath}
-
-To continue with existing plan:
-  → Use plan_read to review current state
-  → Update with plan_save when making progress
-
-To create an additional plan without replacing active:
-  → Call plan_save with mode="new" and set_active=false
-
-To switch active plan:
-  → Call plan_set_active with plan name from plan_list`;
-					}
-
-					return `🎯 Planning Mode Requested: ${args.reason}
-
-To create a structured implementation plan:
-
-1. **Run the /plan command** with your task description:
-   /plan "${args.reason}"
-
-2. The plan agent will:
-   - Analyze the task complexity
-   - Research codebase patterns (if needed)
-   - Create a phased implementation plan
-   - Save it for cross-session persistence
-
-3. Once the plan is created:
-    - Use plan_read to review it
-    - Use plan_set_active to switch between plans
-    - Use /work to start implementation
-    - Update progress with plan_save
-
-💡 Tip: Load skill('plan-protocol') for the full plan format specification.`;
-				},
-			}),
-
-			plan_exit: tool({
-				description:
-					"Signal completion of planning phase. Returns instructions for transitioning to implementation mode. Call this after a plan is finalized and ready for execution.",
-				args: {
-					summary: tool.schema
-						.string()
-						.optional()
-						.describe("Brief summary of the completed plan"),
-				},
-				async execute(args) {
-					const activePlan = await sm.readActivePlanState();
-
-					if (!activePlan) {
-						return `⚠️ No active plan found. Nothing to exit from.
-
-To create a plan first:
-  → Run /plan "your task description"`;
-					}
-
-					const relativePath = relative(directory, activePlan.active_plan);
-					const summaryText = args.summary
-						? `\n\n**Summary**: ${args.summary}`
-						: "";
-
-					return `✅ Planning phase complete!${summaryText}
-
-**Plan**: ${activePlan.plan_name}
-**Path**: ${relativePath}
-
-To begin implementation:
-
-1. **Run /work** to start executing the plan
-   → This delegates to the build agent with plan context
-
-2. Or manually:
-   → Use plan_read to review the plan
-   → Work through phases sequentially
-   → Mark tasks complete as you go
-   → Use notepad_write to record learnings
-
-3. Track progress:
-   → Update plan with plan_save after completing tasks
-   → Use todowrite for fine-grained task tracking
-
-🚀 Ready to ship!`;
-				},
-			}),
-
 			// ── Plan Docs Tools (progressive loading + bidirectional links) ──
 
 			plan_doc_link: tool({
@@ -1498,84 +1398,6 @@ To begin implementation:
 					});
 					markCompactionStateDirty(sessionID);
 					return JSON.stringify(updated, null, 2);
-				},
-			}),
-
-			boundary_policy_status: tool({
-				description:
-					"Inspect boundary policy posture and contract coverage for the current root session.",
-				args: {
-					include_audit_summary: tool.schema
-						.boolean()
-						.optional()
-						.describe("Deprecated. Kept for compatibility and ignored."),
-				},
-				async execute(args, toolCtx) {
-					if (!toolCtx?.sessionID) {
-						return "❌ boundary_policy_status requires sessionID. This is a system error.";
-					}
-
-					const rootSessionID = await getRootSessionID(toolCtx.sessionID);
-					void args;
-
-					const response: Record<string, unknown> = {
-						root_session_id: rootSessionID,
-						feature_flags: {
-							boundaryPolicyV2: hookConfig.features.boundaryPolicyV2,
-							hashAnchoredEdit: hookConfig.features.hashAnchoredEdit,
-							autonomyPolicy: hookConfig.features.autonomyPolicy,
-							continuationCommands: hookConfig.features.continuationCommands,
-						},
-						contracts: {
-							orchestrator_agents: ["plan", "build"],
-							implementer_agents: ["coder", "frontend", "build"],
-						},
-						gated_paths: {
-							continuation_idempotency_required_when_boundary_v2: [
-								"continuation_continue",
-								"continuation_handoff",
-								"continuation_stop",
-							],
-							orchestrator_direct_edit_advisory: ["write", "edit"],
-						},
-					};
-
-					return JSON.stringify(response, null, 2);
-				},
-			}),
-
-			claude_compat_scan: tool({
-				description:
-					"Discover Claude-compatible assets across .claude/.agents roots for interoperability.",
-				args: {
-					include_assets: tool.schema
-						.boolean()
-						.optional()
-						.describe("Include full asset paths in output (default: false)."),
-				},
-				async execute(args) {
-					if (!hookConfig.features.claudeCompatibility) {
-						return "❌ claude_compat_scan is disabled. Enable features.claudeCompatibility in workspace.json.";
-					}
-
-					const snapshot = await discoverClaudeCompatAssets({
-						directory,
-						homeDirectory: homedir(),
-					});
-
-					if (args.include_assets) {
-						return JSON.stringify(snapshot, null, 2);
-					}
-
-					return JSON.stringify(
-						{
-							generated_at: snapshot.generated_at,
-							roots: snapshot.roots,
-							totals: snapshot.totals,
-						},
-						null,
-						2,
-					);
 				},
 			}),
 

@@ -27,7 +27,6 @@ interface HookFeatureFlags {
 	continuationCommands?: boolean;
 	tmuxOrchestration?: boolean;
 	boundaryPolicyV2?: boolean;
-	claudeCompatibility?: boolean;
 	mcpOAuthHelper?: boolean;
 }
 
@@ -103,7 +102,6 @@ const DEFAULT_FEATURE_FLAGS: Required<HookFeatureFlags> = {
 	continuationCommands: true,
 	tmuxOrchestration: true,
 	boundaryPolicyV2: true,
-	claudeCompatibility: true,
 	mcpOAuthHelper: true,
 };
 
@@ -142,7 +140,6 @@ const DISABLED_HOOKS_BY_FEATURE: Record<keyof HookFeatureFlags, string[]> = {
 	continuationCommands: [],
 	tmuxOrchestration: [],
 	boundaryPolicyV2: [],
-	claudeCompatibility: [],
 	mcpOAuthHelper: [],
 };
 
@@ -297,10 +294,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 		boundaryPolicyV2:
 			typeof featureValue?.boundaryPolicyV2 === "boolean"
 				? featureValue.boundaryPolicyV2
-				: undefined,
-		claudeCompatibility:
-			typeof featureValue?.claudeCompatibility === "boolean"
-				? featureValue.claudeCompatibility
 				: undefined,
 		mcpOAuthHelper:
 			typeof featureValue?.mcpOAuthHelper === "boolean"
