@@ -34,25 +34,7 @@ interface WorktreeConfig {
 	baseDir?: string;
 }
 
-interface WorktreeToolContext {
-	sessionID?: string;
-	ask?: (input: {
-		permission: string;
-		patterns: string[];
-		always: string[];
-		metadata: Record<string, unknown>;
-	}) => Promise<void>;
-}
-
-export interface WorktreeApprovalInput {
-	toolName: string;
-	toolCtx?: WorktreeToolContext;
-	reason: string;
-	metadata?: Record<string, string | number | boolean>;
-}
-
 interface WorktreeToolOptions {
-	enforceApproval?: (input: WorktreeApprovalInput) => Promise<string | null>;
 	tmuxOrchestration?: boolean;
 	onTerminalSpawn?: (input: {
 		sessionID: string;
@@ -210,20 +192,6 @@ export function createWorktreeTools(
 					return "❌ worktree_create requires sessionID.";
 				}
 
-				const approvalBlocked = await options.enforceApproval?.({
-					toolName: "worktree_create",
-					toolCtx,
-					reason: `Create worktree for branch '${args.branch}'.`,
-					metadata: {
-						branch: args.branch,
-						base: args.base ?? "",
-						open_terminal: args.open_terminal !== false,
-					},
-				});
-				if (approvalBlocked) {
-					return approvalBlocked;
-				}
-
 				const sanitized = sanitizeBranchName(args.branch);
 				if (!sanitized) {
 					return `❌ Invalid branch name: "${args.branch}". Use alphanumeric characters, dashes, dots, or slashes.`;
@@ -372,15 +340,6 @@ export function createWorktreeTools(
 					return "❌ worktree_enter requires sessionID.";
 				}
 
-				const approvalBlocked = await options.enforceApproval?.({
-					toolName: "worktree_enter",
-					toolCtx,
-					reason: "Enter active worktree context.",
-				});
-				if (approvalBlocked) {
-					return approvalBlocked;
-				}
-
 				try {
 					const stateDB = await getDB();
 					const session = stateDB.getSession(toolCtx.sessionID);
@@ -410,18 +369,6 @@ export function createWorktreeTools(
 			async execute(args, toolCtx) {
 				if (!toolCtx?.sessionID) {
 					return "❌ worktree_leave requires sessionID.";
-				}
-
-				const approvalBlocked = await options.enforceApproval?.({
-					toolName: "worktree_leave",
-					toolCtx,
-					reason: "Leave active worktree context.",
-					metadata: {
-						force: args.force === true,
-					},
-				});
-				if (approvalBlocked) {
-					return approvalBlocked;
 				}
 
 				const force = args.force === true;
@@ -482,26 +429,12 @@ export function createWorktreeTools(
 						"Force deletion if this is the currently entered worktree context.",
 					),
 			},
-			async execute(args, toolCtx) {
+			async execute(args, _toolCtx) {
 				const branch = args.branch.trim();
 				const shouldSnapshot = args.snapshot !== false;
 				const force = args.force === true;
 				let snapshotCommitted = false;
 				let hadDirtyChanges = false;
-
-				const approvalBlocked = await options.enforceApproval?.({
-					toolName: "worktree_delete",
-					toolCtx,
-					reason: `Delete worktree for branch '${branch}'.`,
-					metadata: {
-						branch,
-						snapshot: shouldSnapshot,
-						force,
-					},
-				});
-				if (approvalBlocked) {
-					return approvalBlocked;
-				}
 
 				try {
 					// Find the worktree path

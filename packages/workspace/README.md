@@ -45,30 +45,28 @@ Project values override global values.
 
 ### Default Operational Profile
 
-All operational improvements are on by default. Approval remains opt-in.
+All operational improvements are on by default. Tool approval is delegated to native OpenCode `permission` rules.
 
 ```json
 {
   "safeHookCreation": false,
-  "features": {
-    "momentum": true,
-    "completionPromise": true,
+	"features": {
+		"momentum": true,
+		"completionPromise": true,
     "writePolicy": true,
     "taskReminder": true,
     "autonomyPolicy": true,
     "notifications": true,
-    "verificationAutopilot": true,
-    "hashAnchoredEdit": true,
-    "contextScout": true,
-    "externalScout": true,
-    "skillPointer": true,
-    "taskGraph": true,
-    "continuationCommands": true,
+		"verificationAutopilot": true,
+		"hashAnchoredEdit": true,
+		"contextScout": true,
+		"externalScout": true,
+		"taskGraph": true,
+		"continuationCommands": true,
     "tmuxOrchestration": true,
     "boundaryPolicyV2": true,
     "claudeCompatibility": true,
-    "mcpOAuthHelper": true,
-    "approvalGate": false
+    "mcpOAuthHelper": true
   },
   "thresholds": {
     "taskReminderThreshold": 20,
@@ -80,13 +78,6 @@ All operational improvements are on by default. Approval remains opt-in.
     "enabled": true,
     "desktop": true,
     "privacy": "strict"
-  },
-  "approval": {
-    "mode": "off",
-    "tools": ["plan_archive", "background_cancel", "worktree_delete"],
-    "exemptTools": [],
-    "ttlMs": 300000,
-    "nonInteractive": "fail-closed"
   }
 }
 ```
@@ -123,8 +114,8 @@ To disable tmux orchestration:
 ## Important Notes
 
 - `contextScout`/`externalScout` are hook-based context pipelines, not subagents.
-- `boundaryPolicyV2` hardens policy behavior but does not require approval mode to be on.
-- Approval remains disabled unless you explicitly set `features.approvalGate=true` and `approval.mode` to a stricter value.
+- `boundaryPolicyV2` hardens continuation and edit-safety behavior without adding a second approval system.
+- Tool approval is handled by native OpenCode `permission` rules rather than workspace-local approval settings.
 - Hook creation is fail-fast by default (`safeHookCreation=false`) so missing/broken runtime dependencies fail visibly.
 
 ## Tooling Surface

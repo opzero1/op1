@@ -44,22 +44,6 @@ type BoundaryPolicyStatusTool = {
 	) => Promise<string>;
 };
 
-interface ApprovalStoreSnapshot {
-	audit?: Array<{
-		tool: string;
-		outcome: "approved" | "denied" | "blocked" | "bypassed";
-		reason:
-			| "cached_grant"
-			| "prompt_approved"
-			| "prompt_denied"
-			| "prompt_unavailable"
-			| "non_interactive_blocked"
-			| "non_interactive_bypass"
-			| "policy_idempotency_required"
-			| "policy_transition_applied";
-	}>;
-}
-
 afterEach(async () => {
 	for (const root of tempRoots) {
 		await rm(root, { recursive: true, force: true });
@@ -152,18 +136,8 @@ async function createHarness(input?: { boundaryPolicyV2?: boolean }): Promise<{
 	};
 }
 
-async function readApprovalStore(root: string): Promise<ApprovalStoreSnapshot> {
-	const statePath = join(root, ".opencode", "workspace", "approval-gate.json");
-	const file = Bun.file(statePath);
-	if (!(await file.exists())) {
-		return {};
-	}
-
-	return JSON.parse(await file.text()) as ApprovalStoreSnapshot;
-}
-
 describe("continuation boundary audit", () => {
-	test("records blocked and approved transition events for idempotency policy", async () => {
+	test("enforces idempotency when boundaryPolicyV2 is enabled", async () => {
 		const harness = await createHarness();
 
 		const blocked = await harness.continuationContinue.execute(
@@ -177,27 +151,6 @@ describe("continuation boundary audit", () => {
 			{ sessionID: "session-boundary" },
 		);
 		expect(approved).toContain('"mode": "running"');
-
-		const store = await readApprovalStore(harness.root);
-		const audit = store.audit ?? [];
-
-		expect(
-			audit.some(
-				(entry) =>
-					entry.tool === "continuation_continue" &&
-					entry.outcome === "blocked" &&
-					entry.reason === "policy_idempotency_required",
-			),
-		).toBe(true);
-
-		expect(
-			audit.some(
-				(entry) =>
-					entry.tool === "continuation_continue" &&
-					entry.outcome === "approved" &&
-					entry.reason === "policy_transition_applied",
-			),
-		).toBe(true);
 	});
 
 	test("does not block continuation transitions when boundaryPolicyV2 is disabled", async () => {
@@ -219,29 +172,6 @@ describe("continuation boundary audit", () => {
 		expect(continueResult).toContain('"mode": "running"');
 		expect(handoffResult).toContain('"mode": "handoff"');
 		expect(stopResult).toContain('"mode": "stopped"');
-
-		const store = await readApprovalStore(harness.root);
-		const audit = store.audit ?? [];
-		expect(
-			audit.some((entry) => entry.reason === "policy_idempotency_required"),
-		).toBe(false);
-		expect(
-			audit.some((entry) => entry.reason === "policy_transition_applied"),
-		).toBe(false);
-		expect(
-			audit.some(
-				(entry) =>
-					entry.tool === "continuation_handoff" &&
-					entry.reason === "policy_transition_applied",
-			),
-		).toBe(false);
-		expect(
-			audit.some(
-				(entry) =>
-					entry.tool === "continuation_stop" &&
-					entry.reason === "policy_transition_applied",
-			),
-		).toBe(false);
 	});
 
 	test("reports boundary diagnostics and gated-path inventory", async () => {
@@ -265,7 +195,6 @@ describe("continuation boundary audit", () => {
 			gated_paths?: {
 				continuation_idempotency_required_when_boundary_v2?: string[];
 			};
-			audit_summary?: { by_reason?: Record<string, number> };
 		};
 
 		expect(parsed.feature_flags?.boundaryPolicyV2).toBe(true);
@@ -274,8 +203,5 @@ describe("continuation boundary audit", () => {
 		expect(
 			parsed.gated_paths?.continuation_idempotency_required_when_boundary_v2,
 		).toContain("continuation_continue");
-		expect(
-			parsed.audit_summary?.by_reason?.policy_idempotency_required,
-		).toBeGreaterThanOrEqual(1);
 	});
 });

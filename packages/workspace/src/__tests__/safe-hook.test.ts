@@ -60,48 +60,14 @@ describe("safe-hook config", () => {
 		expect(config.features.taskGraph).toBe(true);
 		expect(config.features.continuationCommands).toBe(true);
 		expect(config.features.tmuxOrchestration).toBe(true);
-		expect(config.features.approvalGate).toBe(false);
 		expect(config.features.boundaryPolicyV2).toBe(true);
 		expect(config.features.claudeCompatibility).toBe(true);
 		expect(config.features.mcpOAuthHelper).toBe(true);
-		expect(config.approval.mode).toBe("off");
-		expect(config.approval.tools).toEqual([
-			"plan_archive",
-			"background_cancel",
-			"worktree_delete",
-		]);
-		expect(config.approval.nonInteractive).toBe("fail-closed");
 		expect(config.thresholds.taskReminderThreshold).toBe(20);
 		expect(config.thresholds.contextLimit).toBe(200000);
 		expect(config.notifications.enabled).toBe(true);
 		expect(config.notifications.desktop).toBe(true);
 		expect(config.notifications.privacy).toBe("strict");
-		expect(config.skillPointer.mode).toBe("fallback");
-	});
-
-	test("parses skillPointer mode from workspace config", async () => {
-		const projectRoot = await mkdtemp(
-			join(tmpdir(), "op1-safe-hook-skill-pointer-"),
-		);
-		tempRoots.push(projectRoot);
-
-		const projectConfigDir = join(projectRoot, ".opencode");
-		await mkdir(projectConfigDir, { recursive: true });
-		await Bun.write(
-			join(projectConfigDir, "workspace.json"),
-			JSON.stringify(
-				{
-					skillPointer: {
-						mode: "exclusive",
-					},
-				},
-				null,
-				2,
-			),
-		);
-
-		const config = await loadHookConfig(projectRoot);
-		expect(config.skillPointer.mode).toBe("exclusive");
 	});
 
 	test("adds disabled hooks when related features are off", () => {
@@ -163,14 +129,12 @@ describe("safe-hook config", () => {
 		const config = resolveHookConfig({
 			features: {
 				boundaryPolicyV2: true,
-				approvalGate: false,
 				hashAnchoredEdit: false,
 				autonomyPolicy: false,
 			},
 		});
 
 		expect(config.features.boundaryPolicyV2).toBe(true);
-		expect(config.features.approvalGate).toBe(false);
 		expect(config.features.hashAnchoredEdit).toBe(true);
 		expect(config.features.autonomyPolicy).toBe(true);
 	});
@@ -234,7 +198,7 @@ describe("safe-hook config", () => {
 		expect(config.thresholds.taskReminderThreshold).toBe(4);
 	});
 
-	test("parses approval policy from workspace config", async () => {
+	test("ignores removed approval settings from workspace config", async () => {
 		const projectRoot = await mkdtemp(
 			join(tmpdir(), "op1-safe-hook-approval-"),
 		);
@@ -249,9 +213,7 @@ describe("safe-hook config", () => {
 					features: { approvalGate: true },
 					approval: {
 						mode: "all_mutating",
-						exemptTools: ["worktree_delete"],
 						ttlMs: 120000,
-						nonInteractive: "fail-closed",
 					},
 				},
 				null,
@@ -261,10 +223,7 @@ describe("safe-hook config", () => {
 
 		const config = await loadHookConfig(projectRoot);
 
-		expect(config.features.approvalGate).toBe(true);
-		expect(config.approval.mode).toBe("all_mutating");
-		expect(config.approval.exemptTools).toEqual(["worktree_delete"]);
-		expect(config.approval.ttlMs).toBe(120000);
-		expect(config.approval.nonInteractive).toBe("fail-closed");
+		expect("approval" in config).toBe(false);
+		expect("approvalGate" in config.features).toBe(false);
 	});
 });

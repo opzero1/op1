@@ -28,7 +28,7 @@ This document tracks the plugin-first `mcp0` direction for MCP token-efficiency 
 
 ### Isolate
 
-- Existing local MCP-pointer and SkillPointer experimental edits in op1 remain uncommitted and should be split into separate commits if reused.
+- Existing local MCP-pointer experimental edits in op1 remain uncommitted and should be split into separate commits if reused.
 
 ## Open Follow-ups
 

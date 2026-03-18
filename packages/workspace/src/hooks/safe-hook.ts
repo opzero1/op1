@@ -5,11 +5,6 @@
  * Inspired by oh-my-opencode's safe-create-hook pattern.
  */
 
-import {
-	type ApprovalPolicyConfig,
-	type ResolvedApprovalPolicy,
-	resolveApprovalPolicy,
-} from "../approval/policy.js";
 import { homedir, join } from "../bun-compat.js";
 import { createLogger } from "../logging.js";
 
@@ -28,11 +23,9 @@ interface HookFeatureFlags {
 	hashAnchoredEdit?: boolean;
 	contextScout?: boolean;
 	externalScout?: boolean;
-	skillPointer?: boolean;
 	taskGraph?: boolean;
 	continuationCommands?: boolean;
 	tmuxOrchestration?: boolean;
-	approvalGate?: boolean;
 	boundaryPolicyV2?: boolean;
 	claudeCompatibility?: boolean;
 	mcpOAuthHelper?: boolean;
@@ -58,10 +51,6 @@ interface HookVerification {
 	throttleMs?: number;
 }
 
-interface HookSkillPointer {
-	mode?: "fallback" | "exclusive";
-}
-
 /**
  * Plugin-level configuration for hook feature flags.
  * Consumers can pass this to control which hooks are active.
@@ -79,10 +68,6 @@ export interface HookConfig {
 	notifications?: HookNotifications;
 	/** Verification autopilot settings */
 	verification?: HookVerification;
-	/** Skill pointer fail policy */
-	skillPointer?: HookSkillPointer;
-	/** Approval-gate policy controls */
-	approval?: ApprovalPolicyConfig;
 }
 
 export interface ResolvedHookConfig {
@@ -101,8 +86,6 @@ export interface ResolvedHookConfig {
 		autopilot: boolean;
 		throttleMs: number;
 	};
-	skillPointer: Required<HookSkillPointer>;
-	approval: ResolvedApprovalPolicy;
 }
 
 const DEFAULT_FEATURE_FLAGS: Required<HookFeatureFlags> = {
@@ -116,11 +99,9 @@ const DEFAULT_FEATURE_FLAGS: Required<HookFeatureFlags> = {
 	hashAnchoredEdit: true,
 	contextScout: true,
 	externalScout: true,
-	skillPointer: true,
 	taskGraph: true,
 	continuationCommands: true,
 	tmuxOrchestration: true,
-	approvalGate: false,
 	boundaryPolicyV2: true,
 	claudeCompatibility: true,
 	mcpOAuthHelper: true,
@@ -146,10 +127,6 @@ const DEFAULT_VERIFICATION: Required<HookVerification> = {
 	throttleMs: DEFAULT_THRESHOLDS.verificationThrottleMs,
 };
 
-const DEFAULT_SKILL_POINTER: Required<HookSkillPointer> = {
-	mode: "fallback",
-};
-
 const DISABLED_HOOKS_BY_FEATURE: Record<keyof HookFeatureFlags, string[]> = {
 	momentum: ["momentum"],
 	completionPromise: ["completionPromise"],
@@ -161,11 +138,9 @@ const DISABLED_HOOKS_BY_FEATURE: Record<keyof HookFeatureFlags, string[]> = {
 	hashAnchoredEdit: ["tool.execute.after.hashAnchorReadEnhancer"],
 	contextScout: ["tool.execute.after.contextScout"],
 	externalScout: ["tool.execute.after.contextScout"],
-	skillPointer: [],
 	taskGraph: [],
 	continuationCommands: [],
 	tmuxOrchestration: [],
-	approvalGate: [],
 	boundaryPolicyV2: [],
 	claudeCompatibility: [],
 	mcpOAuthHelper: [],
@@ -181,8 +156,6 @@ export const DEFAULT_HOOK_CONFIG: ResolvedHookConfig = {
 	thresholds: DEFAULT_THRESHOLDS,
 	notifications: DEFAULT_NOTIFICATIONS,
 	verification: DEFAULT_VERIFICATION,
-	skillPointer: DEFAULT_SKILL_POINTER,
-	approval: resolveApprovalPolicy(),
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -211,22 +184,6 @@ function parsePrivacyMode(value: unknown): PrivacyMode | null {
 	if (normalized === "strict") return "strict";
 	if (normalized === "balanced") return "balanced";
 	return null;
-}
-
-function parseApprovalMode(
-	value: unknown,
-): ApprovalPolicyConfig["mode"] | undefined {
-	if (value === "off") return "off";
-	if (value === "selected") return "selected";
-	if (value === "all_mutating") return "all_mutating";
-	return undefined;
-}
-
-function parseApprovalNonInteractive(
-	value: unknown,
-): ApprovalPolicyConfig["nonInteractive"] | undefined {
-	if (value === "fail-closed") return "fail-closed";
-	return undefined;
 }
 
 function mergeHookConfig(base: HookConfig, incoming: HookConfig): HookConfig {
@@ -270,18 +227,6 @@ function mergeHookConfig(base: HookConfig, incoming: HookConfig): HookConfig {
 				incoming.verification as Record<string, unknown> | undefined,
 			),
 		},
-		skillPointer: {
-			...(base.skillPointer ?? {}),
-			...stripUndefined(
-				incoming.skillPointer as Record<string, unknown> | undefined,
-			),
-		},
-		approval: {
-			...(base.approval ?? {}),
-			...stripUndefined(
-				incoming.approval as Record<string, unknown> | undefined,
-			),
-		},
 	};
 }
 
@@ -295,8 +240,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 	const thresholdValue = asRecord(section.thresholds);
 	const notificationValue = asRecord(section.notifications);
 	const verificationValue = asRecord(section.verification);
-	const skillPointerValue = asRecord(section.skillPointer);
-	const approvalValue = asRecord(section.approval);
 
 	const features: HookFeatureFlags = {
 		momentum:
@@ -339,10 +282,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 			typeof featureValue?.externalScout === "boolean"
 				? featureValue.externalScout
 				: undefined,
-		skillPointer:
-			typeof featureValue?.skillPointer === "boolean"
-				? featureValue.skillPointer
-				: undefined,
 		taskGraph:
 			typeof featureValue?.taskGraph === "boolean"
 				? featureValue.taskGraph
@@ -354,10 +293,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 		tmuxOrchestration:
 			typeof featureValue?.tmuxOrchestration === "boolean"
 				? featureValue.tmuxOrchestration
-				: undefined,
-		approvalGate:
-			typeof featureValue?.approvalGate === "boolean"
-				? featureValue.approvalGate
 				: undefined,
 		boundaryPolicyV2:
 			typeof featureValue?.boundaryPolicyV2 === "boolean"
@@ -423,36 +358,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 				: undefined,
 	};
 
-	const skillPointer: HookSkillPointer = {
-		mode:
-			skillPointerValue?.mode === "exclusive"
-				? "exclusive"
-				: skillPointerValue?.mode === "fallback"
-					? "fallback"
-					: undefined,
-	};
-
-	const approval: ApprovalPolicyConfig = {
-		mode: parseApprovalMode(approvalValue?.mode),
-		tools: Array.isArray(approvalValue?.tools)
-			? approvalValue.tools.filter(
-					(value): value is string =>
-						typeof value === "string" && value.trim().length > 0,
-				)
-			: undefined,
-		exemptTools: Array.isArray(approvalValue?.exemptTools)
-			? approvalValue.exemptTools.filter(
-					(value): value is string =>
-						typeof value === "string" && value.trim().length > 0,
-				)
-			: undefined,
-		ttlMs:
-			typeof approvalValue?.ttlMs === "number"
-				? approvalValue.ttlMs
-				: undefined,
-		nonInteractive: parseApprovalNonInteractive(approvalValue?.nonInteractive),
-	};
-
 	return {
 		disabledHooks: Array.isArray(section.disabledHooks)
 			? section.disabledHooks.filter(
@@ -468,8 +373,6 @@ function getWorkspaceConfigFromRoot(config: unknown): HookConfig | null {
 		thresholds,
 		notifications,
 		verification,
-		skillPointer,
-		approval,
 	};
 }
 
@@ -615,11 +518,6 @@ export function resolveHookConfig(partial?: HookConfig): ResolvedHookConfig {
 			...DEFAULT_VERIFICATION,
 			...(merged.verification ?? {}),
 		},
-		skillPointer: {
-			...DEFAULT_SKILL_POINTER,
-			...(merged.skillPointer ?? {}),
-		},
-		approval: resolveApprovalPolicy(merged.approval),
 	};
 
 	if (resolved.features.externalScout) {

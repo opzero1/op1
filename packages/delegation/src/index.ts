@@ -1,6 +1,5 @@
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { summarizeAgentStatus } from "./agent-status.js";
-import { enforceToolApproval } from "./approval.js";
 import { join, mkdir } from "./bun-compat.js";
 import { generateTaskID } from "./ids.js";
 import { createLogger } from "./logging.js";
@@ -871,19 +870,6 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						client,
 						toolCtx.sessionID,
 					);
-					const approvalBlocked = await enforceToolApproval({
-						directory: ctx.directory,
-						rootSessionID,
-						toolName: "background_cancel",
-						reason:
-							args.all === true
-								? "Cancel all active background tasks in the current root session."
-								: `Cancel background task '${args.task_id?.trim() || ""}'.`,
-						ask: toolCtx.ask,
-					});
-					if (approvalBlocked) {
-						return approvalBlocked;
-					}
 
 					const reasonText = args.reason?.trim();
 					if (args.all === true) {

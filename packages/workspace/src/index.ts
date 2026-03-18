@@ -11,15 +11,6 @@
  */
 
 import { type Plugin, tool } from "@opencode-ai/plugin";
-import {
-	getApprovalRiskTier,
-	normalizeApprovalToolName,
-	shouldEnforceApproval,
-} from "./approval/policy.js";
-import {
-	type ApprovalAuditReason,
-	createApprovalStateManager,
-} from "./approval/state.js";
 import { homedir, join, mkdir, relative, resolve } from "./bun-compat.js";
 import { createContextScoutStateManager } from "./context-scout/state.js";
 import { createContinuationStateManager } from "./continuation/state.js";
@@ -88,7 +79,6 @@ import {
 	executeSessionRead,
 	executeSessionSearch,
 } from "./session-history.js";
-import { createSkillPointerResolver } from "./skill-pointer/resolve.js";
 import { getProjectId, isSystemError } from "./utils.js";
 import { createWorktreeTools } from "./worktree/index.js";
 
@@ -122,36 +112,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		notepadsDir,
 		activePlanPath,
 	);
-	const approvalState = createApprovalStateManager(workspaceDir);
 	const contextScoutState = createContextScoutStateManager(workspaceDir);
 	const continuationState = createContinuationStateManager(workspaceDir);
 
 	// Hook configuration (global + project config + env overrides)
 	const hookConfig: ResolvedHookConfig = await loadHookConfig(directory);
-	const skillPointerMode =
-		hookConfig.skillPointer.mode === "exclusive" ? "exclusive" : "fallback";
-	const skillPointerResolver = createSkillPointerResolver({
-		enabled: hookConfig.features.skillPointer,
-		mode: skillPointerMode,
-		skillsRoot: join(homedir(), ".config", "opencode", "skills"),
-		externalSkillRoots: hookConfig.features.claudeCompatibility
-			? [
-					join(directory, ".claude"),
-					join(directory, ".agents"),
-					join(homedir(), ".claude"),
-					join(homedir(), ".agents"),
-				]
-			: [],
-	});
-
-	if (hookConfig.features.skillPointer) {
-		const skillPointerIntegrity = await skillPointerResolver.validateIndex();
-		if (!skillPointerIntegrity.ok) {
-			if (skillPointerMode === "fallback") {
-				hookConfig.features.skillPointer = false;
-			}
-		}
-	}
 
 	// ── Session helpers ────────────────────────────────────
 
@@ -229,155 +194,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		}
 
 		return resolve(directory, pathValue);
-	}
-
-	interface ApprovalToolContext {
-		sessionID?: string;
-		ask?: (input: {
-			permission: string;
-			patterns: string[];
-			always: string[];
-			metadata: Record<string, unknown>;
-		}) => Promise<void>;
-	}
-
-	function isNonInteractiveApprovalError(message: string): boolean {
-		const normalized = message.toLowerCase();
-		return (
-			normalized.includes("non-interactive") ||
-			normalized.includes("headless") ||
-			normalized.includes("tty") ||
-			normalized.includes("interactive") ||
-			normalized.includes("cannot ask")
-		);
-	}
-
-	async function writeApprovalAudit(input: {
-		sessionID: string;
-		tool: string;
-		outcome: "approved" | "denied" | "blocked";
-		reason: ApprovalAuditReason;
-		expiresAt?: string;
-		detail?: string;
-		metadata?: Record<string, string | number | boolean>;
-	}): Promise<void> {
-		try {
-			await approvalState.recordAudit({
-				session_id: input.sessionID,
-				tool: input.tool,
-				outcome: input.outcome,
-				reason: input.reason,
-				expires_at: input.expiresAt,
-				detail: input.detail,
-				metadata: input.metadata,
-			});
-		} catch {
-			// Approval auditing should not crash tool execution.
-		}
-	}
-
-	async function enforceApprovalGate(input: {
-		toolName: string;
-		toolCtx?: ApprovalToolContext;
-		reason: string;
-		metadata?: Record<string, string | number | boolean>;
-	}): Promise<string | null> {
-		const normalizedTool = normalizeApprovalToolName(input.toolName);
-		if (!normalizedTool) return null;
-
-		const shouldGate = shouldEnforceApproval({
-			toolName: normalizedTool,
-			featureEnabled: hookConfig.features.approvalGate,
-			policy: hookConfig.approval,
-		});
-		if (!shouldGate) return null;
-
-		if (!input.toolCtx?.sessionID) {
-			return `❌ ${normalizedTool} requires sessionID for approval-gated execution.`;
-		}
-
-		const rootSessionID = await getRootSessionID(input.toolCtx.sessionID);
-		const cached = await approvalState.getActiveGrant(
-			rootSessionID,
-			normalizedTool,
-		);
-		if (cached) {
-			await writeApprovalAudit({
-				sessionID: rootSessionID,
-				tool: normalizedTool,
-				outcome: "approved",
-				reason: "cached_grant",
-				expiresAt: cached.expires_at,
-				metadata: input.metadata,
-			});
-			return null;
-		}
-
-		if (!input.toolCtx.ask) {
-			await writeApprovalAudit({
-				sessionID: rootSessionID,
-				tool: normalizedTool,
-				outcome: "blocked",
-				reason: "prompt_unavailable",
-				detail: "Approval prompt unavailable in this session.",
-				metadata: input.metadata,
-			});
-			return `❌ ${normalizedTool} is approval-gated and cannot run because prompts are unavailable in this session.`;
-		}
-
-		try {
-			const riskTier = getApprovalRiskTier(normalizedTool);
-			await input.toolCtx.ask({
-				permission: "task",
-				patterns: [normalizedTool],
-				always: ["*"],
-				metadata: {
-					approval_gate: true,
-					approval_tool: normalizedTool,
-					approval_reason: input.reason,
-					approval_ttl_ms: hookConfig.approval.ttlMs,
-					approval_risk_tier: riskTier ?? "medium",
-					...(input.metadata ?? {}),
-				},
-			});
-
-			const requestID = crypto.randomUUID();
-			const grant = await approvalState.approveTool({
-				sessionID: rootSessionID,
-				tool: normalizedTool,
-				ttlMs: hookConfig.approval.ttlMs,
-				requestID,
-			});
-
-			await writeApprovalAudit({
-				sessionID: rootSessionID,
-				tool: normalizedTool,
-				outcome: "approved",
-				reason: "prompt_approved",
-				expiresAt: grant?.expires_at,
-				metadata: input.metadata,
-			});
-
-			return null;
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			const nonInteractive = isNonInteractiveApprovalError(message);
-
-			await writeApprovalAudit({
-				sessionID: rootSessionID,
-				tool: normalizedTool,
-				outcome: nonInteractive ? "blocked" : "denied",
-				reason: nonInteractive ? "non_interactive_blocked" : "prompt_denied",
-				detail: message,
-				metadata: input.metadata,
-			});
-
-			if (nonInteractive) {
-				return `❌ ${normalizedTool} is approval-gated and blocked in non-interactive sessions (policy: fail-closed).`;
-			}
-
-			return `❌ ${normalizedTool} requires approval and was denied or cancelled.`;
-		}
 	}
 
 	// ── Hook factories ─────────────────────────────────────
@@ -580,14 +396,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 	// ── Worktree tools ─────────────────────────────────────
 	const worktreeTools = createWorktreeTools(directory, projectId, {
-		enforceApproval: async (input) => {
-			return enforceApprovalGate({
-				toolName: input.toolName,
-				toolCtx: input.toolCtx,
-				reason: input.reason,
-				metadata: input.metadata,
-			});
-		},
 		tmuxOrchestration: hookConfig.features.tmuxOrchestration,
 		onTerminalSpawn: async (input) => {
 			if (input.terminal !== "tmux") return;
@@ -1161,18 +969,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						return "❌ plan_archive requires sessionID. This is a system error.";
 					}
 
-					const approvalBlocked = await enforceApprovalGate({
-						toolName: "plan_archive",
-						toolCtx,
-						reason: `Archive plan '${args.identifier}'.`,
-						metadata: {
-							identifier: args.identifier,
-						},
-					});
-					if (approvalBlocked) {
-						return approvalBlocked;
-					}
-
 					try {
 						const result = await sm.archivePlan(args.identifier, {
 							sessionID: toolCtx.sessionID,
@@ -1210,18 +1006,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				async execute(args, toolCtx) {
 					if (!toolCtx?.sessionID) {
 						return "❌ plan_unarchive requires sessionID. This is a system error.";
-					}
-
-					const approvalBlocked = await enforceApprovalGate({
-						toolName: "plan_unarchive",
-						toolCtx,
-						reason: `Unarchive plan '${args.identifier}'.`,
-						metadata: {
-							identifier: args.identifier,
-						},
-					});
-					if (approvalBlocked) {
-						return approvalBlocked;
 					}
 
 					try {
@@ -1613,18 +1397,6 @@ To begin implementation:
 					}
 
 					if (hookConfig.features.boundaryPolicyV2 && !args.idempotency_key) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_continue",
-							outcome: "blocked",
-							reason: "policy_idempotency_required",
-							detail:
-								"boundaryPolicyV2 requires idempotency_key for continuation_continue.",
-							metadata: {
-								session_id: sessionID,
-							},
-						});
 						return "❌ continuation_continue requires idempotency_key when features.boundaryPolicyV2 is enabled.";
 					}
 
@@ -1633,20 +1405,6 @@ To begin implementation:
 						mode: "running",
 						idempotency_key: args.idempotency_key,
 					});
-					if (hookConfig.features.boundaryPolicyV2) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_continue",
-							outcome: "approved",
-							reason: "policy_transition_applied",
-							metadata: {
-								session_id: sessionID,
-								idempotency_key: Boolean(args.idempotency_key),
-								mode: "running",
-							},
-						});
-					}
 					markCompactionStateDirty(sessionID);
 					return JSON.stringify(updated, null, 2);
 				},
@@ -1684,18 +1442,6 @@ To begin implementation:
 					}
 
 					if (hookConfig.features.boundaryPolicyV2 && !args.idempotency_key) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_handoff",
-							outcome: "blocked",
-							reason: "policy_idempotency_required",
-							detail:
-								"boundaryPolicyV2 requires idempotency_key for continuation_handoff.",
-							metadata: {
-								session_id: sessionID,
-							},
-						});
 						return "❌ continuation_handoff requires idempotency_key when features.boundaryPolicyV2 is enabled.";
 					}
 
@@ -1706,20 +1452,6 @@ To begin implementation:
 						handoff_summary: args.summary.trim(),
 						idempotency_key: args.idempotency_key,
 					});
-					if (hookConfig.features.boundaryPolicyV2) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_handoff",
-							outcome: "approved",
-							reason: "policy_transition_applied",
-							metadata: {
-								session_id: sessionID,
-								idempotency_key: Boolean(args.idempotency_key),
-								mode: "handoff",
-							},
-						});
-					}
 					markCompactionStateDirty(sessionID);
 					return JSON.stringify(updated, null, 2);
 				},
@@ -1755,18 +1487,6 @@ To begin implementation:
 					}
 
 					if (hookConfig.features.boundaryPolicyV2 && !args.idempotency_key) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_stop",
-							outcome: "blocked",
-							reason: "policy_idempotency_required",
-							detail:
-								"boundaryPolicyV2 requires idempotency_key for continuation_stop.",
-							metadata: {
-								session_id: sessionID,
-							},
-						});
 						return "❌ continuation_stop requires idempotency_key when features.boundaryPolicyV2 is enabled.";
 					}
 
@@ -1776,20 +1496,6 @@ To begin implementation:
 						reason: args.reason?.trim(),
 						idempotency_key: args.idempotency_key,
 					});
-					if (hookConfig.features.boundaryPolicyV2) {
-						const rootSessionID = await getRootSessionID(sessionID);
-						await writeApprovalAudit({
-							sessionID: rootSessionID,
-							tool: "continuation_stop",
-							outcome: "approved",
-							reason: "policy_transition_applied",
-							metadata: {
-								session_id: sessionID,
-								idempotency_key: Boolean(args.idempotency_key),
-								mode: "stopped",
-							},
-						});
-					}
 					markCompactionStateDirty(sessionID);
 					return JSON.stringify(updated, null, 2);
 				},
@@ -1797,12 +1503,12 @@ To begin implementation:
 
 			boundary_policy_status: tool({
 				description:
-					"Inspect boundary policy posture, gated tool coverage, and audit summaries for the current root session.",
+					"Inspect boundary policy posture and contract coverage for the current root session.",
 				args: {
 					include_audit_summary: tool.schema
 						.boolean()
 						.optional()
-						.describe("Include audit outcome/reason counts (default: true)."),
+						.describe("Deprecated. Kept for compatibility and ignored."),
 				},
 				async execute(args, toolCtx) {
 					if (!toolCtx?.sessionID) {
@@ -1810,24 +1516,21 @@ To begin implementation:
 					}
 
 					const rootSessionID = await getRootSessionID(toolCtx.sessionID);
-					const includeAuditSummary = args.include_audit_summary !== false;
+					void args;
 
 					const response: Record<string, unknown> = {
 						root_session_id: rootSessionID,
 						feature_flags: {
 							boundaryPolicyV2: hookConfig.features.boundaryPolicyV2,
-							approvalGate: hookConfig.features.approvalGate,
 							hashAnchoredEdit: hookConfig.features.hashAnchoredEdit,
 							autonomyPolicy: hookConfig.features.autonomyPolicy,
 							continuationCommands: hookConfig.features.continuationCommands,
 						},
-						approval_policy: hookConfig.approval,
 						contracts: {
 							orchestrator_agents: ["plan", "build"],
 							implementer_agents: ["coder", "frontend", "build"],
 						},
 						gated_paths: {
-							approval_gate_tools: hookConfig.approval.tools,
 							continuation_idempotency_required_when_boundary_v2: [
 								"continuation_continue",
 								"continuation_handoff",
@@ -1836,35 +1539,6 @@ To begin implementation:
 							orchestrator_direct_edit_advisory: ["write", "edit"],
 						},
 					};
-
-					if (includeAuditSummary) {
-						const approvalStore = await approvalState.readStore();
-						const audit = approvalStore.audit.filter(
-							(entry) => entry.session_id === rootSessionID,
-						);
-
-						const byOutcome = audit.reduce<Record<string, number>>(
-							(acc, entry) => {
-								acc[entry.outcome] = (acc[entry.outcome] ?? 0) + 1;
-								return acc;
-							},
-							{},
-						);
-
-						const byReason = audit.reduce<Record<string, number>>(
-							(acc, entry) => {
-								acc[entry.reason] = (acc[entry.reason] ?? 0) + 1;
-								return acc;
-							},
-							{},
-						);
-
-						response.audit_summary = {
-							total: audit.length,
-							by_outcome: byOutcome,
-							by_reason: byReason,
-						};
-					}
 
 					return JSON.stringify(response, null, 2);
 				},

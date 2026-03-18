@@ -9,7 +9,6 @@ import {
 import { executeHashAnchoredEdit } from "../hash-anchor/edit";
 import { loadHookConfig } from "../hooks/safe-hook";
 import { WorkspacePlugin } from "../index";
-import { createSkillPointerResolver } from "../skill-pointer/resolve";
 
 const tempRoots: string[] = [];
 const originalHome = Bun.env.HOME;
@@ -64,47 +63,8 @@ function makeAnchors(content: string, lineNumbers: number[]): string[] {
 	});
 }
 
-async function writeSkillPointerFixture(skillsRoot: string): Promise<void> {
-	const pointerDir = join(skillsRoot, ".skillpointer");
-	const vaultRoot = join(skillsRoot, "skill-vault");
-	const vaultSkillPath = join(vaultRoot, "researcher", "SKILL.md");
-	const vaultContent = "Researcher vault guidance";
-
-	await mkdir(pointerDir, { recursive: true });
-	await mkdir(join(vaultRoot, "researcher"), { recursive: true });
-	await Bun.write(vaultSkillPath, vaultContent);
-
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(vaultContent);
-	const checksum = hasher.digest("hex");
-
-	await Bun.write(
-		join(pointerDir, "index.json"),
-		JSON.stringify(
-			{
-				version: 1,
-				vault_root: vaultRoot,
-				categories: [
-					{
-						category: "research",
-						skills: [
-							{
-								name: "researcher",
-								checksum_sha256: checksum,
-								vault_path: "researcher/SKILL.md",
-							},
-						],
-					},
-				],
-			},
-			null,
-			2,
-		),
-	);
-}
-
 describe("P0 feature smoke", () => {
-	test("runs hash-anchor, context-scout, skill-pointer, router, and approval flows in one config", async () => {
+	test("runs hash-anchor, context-scout, and router flows in one config", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-p0-smoke-"));
 		tempRoots.push(root);
 
@@ -123,13 +83,6 @@ describe("P0 feature smoke", () => {
 					features: {
 						hashAnchoredEdit: true,
 						contextScout: true,
-						skillPointer: true,
-						approvalGate: true,
-					},
-					approval: {
-						mode: "selected",
-						tools: ["plan_archive"],
-						nonInteractive: "fail-closed",
 					},
 				},
 				null,
@@ -137,14 +90,9 @@ describe("P0 feature smoke", () => {
 			),
 		);
 
-		const skillsRoot = join(homeRoot, ".config", "opencode", "skills");
-		await writeSkillPointerFixture(skillsRoot);
-
 		const hookConfig = await loadHookConfig(root);
 		expect(hookConfig.features.hashAnchoredEdit).toBe(true);
 		expect(hookConfig.features.contextScout).toBe(true);
-		expect(hookConfig.features.skillPointer).toBe(true);
-		expect(hookConfig.features.approvalGate).toBe(true);
 
 		const targetFile = join(root, "target.ts");
 		const initial = ["function get() {", "  return 1;", "}", ""].join("\n");
@@ -176,17 +124,6 @@ describe("P0 feature smoke", () => {
 		const ranked = await contextScout.listRankedPatterns({ limit: 1 });
 		expect(ranked[0]?.pattern).toBe("task.*router");
 
-		const skillPointerResolver = createSkillPointerResolver({
-			enabled: hookConfig.features.skillPointer,
-			skillsRoot,
-		});
-		const integrity = await skillPointerResolver.validateIndex();
-		expect(integrity.ok).toBe(true);
-		const resolvedSkill =
-			await skillPointerResolver.resolveSkillBody("researcher");
-		expect(resolvedSkill.source).toBe("vault");
-		expect(resolvedSkill.content).toContain("Researcher vault guidance");
-
 		const routed = resolveDelegationRouting({
 			description: "Research API docs",
 			prompt: "Investigate docs and compare approaches",
@@ -206,24 +143,23 @@ describe("P0 feature smoke", () => {
 			directory: root,
 			client: createMockClient(),
 		} as never);
-		const planArchiveTool = plugin.tool?.plan_archive as
+		const planReadTool = plugin.tool?.plan_read as
 			| {
 					execute: (
-						args: { identifier: string },
+						args: { reason: string },
 						toolCtx: unknown,
 					) => Promise<string>;
 			  }
 			| undefined;
-		expect(planArchiveTool).toBeDefined();
-		if (!planArchiveTool) {
-			throw new Error("plan_archive tool is missing in smoke scenario");
+		expect(planReadTool).toBeDefined();
+		if (!planReadTool) {
+			throw new Error("plan_read tool is missing in smoke scenario");
 		}
 
-		const approvalResult = await planArchiveTool.execute(
-			{ identifier: "missing-plan" },
+		const planReadResult = await planReadTool.execute(
+			{ reason: "smoke test" },
 			{ sessionID: "smoke-session" },
 		);
-		expect(approvalResult).toContain("approval-gated");
-		expect(approvalResult).toContain("prompts are unavailable");
+		expect(planReadResult).toContain("No plan found");
 	});
 });

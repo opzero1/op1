@@ -54,6 +54,12 @@ The `@op1/workspace` plugin provides automatic momentum:
 - Check ALL requirements met before reporting done
 - Load `verification-before-completion` or run an equivalent evidence-backed verification pass before final completion
 
+### Long-Running Work
+
+- If work is expected to span many iterations, restarts, or hours, load `long-running-workflows`.
+- Use durable local state instead of relying on live chat memory alone.
+- Keep long-running autonomy opt-in; do not force normal tasks into endless loops.
+
 ---
 
 ## Zero Tolerance Failures

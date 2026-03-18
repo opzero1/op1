@@ -61,12 +61,15 @@ describe("prompt template contracts", () => {
 		const reviewCommand = await readTemplate("commands", "review.md");
 		const workCommand = await readTemplate("commands", "work.md");
 		const ulwCommand = await readTemplate("commands", "ulw.md");
+		const autoloopCommand = await readTemplate("commands", "autoloop.md");
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
 		expect(ulwCommand).toContain("- simplify");
+		expect(autoloopCommand).toContain("long-running-workflows");
+		expect(autoloopCommand).toContain(".opencode/workspace/autoloop/<slug>/");
 		expect(deslopCommand).toContain("analyze-mode");
 		expect(deslopCommand).toContain("simplify");
 		expect(deslopCommand).toContain("code-philosophy");
@@ -102,6 +105,22 @@ describe("prompt template contracts", () => {
 		expect(ulw).toContain("verification-before-completion");
 		expect(ulw).not.toContain("## Verification Guarantee (NON-NEGOTIABLE)");
 		expect(verification).toContain("## Evidence Format");
+	});
+
+	test("long-running workflows skill defines durable state and pause controls", async () => {
+		const prompt = await readTemplate(
+			"skills",
+			"long-running-workflows",
+			"SKILL.md",
+		);
+
+		expect(prompt).toContain("name: long-running-workflows");
+		expect(prompt).toContain(".opencode/workspace/autoloop/<slug>/");
+		expect(prompt).toContain("state.jsonl");
+		expect(prompt).toContain(".paused");
+		expect(prompt).toContain(
+			"Do not create git commits unless the user explicitly asks for them.",
+		);
 	});
 
 	test("context engineering documents context-scout and linked plan docs", async () => {

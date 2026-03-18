@@ -16,12 +16,6 @@ import {
 	validateMcpPointerArtifacts,
 } from "./mcp-pointer.js";
 import {
-	type InstallSkillPointerResult,
-	installSkillPointerArtifacts,
-	rebuildSkillPointerArtifacts,
-	validateSkillPointerIndex,
-} from "./skill-pointer.js";
-import {
 	type EnsureWarmplaneBinaryResult,
 	ensureWarmplaneBinary,
 	isWarmplaneBinaryRecommendedDefault,
@@ -135,8 +129,7 @@ const MODEL_SELECT_LIMIT = 120;
 const MODEL_OPTION_CUSTOM = "__op7_custom_model__";
 const MODEL_FAMILY_ALL = "__op7_all_families__";
 const WORKSPACE_CONFIG_FILENAME = "workspace.json";
-const SKILL_POINTER_MIN_REDUCTION_PERCENT = 30;
-const DEFAULT_SKILL_VAULT_PATH = "~/.config/opencode/skill-vault";
+const LEGACY_SKILL_VAULT_PATH = "~/.config/opencode/skill-vault";
 
 // =========================================
 // MCP DEFINITIONS BY CATEGORY
@@ -477,6 +470,13 @@ interface PluginChoice {
 	lsp: boolean;
 }
 
+type InstallerProfile = "standard" | "beta-lean";
+
+interface InstallerProfileDefaults {
+	pluginChoices: PluginChoice;
+	workspaceConfig: WorkspacePluginConfig;
+}
+
 // Agent model configuration - per-agent
 interface AgentModelConfig {
 	[agentName: string]: string | null;
@@ -517,11 +517,9 @@ interface WorkspaceFeatureFlags {
 	hashAnchoredEdit?: boolean;
 	contextScout?: boolean;
 	externalScout?: boolean;
-	skillPointer?: boolean;
 	taskGraph?: boolean;
 	continuationCommands?: boolean;
 	tmuxOrchestration?: boolean;
-	approvalGate?: boolean;
 	boundaryPolicyV2?: boolean;
 	claudeCompatibility?: boolean;
 	mcpOAuthHelper?: boolean;
@@ -552,20 +550,6 @@ interface WorkspaceMcpPointer {
 	mode?: "legacy-only" | "pointer-only" | "mixed";
 }
 
-interface WorkspaceSkillPointer {
-	mode?: "fallback" | "exclusive";
-	releaseTrainId?: string;
-	sourceContractSha?: string;
-}
-
-interface WorkspaceApproval {
-	mode?: "off" | "selected" | "all_mutating";
-	tools?: string[];
-	exemptTools?: string[];
-	ttlMs?: number;
-	nonInteractive?: "fail-closed";
-}
-
 interface WorkspacePluginConfig {
 	disabledHooks?: string[];
 	safeHookCreation?: boolean;
@@ -574,8 +558,6 @@ interface WorkspacePluginConfig {
 	notifications?: WorkspaceNotifications;
 	verification?: WorkspaceVerification;
 	mcpPointer?: WorkspaceMcpPointer;
-	skillPointer?: WorkspaceSkillPointer;
-	approval?: WorkspaceApproval;
 	[key: string]: unknown;
 }
 
@@ -682,11 +664,9 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
 		hashAnchoredEdit: true,
 		contextScout: true,
 		externalScout: true,
-		skillPointer: true,
 		taskGraph: true,
 		continuationCommands: true,
 		tmuxOrchestration: true,
-		approvalGate: false,
 		boundaryPolicyV2: true,
 		claudeCompatibility: true,
 		mcpOAuthHelper: true,
@@ -712,59 +692,94 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspacePluginConfig = {
 		enabled: true,
 		mode: "mixed",
 	},
-	skillPointer: {
-		mode: "fallback",
+};
+
+const INSTALLER_PROFILE_DEFAULTS: Record<
+	InstallerProfile,
+	InstallerProfileDefaults
+> = {
+	standard: {
+		pluginChoices: {
+			workspace: true,
+			delegation: true,
+			astGrep: true,
+			lsp: true,
+		},
+		workspaceConfig: DEFAULT_WORKSPACE_CONFIG,
 	},
-	approval: {
-		mode: "off",
-		tools: ["plan_archive", "background_cancel", "worktree_delete"],
-		exemptTools: [],
-		ttlMs: 300000,
-		nonInteractive: "fail-closed",
+	"beta-lean": {
+		pluginChoices: {
+			workspace: true,
+			delegation: true,
+			astGrep: false,
+			lsp: false,
+		},
+		workspaceConfig: {
+			...DEFAULT_WORKSPACE_CONFIG,
+			features: {
+				...(DEFAULT_WORKSPACE_CONFIG.features || {}),
+				taskGraph: true,
+				continuationCommands: true,
+				claudeCompatibility: false,
+				mcpOAuthHelper: false,
+			},
+		},
 	},
 };
 
+function resolveDefaultPluginChoices(
+	profile: InstallerProfile,
+	pluginsEnabled: boolean,
+): PluginChoice {
+	const defaults = INSTALLER_PROFILE_DEFAULTS[profile].pluginChoices;
+	return {
+		workspace: defaults.workspace,
+		delegation: pluginsEnabled ? defaults.delegation : false,
+		astGrep: pluginsEnabled ? defaults.astGrep : false,
+		lsp: pluginsEnabled ? defaults.lsp : false,
+	};
+}
+
 function mergeWorkspaceConfig(
 	config: WorkspacePluginConfig | undefined,
+	profile: InstallerProfile = "standard",
 ): WorkspacePluginConfig {
-	const mergedApproval = {
-		...(DEFAULT_WORKSPACE_CONFIG.approval || {}),
-		...(config?.approval || {}),
-	};
-	mergedApproval.nonInteractive = "fail-closed";
+	const profileDefaults = INSTALLER_PROFILE_DEFAULTS[profile].workspaceConfig;
+	const {
+		skillPointer: _removedSkillPointer,
+		approval: _removedApproval,
+		...restConfig
+	} = config || {};
+	const rawFeatures = (restConfig.features || {}) as Record<string, unknown>;
+	const { approvalGate: _removedApprovalGate, ...restFeatures } = rawFeatures;
 
 	return {
-		...DEFAULT_WORKSPACE_CONFIG,
-		...config,
+		...profileDefaults,
+		...restConfig,
 		disabledHooks: [
-			...(DEFAULT_WORKSPACE_CONFIG.disabledHooks || []),
-			...(config?.disabledHooks || []),
+			...(profileDefaults.disabledHooks || []),
+			...(restConfig.disabledHooks || []),
 		],
 		features: {
-			...(DEFAULT_WORKSPACE_CONFIG.features || {}),
-			...(config?.features || {}),
+			...(profileDefaults.features || {}),
+			...restFeatures,
 		},
 		thresholds: {
-			...(DEFAULT_WORKSPACE_CONFIG.thresholds || {}),
-			...(config?.thresholds || {}),
+			...(profileDefaults.thresholds || {}),
+			...(restConfig.thresholds || {}),
 		},
 		notifications: {
-			...(DEFAULT_WORKSPACE_CONFIG.notifications || {}),
-			...(config?.notifications || {}),
+			...(profileDefaults.notifications || {}),
+			...(restConfig.notifications || {}),
 		},
 		verification: {
-			...(DEFAULT_WORKSPACE_CONFIG.verification || {}),
-			...(config?.verification || {}),
+			...(profileDefaults.verification || {}),
+			...(restConfig.verification || {}),
 		},
 		mcpPointer: {
-			...(DEFAULT_WORKSPACE_CONFIG.mcpPointer || {}),
-			...(config?.mcpPointer || {}),
+			...(profileDefaults.mcpPointer || {}),
+			...(restConfig.mcpPointer || {}),
 		},
-		skillPointer: {
-			...(DEFAULT_WORKSPACE_CONFIG.skillPointer || {}),
-			...(config?.skillPointer || {}),
-		},
-		approval: mergedApproval,
 	};
 }
 
@@ -1242,7 +1257,9 @@ function mergeConfig(
 		if (originalConfig.skills && !base.skills) {
 			base.skills = {
 				paths: originalConfig.skills.paths
-					? [...originalConfig.skills.paths]
+					? originalConfig.skills.paths.filter(
+							(path) => path !== LEGACY_SKILL_VAULT_PATH,
+						)
 					: undefined,
 				urls: originalConfig.skills.urls
 					? [...originalConfig.skills.urls]
@@ -1304,6 +1321,15 @@ function mergeConfig(
 		if (originalConfig.permission && !base.permission) {
 			base.permission = originalConfig.permission;
 		}
+	}
+
+	if (base.skills?.paths) {
+		base.skills = {
+			...base.skills,
+			paths: base.skills.paths.filter(
+				(path) => path !== LEGACY_SKILL_VAULT_PATH,
+			),
+		};
 	}
 
 	// 1. Merge plugins (add op1 plugins if not already present)
@@ -1417,16 +1443,6 @@ function mergeConfig(
 	if (!base.compaction) {
 		base.compaction = { auto: true, prune: true };
 	}
-
-	// 10. Ensure vault-backed skills remain discoverable with SkillPointer layouts
-	const paths = [...(base.skills?.paths || [])];
-	if (!paths.includes(DEFAULT_SKILL_VAULT_PATH)) {
-		paths.push(DEFAULT_SKILL_VAULT_PATH);
-	}
-	base.skills = {
-		...(base.skills || {}),
-		paths,
-	};
 
 	return base;
 }
@@ -1626,12 +1642,12 @@ export async function main(mainOptions: MainOptions = {}) {
 			{
 				value: "commands",
 				label: "Commands",
-				hint: "11 slash commands (/init, /plan, /continue, /review, /review-loop, /ulw, etc.)",
+				hint: "Curated slash commands (/init, /plan, /continue, /autoloop, /review, etc.)",
 			},
 			{
 				value: "skills",
 				label: "Skills",
-				hint: "35 loadable skills (code-philosophy, playwright, etc.)",
+				hint: "Curated loadable skills (code-philosophy, long-running-workflows, playwright, etc.)",
 			},
 			{
 				value: "plugins",
@@ -1655,18 +1671,39 @@ export async function main(mainOptions: MainOptions = {}) {
 		plugins: components.includes("plugins"),
 	};
 
+	const installerProfile = await p.select<InstallerProfile>({
+		message: "Choose installer profile",
+		options: [
+			{
+				value: "standard",
+				label: "Standard",
+				hint: "Current default behavior",
+			},
+			{
+				value: "beta-lean",
+				label: "OpenCode beta lean",
+				hint: "Conservative plugin and workspace defaults",
+			},
+		],
+		initialValue: "standard",
+	});
+
+	if (p.isCancel(installerProfile)) {
+		p.cancel("Installation cancelled.");
+		return;
+	}
+
 	// Plugin selection - workspace and delegation are included by default, others optional
-	const pluginChoices: PluginChoice = {
-		workspace: true,
-		delegation: options.plugins,
-		astGrep: false,
-		lsp: false,
-	};
+	const pluginChoices = resolveDefaultPluginChoices(
+		installerProfile,
+		options.plugins,
+	);
 	if (options.plugins) {
 		const wantDelegation = await p.confirm({
 			message:
 				"Enable task delegation plugin? (async task, background_output, background_cancel)",
-			initialValue: true,
+			initialValue:
+				INSTALLER_PROFILE_DEFAULTS[installerProfile].pluginChoices.delegation,
 		});
 
 		if (!p.isCancel(wantDelegation)) {
@@ -1676,7 +1713,8 @@ export async function main(mainOptions: MainOptions = {}) {
 		const wantAstGrep = await p.confirm({
 			message:
 				"Enable AST-grep? (structural code search/replace, 25 languages)",
-			initialValue: true,
+			initialValue:
+				INSTALLER_PROFILE_DEFAULTS[installerProfile].pluginChoices.astGrep,
 		});
 
 		if (!p.isCancel(wantAstGrep)) {
@@ -1686,7 +1724,8 @@ export async function main(mainOptions: MainOptions = {}) {
 		const wantLsp = await p.confirm({
 			message:
 				"Enable LSP tools? (go-to-definition, find-references, 50+ language servers)",
-			initialValue: true,
+			initialValue:
+				INSTALLER_PROFILE_DEFAULTS[installerProfile].pluginChoices.lsp,
 		});
 
 		if (!p.isCancel(wantLsp)) {
@@ -1888,11 +1927,6 @@ export async function main(mainOptions: MainOptions = {}) {
 		}
 	}
 
-	// Track if user configured models (for finish page instructions)
-	const _hasConfiguredModels =
-		Object.values(agentModels).some((m) => m && m.length > 0) ||
-		globalModelToSet !== null;
-
 	// Installation
 	const s = p.spinner();
 	s.start(
@@ -1902,9 +1936,6 @@ export async function main(mainOptions: MainOptions = {}) {
 	let totalFiles = 0;
 	let mergedConfig: OpenCodeConfig | null = null;
 	let mergedWorkspaceConfig: WorkspacePluginConfig | null = null;
-	let skillPointerResult: InstallSkillPointerResult | null = null;
-	let skillPointerFallbackReason: string | null = null;
-	let skillPointerRecoveryNote: string | null = null;
 	let mcpPointerResult: InstallMcpPointerArtifactsResult | null = null;
 	let mcpPointerFallbackReason: string | null = null;
 	let warmplaneConfig: WarmplaneConfig | null = null;
@@ -1914,6 +1945,7 @@ export async function main(mainOptions: MainOptions = {}) {
 		const originalConfig = configFileResult.data;
 		mergedWorkspaceConfig = mergeWorkspaceConfig(
 			existingWorkspaceConfig ?? undefined,
+			installerProfile,
 		);
 		mergedConfig = mergeConfig(
 			existingJson,
@@ -1976,10 +2008,6 @@ export async function main(mainOptions: MainOptions = {}) {
 			.filter((entry): entry is BuilderMcpDefinition => entry !== null);
 		const mcpPointerEnabled =
 			mergedWorkspaceConfig.mcpPointer?.enabled !== false;
-		const skillPointerMode =
-			mergedWorkspaceConfig.skillPointer?.mode === "exclusive"
-				? "exclusive"
-				: "fallback";
 
 		const installTargets: Array<{
 			enabled: boolean;
@@ -2027,35 +2055,6 @@ export async function main(mainOptions: MainOptions = {}) {
 					continue;
 				}
 
-				const useSkillPointer =
-					target.pluralName === "skills" &&
-					mergedWorkspaceConfig.features?.skillPointer === true;
-				if (useSkillPointer) {
-					try {
-						skillPointerResult = await installSkillPointerArtifacts({
-							templateSkillsDir: src,
-							activeSkillsDir: target.destination,
-							vaultDir: joinPath(globalConfigDir, "skill-vault"),
-							dryRun: true,
-						});
-						totalFiles += skillPointerResult.fileWrites;
-					} catch (error) {
-						if (skillPointerMode === "exclusive") {
-							throw new Error(
-								`SkillPointer exclusive mode aborted install target: ${error instanceof Error ? error.message : String(error)}`,
-							);
-						}
-						totalFiles += await countDirFiles(src);
-						skillPointerFallbackReason =
-							error instanceof Error ? error.message : String(error);
-						mergedWorkspaceConfig.features = {
-							...(mergedWorkspaceConfig.features || {}),
-							skillPointer: false,
-						};
-					}
-					continue;
-				}
-
 				totalFiles += await countDirFiles(src);
 			}
 
@@ -2098,69 +2097,6 @@ export async function main(mainOptions: MainOptions = {}) {
 					target.singularName,
 				);
 				if (!src) {
-					continue;
-				}
-
-				const useSkillPointer =
-					target.pluralName === "skills" &&
-					mergedWorkspaceConfig.features?.skillPointer === true;
-				if (useSkillPointer) {
-					try {
-						skillPointerResult = await installSkillPointerArtifacts({
-							templateSkillsDir: src,
-							activeSkillsDir: target.destination,
-							vaultDir: joinPath(globalConfigDir, "skill-vault"),
-						});
-
-						const integrity = await validateSkillPointerIndex({
-							indexPath: skillPointerResult.indexPath,
-							activeSkillsDir: target.destination,
-							vaultDir: joinPath(globalConfigDir, "skill-vault"),
-						});
-						if (!integrity.ok) {
-							throw new Error(
-								integrity.issues
-									.map((issue) => `${issue.code}: ${issue.message}`)
-									.join("; "),
-							);
-						}
-
-						const reductionPercent =
-							skillPointerResult.index.startup_token_estimate.reduction_percent;
-						if (reductionPercent < SKILL_POINTER_MIN_REDUCTION_PERCENT) {
-							throw new Error(
-								`Startup-token reduction gate failed (${reductionPercent}% < ${SKILL_POINTER_MIN_REDUCTION_PERCENT}%).`,
-							);
-						}
-
-						totalFiles += skillPointerResult.fileWrites;
-					} catch (error) {
-						const primaryError =
-							error instanceof Error ? error.message : String(error);
-
-						try {
-							skillPointerResult = await rebuildSkillPointerArtifacts({
-								activeSkillsDir: target.destination,
-								vaultDir: joinPath(globalConfigDir, "skill-vault"),
-							});
-
-							totalFiles += skillPointerResult.fileWrites;
-							skillPointerRecoveryNote = `SkillPointer recovered through rebuild after initial failure: ${primaryError}`;
-						} catch (recoveryError) {
-							if (skillPointerMode === "exclusive") {
-								throw new Error(
-									`SkillPointer exclusive mode aborted install target. Initial failure: ${primaryError}; rebuild failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`,
-								);
-							}
-							totalFiles += await copyDir(src, target.destination);
-							skillPointerFallbackReason = `Initial failure: ${primaryError}; rebuild failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
-							mergedWorkspaceConfig.features = {
-								...(mergedWorkspaceConfig.features || {}),
-								skillPointer: false,
-							};
-							skillPointerResult = null;
-						}
-					}
 					continue;
 				}
 
@@ -2252,24 +2188,6 @@ export async function main(mainOptions: MainOptions = {}) {
 		summaryLines.push(
 			`${pc.green("✓")} Skills ${installVerb} to ${pc.dim("~/.config/opencode/skills/")}`,
 		);
-
-		if (skillPointerResult) {
-			const tokenEstimate = skillPointerResult.index.startup_token_estimate;
-			const loadEstimate = skillPointerResult.index.startup_load_estimate_ms;
-			summaryLines.push(
-				`${pc.green("✓")} SkillPointer ${dryRun ? "would create" : "created"} ${pc.cyan(String(skillPointerResult.index.pointer_count))} pointers for ${pc.cyan(String(skillPointerResult.index.total_skills))} skills (vault: ${pc.dim("~/.config/opencode/skill-vault/")}) | startup-token estimate: ${pc.cyan(`${tokenEstimate.legacy} -> ${tokenEstimate.pointer}`)} (${pc.cyan(`${tokenEstimate.reduction_percent}%`)} reduction, gate ${SKILL_POINTER_MIN_REDUCTION_PERCENT}%) | startup-load estimate (ms): ${pc.cyan(`${loadEstimate.legacy} -> ${loadEstimate.pointer}`)} (${pc.cyan(`${loadEstimate.improvement_percent}%`)} improvement)`,
-			);
-
-			if (skillPointerRecoveryNote) {
-				summaryLines.push(`${pc.yellow("⚠")} ${skillPointerRecoveryNote}`);
-			}
-		}
-
-		if (skillPointerFallbackReason) {
-			summaryLines.push(
-				`${pc.yellow("⚠")} SkillPointer ${dryRun ? "preview failed" : "failed"}; falling back to legacy skills layout. Reason: ${skillPointerFallbackReason}`,
-			);
-		}
 	}
 	summaryLines.push(
 		`${pc.green("✓")} Themes ${installVerb} to ${pc.dim("~/.config/opencode/themes/")}`,
@@ -2414,6 +2332,7 @@ export {
 	mergeConfig,
 	mergeWorkspaceConfig,
 	MCP_CATEGORIES,
+	resolveDefaultPluginChoices,
 	getRequiredMcpDefinitions,
 	isMcp0Selected,
 	resolveMcpCriticality,
@@ -2422,6 +2341,7 @@ export {
 };
 export type {
 	InstallOptions,
+	InstallerProfile,
 	PluginChoice,
 	McpCriticality,
 	McpDefinition,

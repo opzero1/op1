@@ -5,11 +5,13 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+	type InstallerProfile,
 	type McpDefinition,
 	mergeConfig,
 	mergeWorkspaceConfig,
 	type OpenCodeConfig,
 	type PluginChoice,
+	resolveDefaultPluginChoices,
 	type WorkspacePluginConfig,
 } from "../index";
 
@@ -43,6 +45,9 @@ const ENABLED_PLUGIN_CHOICES: PluginChoice = {
 	astGrep: false,
 	lsp: false,
 };
+
+const STANDARD_PROFILE: InstallerProfile = "standard";
+const BETA_LEAN_PROFILE: InstallerProfile = "beta-lean";
 
 describe("mergeConfig", () => {
 	const allAgents = [
@@ -392,21 +397,7 @@ describe("mergeConfig", () => {
 		expect(result.compaction).toEqual({ auto: false, prune: false });
 	});
 
-	test("adds the default skill vault path for skill-pointer installs", () => {
-		const result = mergeConfig(
-			null,
-			null,
-			[],
-			DEFAULT_PLUGIN_CHOICES,
-			{},
-			null,
-			allAgents,
-		);
-
-		expect(result.skills?.paths).toContain("~/.config/opencode/skill-vault");
-	});
-
-	test("preserves existing skill paths while adding the default vault path", () => {
+	test("preserves existing skill paths without injecting a vault path", () => {
 		const existing: OpenCodeConfig = {
 			skills: {
 				paths: ["~/custom-skills"],
@@ -423,56 +414,149 @@ describe("mergeConfig", () => {
 			allAgents,
 		);
 
-		expect(result.skills?.paths).toEqual([
-			"~/custom-skills",
-			"~/.config/opencode/skill-vault",
-		]);
+		expect(result.skills?.paths).toEqual(["~/custom-skills"]);
+	});
+
+	test("filters the legacy skill vault path during merge", () => {
+		const existing: OpenCodeConfig = {
+			skills: {
+				paths: ["~/custom-skills", "~/.config/opencode/skill-vault"],
+			},
+		};
+
+		const result = mergeConfig(
+			existing,
+			null,
+			[],
+			DEFAULT_PLUGIN_CHOICES,
+			{},
+			null,
+			allAgents,
+		);
+
+		expect(result.skills?.paths).toEqual(["~/custom-skills"]);
 	});
 
 	test("mergeWorkspaceConfig adds defaults", () => {
-		const result = mergeWorkspaceConfig(undefined);
+		const result = mergeWorkspaceConfig(undefined, STANDARD_PROFILE);
 
 		expect(result.features?.momentum).toBe(true);
 		expect(result.features?.hashAnchoredEdit).toBe(true);
 		expect(result.features?.taskGraph).toBe(true);
 		expect(result.features?.mcpOAuthHelper).toBe(true);
-		expect(result.features?.approvalGate).toBe(false);
 		expect(result.thresholds?.taskReminderThreshold).toBe(20);
 		expect(result.notifications?.enabled).toBe(true);
 		expect(result.notifications?.desktop).toBe(true);
 		expect(result.notifications?.privacy).toBe("strict");
 		expect(result.verification?.autopilot).toBe(true);
-		expect(result.approval?.mode).toBe("off");
-		expect(result.approval?.tools).toEqual([
-			"plan_archive",
-			"background_cancel",
-			"worktree_delete",
-		]);
+		expect("approval" in result).toBe(false);
 	});
 
 	test("mergeWorkspaceConfig preserves existing overrides", () => {
 		const existing: WorkspacePluginConfig = {
 			features: {
 				notifications: true,
-				approvalGate: true,
-			},
-			approval: {
-				mode: "all_mutating",
-				ttlMs: 120000,
 			},
 			thresholds: {
 				taskReminderThreshold: 4,
 			},
 		};
 
-		const result = mergeWorkspaceConfig(existing);
+		const result = mergeWorkspaceConfig(existing, STANDARD_PROFILE);
 
 		expect(result.features?.notifications).toBe(true);
-		expect(result.features?.approvalGate).toBe(true);
 		expect(result.thresholds?.taskReminderThreshold).toBe(4);
-		expect(result.approval?.mode).toBe("all_mutating");
-		expect(result.approval?.ttlMs).toBe(120000);
 		expect(result.features?.momentum).toBe(true);
+	});
+
+	test("mergeWorkspaceConfig removes legacy approval config", () => {
+		const result = mergeWorkspaceConfig(
+			{
+				features: {
+					approvalGate: true,
+				} as unknown as Record<string, boolean>,
+				approval: {
+					mode: "all_mutating",
+					ttlMs: 120000,
+				} as never,
+			} as WorkspacePluginConfig,
+			STANDARD_PROFILE,
+		);
+
+		expect("approval" in result).toBe(false);
+		expect("approvalGate" in (result.features || {})).toBe(false);
+	});
+
+	test("mergeWorkspaceConfig removes legacy top-level skillPointer config", () => {
+		const result = mergeWorkspaceConfig(
+			{
+				skillPointer: {
+					mode: "exclusive",
+				},
+			},
+			STANDARD_PROFILE,
+		);
+
+		expect("skillPointer" in result).toBe(false);
+	});
+
+	test("mergeWorkspaceConfig applies beta-lean workspace defaults", () => {
+		const result = mergeWorkspaceConfig(undefined, BETA_LEAN_PROFILE);
+
+		expect(result.features?.taskGraph).toBe(true);
+		expect(result.features?.continuationCommands).toBe(true);
+		expect(result.features?.mcpOAuthHelper).toBe(false);
+		expect(result.features?.claudeCompatibility).toBe(false);
+	});
+
+	test("mergeWorkspaceConfig keeps explicit overrides over beta-lean defaults", () => {
+		const existing: WorkspacePluginConfig = {
+			features: {
+				mcpOAuthHelper: true,
+				claudeCompatibility: true,
+				taskGraph: false,
+			},
+		};
+
+		const result = mergeWorkspaceConfig(existing, BETA_LEAN_PROFILE);
+
+		expect(result.features?.mcpOAuthHelper).toBe(true);
+		expect(result.features?.claudeCompatibility).toBe(true);
+		expect(result.features?.taskGraph).toBe(false);
+		expect(result.features?.continuationCommands).toBe(true);
+	});
+
+	test("resolveDefaultPluginChoices keeps standard defaults", () => {
+		const result = resolveDefaultPluginChoices(STANDARD_PROFILE, true);
+
+		expect(result).toEqual({
+			workspace: true,
+			delegation: true,
+			astGrep: true,
+			lsp: true,
+		});
+	});
+
+	test("resolveDefaultPluginChoices applies beta-lean defaults independently of prompts", () => {
+		const result = resolveDefaultPluginChoices(BETA_LEAN_PROFILE, true);
+
+		expect(result).toEqual({
+			workspace: true,
+			delegation: true,
+			astGrep: false,
+			lsp: false,
+		});
+	});
+
+	test("resolveDefaultPluginChoices disables optional plugins when plugin install is skipped", () => {
+		const result = resolveDefaultPluginChoices(BETA_LEAN_PROFILE, false);
+
+		expect(result).toEqual({
+			workspace: true,
+			delegation: false,
+			astGrep: false,
+			lsp: false,
+		});
 	});
 
 	test("preserves permissions from original config", () => {

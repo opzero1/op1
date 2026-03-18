@@ -1,3 +1,8 @@
+---
+name: implementation-conventions
+description: Apply these conventions during implementation from the start (not only after review feedback).
+---
+
 # Skill: implementation-conventions
 
 Apply these conventions during implementation from the start (not only after review feedback).

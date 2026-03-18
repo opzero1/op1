@@ -15,6 +15,27 @@ The interactive installer will:
 - Configure MCP servers (Context7 and Grep.app by default, with optional categories)
 - Let you configure per-agent models or a global model
 
+### OpenCode beta lean
+
+`OpenCode beta lean` is an installer profile for current beta users: keep the op1 workflow layer, trim overlap with OpenCode beta, and add heavier plugins only when they still change the outcome. Choose it during install, then see `packages/install/docs/opencode-beta-lean.md` for the audit notes.
+
+### RTK companion
+
+If you want RTK to scaffold the same companion path, use:
+
+```bash
+rtk init -g --opencode
+```
+
+That path can set up the OpenCode companion config, but RTK does not intercept shell calls made inside subagents. Keep that limitation in mind if your workflow depends on delegated shell execution.
+
+Quick readiness checks:
+
+```bash
+rtk init --show
+opencode debug config
+```
+
 ### Manual Installation
 
 If you prefer manual setup:
@@ -59,30 +80,16 @@ op1 keeps the plugin layer lean and ships reusable templates for everything else
 
 These are copied to `~/.config/opencode/` by the installer and can be customized per machine.
 
-## SkillPointer
+## Adding New Skills
 
-SkillPointer is enabled by default and keeps startup prompts lighter by loading category pointers first, then resolving full skill bodies on demand.
-
-- Pointer index: `~/.config/opencode/skills/.skillpointer/index.json`
-- Pointer files: `~/.config/opencode/skills/<category>-category-pointer/SKILL.md`
-- Full skill bodies: `~/.config/opencode/skill-vault/<category>/<skill>/SKILL.md`
-
-Runtime resolution order is fail-safe:
-
-1. Pointer index + vault body
-2. Legacy local skill path (`~/.config/opencode/skills/<skill>/SKILL.md`)
-3. External compatible roots (when configured)
-
-### Adding New Skills
-
-The simplest way to add a custom skill is to create a legacy skill folder:
+The simplest way to add a custom skill is to create a local skill folder:
 
 ```bash
 mkdir -p ~/.config/opencode/skills/my-skill
 $EDITOR ~/.config/opencode/skills/my-skill/SKILL.md
 ```
 
-This works even when SkillPointer is enabled because runtime falls back to legacy skill files.
+OpenCode will discover skills from that directory directly.
 
 ## Configuration
 

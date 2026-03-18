@@ -20,6 +20,33 @@ Dry run (preview changes without writing files):
 bunx @op1/install --dry-run
 ```
 
+## OpenCode beta lean
+
+`OpenCode beta lean` is an installer profile for current beta users: keep the op1 workflow layer, trim overlap with OpenCode beta, and add extra plugins only when they still provide distinct value. Choose it during install. Audit notes live in `docs/opencode-beta-lean.md`.
+
+At a high level, that means:
+
+- keep curated agents, commands, and skills
+- keep `@op1/workspace` and `@op1/delegation` where they still change the workflow
+- treat `@op1/lsp` and `@op1/ast-grep` as optional add-ons instead of mandatory weight
+
+## RTK companion
+
+If you want the RTK setup path for the same companion config, run:
+
+```bash
+rtk init -g --opencode
+```
+
+RTK can lay down the companion config, but it does not intercept shell calls made by subagents. If your workflow depends on delegated shell execution, use the native op1/OpenCode path for that behavior.
+
+Recommended readiness checks:
+
+```bash
+rtk init --show
+opencode debug config
+```
+
 ## What It Installs
 
 ### Agents (11)
@@ -38,11 +65,12 @@ bunx @op1/install --dry-run
 | `reviewer` | Code review specialist |
 | `scribe` | Documentation writer |
 
-### Commands (12)
+### Commands
 
 | Command | Description |
 |---------|-------------|
 | `/init` | Bootstrap project context and conventions |
+| `/autoloop` | Start an opt-in resumable long-running workflow |
 | `/plan` | Create implementation plan |
 | `/continue` | Resume unfinished work (uses continuation tools when enabled) |
 | `/work` | Start working on active plan (with ULW mode) |
@@ -55,9 +83,10 @@ bunx @op1/install --dry-run
 | `/research` | Research external topics |
 | `/ulw` | Activate ULTRAWORK mode |
 
-### Skills (42)
+### Skills
 
 - `ulw` - ULTRAWORK maximum capability mode
+- `long-running-workflows` - Resumable multi-hour execution workflow
 - `code-philosophy` - The 5 Laws of Elegant Defense
 - `frontend-philosophy` - UI/UX excellence
 - `nestjs-master` - Comprehensive NestJS patterns
@@ -78,11 +107,12 @@ bunx @op1/install --dry-run
 - `mcp0-navigation` - Warmplane `mcp0` facade routing
 - And more...
 
-### Plugins (3)
+### Plugins
 
 | Plugin | Description |
 |--------|-------------|
 | `@op1/workspace` | Plan management, notepads (always included) |
+| `@op1/delegation` | Async task orchestration, background output, task graph |
 | `@op1/ast-grep` | Structural code search |
 | `@op1/lsp` | Language server tools |
 
@@ -90,10 +120,11 @@ bunx @op1/install --dry-run
 
 1. **Detect existing config** - Offers merge or replace
 2. **Select components** - Agents, commands, skills, plugins
-3. **Configure plugins** - Choose which plugins to enable
-4. **Select MCPs** - Optional MCP integrations (Linear, Notion, etc.)
-5. **Choose models** - Dropdown picker backed by `https://models.dev/api.json` (manual override supported)
-6. **Install** - Copies files to `~/.config/opencode/`
+3. **Choose profile** - Standard or `OpenCode beta lean`
+4. **Configure plugins** - Choose which plugins to enable
+5. **Select MCPs** - Optional MCP integrations (Linear, Notion, etc.)
+6. **Choose models** - Dropdown picker backed by `https://models.dev/api.json` (manual override supported)
+7. **Install** - Copies files to `~/.config/opencode/`
 
 ## Template Layout
 
@@ -113,26 +144,16 @@ These are copied to matching target folders:
 
 Bundled themes are installed automatically into `~/.config/opencode/themes/`.
 
-## SkillPointer Behavior
+## Adding Custom Skills
 
-With default settings, installer keeps `features.skillPointer: true` and writes:
-
-- Pointer index: `~/.config/opencode/skills/.skillpointer/index.json`
-- Category pointers: `~/.config/opencode/skills/<category>-category-pointer/SKILL.md`
-- Full skill bodies: `~/.config/opencode/skill-vault/<category>/<skill>/SKILL.md`
-
-At runtime, OP7 resolves skill content from pointer+vault first, then falls back to legacy skill folders.
-
-### Adding Custom Skills
-
-For custom local skills, use the legacy path:
+For custom local skills, use the standard OpenCode path:
 
 ```bash
 mkdir -p ~/.config/opencode/skills/my-skill
 $EDITOR ~/.config/opencode/skills/my-skill/SKILL.md
 ```
 
-This is immediately compatible with SkillPointer-enabled runtime through fallback resolution.
+The installer now keeps skill installation simple and lets OpenCode load that directory directly.
 
 ## Config Preservation
 
@@ -202,7 +223,6 @@ Key defaults for runtime safeguards:
 - `features.hashAnchoredEdit: true`
 - `features.contextScout: true`
 - `features.externalScout: true`
-- `features.skillPointer: true`
 - `features.taskGraph: true`
 - `features.continuationCommands: true`
 - `features.tmuxOrchestration: true`
@@ -211,10 +231,8 @@ Key defaults for runtime safeguards:
 - `features.mcpOAuthHelper: true`
 - `features.notifications: true`
 - `notifications.enabled: true`
-- `features.approvalGate: false`
-- `approval.mode: "off"`
 
-Operational improvements are enabled by default; approval gating remains opt-in.
+Operational improvements are enabled by default and rely on native OpenCode permissions.
 
 ## Manual Installation
 
