@@ -6,7 +6,8 @@ import { redactText } from "../redaction.js";
 export type RepromptTelemetryEventType =
 	| "bundle-built"
 	| "decision-made"
-	| "retry-finished";
+	| "retry-finished"
+	| "incoming-processed";
 
 export interface RepromptTelemetryEvent {
 	timestamp: string;

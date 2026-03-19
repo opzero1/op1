@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { buildCompilerContextPlan } from "../orchestration/context-builder.js";
 import { createRetryGuardManager } from "../orchestration/guards.js";
 import { buildCompilerPrompt } from "../orchestration/prompt-builder.js";
+import {
+	classifyIncomingPrompt,
+	extractPromptText,
+} from "../orchestration/runtime.js";
 import { extractPromptHints } from "../orchestration/task-classifier.js";
 import { createRetryTrigger } from "../orchestration/triggers.js";
 import { canonicalizeParsedEdits } from "../patching/canonicalize.js";
@@ -196,6 +200,40 @@ describe("reprompt core", () => {
 		expect(hints.paths).toContain("src/auth.ts");
 		expect(hints.searchTerms).toContain("authservice");
 		expect(hints.symbols).toContain("AuthService");
+	});
+
+	test("classifies terse incoming prompts for compilation", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: "fix src/auth.ts" }],
+		});
+
+		expect(decision.action).toBe("compile");
+		expect(decision.reason).toBe("terse-prompt");
+		expect(decision.promptText).toBe("fix src/auth.ts");
+	});
+
+	test("passes through structured incoming prompts", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [
+				{
+					type: "text",
+					text: "## Goal\n- update auth flow\n- run tests\n<output_contract>",
+				},
+			],
+		});
+
+		expect(decision.action).toBe("pass-through");
+		expect(decision.reason).toBe("already-structured");
+	});
+
+	test("extracts prompt text from text parts only", () => {
+		const text = extractPromptText([
+			{ type: "text", text: "first" },
+			{ type: "tool-call" },
+			{ type: "text", text: "second" },
+		]);
+
+		expect(text).toBe("first\nsecond");
 	});
 
 	test("builds compiler context plan with snapshot and code-map notes", () => {

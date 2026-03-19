@@ -3,13 +3,20 @@ export {
 	createRetryGuardManager,
 	type RetryGuardManager,
 } from "./guards.js";
+export { createIncomingPromptHook } from "./incoming-message.js";
 export {
 	type BuildCompilerPromptInput,
-	type BuildRetryPromptInput,
+	type BuildFailClosedPromptInput,
 	buildCompilerPrompt,
-	buildRetryPrompt,
+	buildFailClosedPrompt,
 } from "./prompt-builder.js";
 export { createPublicRepromptTools } from "./public-tools.js";
+export {
+	classifyIncomingPrompt,
+	extractPromptText,
+	normalizeRepromptArgs,
+	prepareRepromptPrompt,
+} from "./runtime.js";
 export {
 	classifyRepromptTask,
 	extractPromptHints,

@@ -5,8 +5,6 @@ skill:
   - ulw
 ---
 
-# ULTRAWORK MODE ENABLED!
-
 You are now the **build agent** executing the implementation plan.
 
 ## Immediate Actions
@@ -22,7 +20,6 @@ You are now the **build agent** executing the implementation plan.
 
 ## Execution Protocol
 
-Follow ULW protocols:
 - Fire parallel explore/researcher agents for context
 - Track EVERY step with todos
 - Verify with build/test after changes

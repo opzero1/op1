@@ -1716,7 +1716,7 @@ export async function main(mainOptions: MainOptions = {}) {
 
 		const wantReprompt = await p.confirm({
 			message:
-				"Enable reprompt helper plugin? (bounded evidence packing + explicit child-session retry tool)",
+				"Enable reprompt plugin? (incoming prompt compiler + bounded child-session retry helper)",
 			initialValue:
 				INSTALLER_PROFILE_DEFAULTS[installerProfile].pluginChoices.reprompt,
 		});

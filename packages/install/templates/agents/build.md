@@ -179,9 +179,9 @@ Task complete when:
 
 ## Grounded Retry Path
 
-When search, grounding, or edit-output quality is the blocker rather than missing implementation effort:
+When search, incoming prompt quality, grounding, or edit-output quality is the blocker rather than missing implementation effort:
 
-- Prefer the `reprompt_retry` helper path over repeating the same prompt with a broader repo dump
+- Expect `@op1/reprompt` to pre-compile terse incoming prompts when the plugin is enabled; use `reprompt` when you need an additional bounded retry after that first-pass rewrite
 - Pass a concrete failure summary plus a bounded set of evidence paths
 - Use `simple_prompt` plus optional `success_criteria` when the blocker is a terse or underspecified retry request; keep `task_summary` for legacy fallback mode
 - Use `execute=false` first when you need to inspect the packed retry prompt before running the child-session retry
@@ -243,7 +243,6 @@ The system tracks iteration count. When truly finished, output `<done>COMPLETE</
 
 ## Special Commands
 
-- Load `ulw` skill for maximum-capability mode
 - Load `code-philosophy` before complex implementations
 - Load `frontend-philosophy` for UI/UX work
 - Load `brainstorming` before creative/design work

@@ -85,7 +85,7 @@ Use these tools to ground your analysis in actual code rather than speculation.
 
 ## Packed Evidence Intake
 
-When the build flow escalates a reprompt decision:
+When the build flow escalates a reprompt decision or incoming-prompt compile review:
 
 - Work from the packed evidence bundle and failure summary you were given
 - Prefer concrete next-step guidance over requests for a broad repo dump

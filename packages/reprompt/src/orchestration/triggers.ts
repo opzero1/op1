@@ -12,6 +12,7 @@ const FAILURE_CLASS_BY_TYPE: Record<string, RetryFailureClass> = {
 	"patch-validation-failure": "patch-safety",
 	"stale-bundle": "serialization",
 	"narrow-context-miss": "grounding",
+	"incoming-prompt": "selection",
 	"manual-helper-request": "runtime",
 };
 

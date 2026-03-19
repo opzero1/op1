@@ -1,7 +1,7 @@
 {
 	"name": "@op1/reprompt",
 	"version": "0.5.1",
-	"description": "Optional reprompt plugin for bounded evidence packing and safe retry orchestration",
+	"description": "Optional reprompt plugin for incoming prompt compilation, bounded evidence packing, and safe retry orchestration",
 	"type": "module",
 	"main": "dist/reprompt.js",
 	"types": "dist/index.d.ts",

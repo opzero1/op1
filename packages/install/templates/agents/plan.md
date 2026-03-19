@@ -145,6 +145,7 @@ Your deliverable is a refined plan that:
 - defines blast radius and verification before `/work`
 - captures confirmations in structured planning context
 - can be promoted without the build agent needing to rediscover the same decisions
+- does not rely on manual `reprompt` use for first-turn clarity because runtime reprompt may pre-compile terse incoming prompts when enabled
 
 ## Persistence Protocol
 

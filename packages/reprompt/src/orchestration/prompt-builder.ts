@@ -5,46 +5,20 @@ import type {
 	RepromptTaskClass,
 } from "../types.js";
 
-export interface BuildRetryPromptInput {
-	taskSummary: string;
-	failureSummary: string;
-	bundle: GroundingBundle;
-	decision: RepromptDecision;
-	retryDiagnostics?: string[];
-	maxPromptChars?: number;
+export const REPROMPT_PROMPT_MARKER = '<reprompt-origin source="reprompt" />';
+
+export function hasRepromptPromptMarker(value: string): boolean {
+	return value.includes(REPROMPT_PROMPT_MARKER);
 }
 
-export function buildRetryPrompt(input: BuildRetryPromptInput): string {
-	const sections = [
-		"You are retrying a failed implementation step with bounded local evidence only.",
-		"",
-		`Task summary: ${input.taskSummary}`,
-		`Failure summary: ${input.failureSummary}`,
-		`Decision: ${input.decision.action}`,
-		"",
-		"Evidence slices:",
-		...input.bundle.evidenceSlices.map(
-			(slice) => `- ${slice.provenance} :: ${truncateText(slice.excerpt, 320)}`,
-		),
-	];
-
-	if (input.retryDiagnostics && input.retryDiagnostics.length > 0) {
-		sections.push(
-			"",
-			"Retry diagnostics:",
-			...input.retryDiagnostics.map((item) => `- ${item}`),
-		);
-	}
-
-	sections.push(
-		"",
-		"Instructions:",
-		"- Use only the evidence above and do not request broad repository dumps.",
-		"- If you produce an edit, keep it deterministic and scoped to the cited files.",
-		"- If the evidence is insufficient, say so explicitly instead of guessing.",
+function finalizeRepromptPrompt(
+	sections: string[],
+	maxPromptChars: number,
+): string {
+	return truncateText(
+		[REPROMPT_PROMPT_MARKER, "", ...sections].join("\n"),
+		maxPromptChars,
 	);
-
-	return truncateText(sections.join("\n"), input.maxPromptChars ?? 12_000);
 }
 
 function sharedContracts(): string[] {
@@ -54,6 +28,12 @@ function sharedContracts(): string[] {
 		"- Keep the answer concise, grounded, and information-dense.",
 		"- Do not restate the user request unless needed for clarity.",
 		"</output_contract>",
+		"",
+		"<verbosity_controls>",
+		"- Prefer concise, information-dense writing.",
+		"- Avoid repeating the user's request.",
+		"- Keep progress updates brief without dropping required evidence or verification details.",
+		"</verbosity_controls>",
 		"",
 		"<default_follow_through_policy>",
 		"- If intent is clear and the next step is reversible and low-risk, proceed without asking.",
@@ -65,6 +45,7 @@ function sharedContracts(): string[] {
 		"- Follow developer and system instructions before user style preferences.",
 		"- Preserve safety, honesty, privacy, and permission constraints.",
 		"- Apply newer user instructions when they conflict with earlier user instructions.",
+		"- Preserve earlier instructions that do not conflict.",
 		"</instruction_priority>",
 		"",
 		"<missing_context_gating>",
@@ -80,6 +61,7 @@ function codingContracts(): string[] {
 		"<tool_persistence_rules>",
 		"- Use tools when they materially improve correctness or grounding.",
 		"- Resolve prerequisite discovery before edits or decisions.",
+		"- Do not stop early when another bounded tool call is likely to improve correctness or completeness.",
 		"- If lookup results are empty or suspiciously narrow, retry with a different bounded strategy.",
 		"</tool_persistence_rules>",
 		"",
@@ -87,6 +69,11 @@ function codingContracts(): string[] {
 		"- Resolve prerequisite context before taking downstream actions.",
 		"- Parallelize only independent lookups; keep dependent steps sequential.",
 		"</dependency_checks>",
+		"",
+		"<empty_result_recovery>",
+		"- If retrieval is empty, partial, or suspiciously narrow, try one or two fallback strategies before concluding nothing exists.",
+		"- Prefer alternate query wording, broader filters, prerequisite lookups, or another bounded source over a broad repo dump.",
+		"</empty_result_recovery>",
 		"",
 		"<completeness_contract>",
 		"- Treat the task as incomplete until requested work is implemented or explicitly marked blocked.",
@@ -116,7 +103,12 @@ function researchContracts(): string[] {
 		"<citation_rules>",
 		"- Cite only retrieved evidence when citations are needed.",
 		"- Do not fabricate sources or identifiers.",
+		"- Attach citations to the claims they support instead of collecting them only at the end.",
 		"</citation_rules>",
+		"",
+		"<empty_result_recovery>",
+		"- If retrieval is empty or suspiciously narrow, try one or two bounded fallback strategies before concluding nothing exists.",
+		"</empty_result_recovery>",
 		"",
 		"<verification_loop>",
 		"- Confirm that each major claim is supported by retrieved evidence before finalizing.",
@@ -195,6 +187,15 @@ export interface BuildCompilerPromptInput {
 	maxPromptChars?: number;
 }
 
+export interface BuildFailClosedPromptInput {
+	originalPrompt: string;
+	taskSummary: string;
+	taskClass: RepromptTaskClass;
+	reason: string;
+	omissionReasons?: string[];
+	maxPromptChars?: number;
+}
+
 export function buildCompilerPrompt(input: BuildCompilerPromptInput): string {
 	const sections = [
 		"You are retrying a terse request with bounded local evidence and must rewrite it into a stronger GPT-5.4-ready execution prompt.",
@@ -258,5 +259,40 @@ export function buildCompilerPrompt(input: BuildCompilerPromptInput): string {
 		...contractsForTaskClass(input.taskClass),
 	);
 
-	return truncateText(sections.join("\n"), input.maxPromptChars ?? 12_000);
+	return finalizeRepromptPrompt(sections, input.maxPromptChars ?? 12_000);
+}
+
+export function buildFailClosedPrompt(
+	input: BuildFailClosedPromptInput,
+): string {
+	const sections = [
+		"The original user request is too ambiguous to rewrite into a grounded execution prompt safely.",
+		"",
+		"<task_brief>",
+		`Original prompt: ${input.originalPrompt}`,
+		`Normalized task: ${input.taskSummary}`,
+		`Task class: ${input.taskClass}`,
+		`Reason: ${input.reason}`,
+		"</task_brief>",
+	];
+
+	if (input.omissionReasons && input.omissionReasons.length > 0) {
+		sections.push(
+			"",
+			"<missing_context>",
+			...input.omissionReasons.map((item) => `- ${item}`),
+			"</missing_context>",
+		);
+	}
+
+	sections.push(
+		"",
+		"<fail_closed_instructions>",
+		"- Do not implement, rewrite further, or assume missing context.",
+		"- Ask exactly one targeted clarification question that resolves the highest-leverage ambiguity.",
+		"- Keep the question concise and wait for the user's answer.",
+		"</fail_closed_instructions>",
+	);
+
+	return finalizeRepromptPrompt(sections, input.maxPromptChars ?? 12_000);
 }

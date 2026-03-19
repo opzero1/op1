@@ -46,7 +46,8 @@ const COMPILER_EVAL_CASES: CompilerEvalCase[] = [
 	},
 	{
 		name: "research request keeps citation contracts",
-		simplePrompt: "research the tradeoffs of compiler mode versus legacy mode",
+		simplePrompt:
+			"research the tradeoffs of compiler mode versus manual rewrite mode",
 		expectedTaskClass: "research",
 		mustInclude: [
 			"prompt_mode: compiler",
@@ -89,7 +90,7 @@ async function previewCompilerPrompt(simplePrompt: string): Promise<string> {
 		config: { enabled: true },
 	});
 
-	const tool = tools.reprompt_retry as unknown as {
+	const tool = tools.reprompt as unknown as {
 		execute: (
 			args: {
 				simple_prompt: string;

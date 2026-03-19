@@ -5,7 +5,7 @@ import { z } from "zod";
 export const runtimeModeSchema = z.enum(["helper-only", "hook-and-helper"]);
 export type RuntimeMode = z.infer<typeof runtimeModeSchema>;
 
-export const promptModeSchema = z.enum(["auto", "legacy", "compiler"]);
+export const promptModeSchema = z.enum(["auto", "compiler"]);
 export type PromptMode = z.infer<typeof promptModeSchema>;
 
 export const oracleModeSchema = z.enum(["disabled", "suggest", "allow"]);
@@ -17,7 +17,6 @@ export type TelemetryLevel = z.infer<typeof telemetryLevelSchema>;
 export const runtimeConfigSchema = z.object({
 	mode: runtimeModeSchema.optional(),
 	promptMode: promptModeSchema.optional(),
-	killSwitch: z.boolean().optional(),
 });
 
 export const retryPolicySchema = z.object({
@@ -67,9 +66,8 @@ export type RepromptConfigInput = z.input<typeof repromptConfigSchema>;
 export const repromptConfigDefaults = {
 	enabled: false,
 	runtime: {
-		mode: "helper-only",
+		mode: "hook-and-helper",
 		promptMode: "auto",
-		killSwitch: false,
 	},
 	retry: {
 		maxAttempts: 1,

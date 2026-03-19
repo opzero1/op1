@@ -10,6 +10,7 @@ import { collectRepoSnapshot } from "../serializer/repo-snapshot.js";
 
 const tempRoots: string[] = [];
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+const REPROMPT_MARKER = '<reprompt-origin source="reprompt" />';
 
 afterEach(async () => {
 	process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
@@ -18,6 +19,37 @@ afterEach(async () => {
 	);
 	tempRoots.length = 0;
 });
+
+function createPluginClient() {
+	return {
+		session: {
+			create: async () => ({ data: { id: "child" } }),
+			prompt: async () => ({
+				data: { parts: [{ type: "text", text: "ok" }] },
+			}),
+		},
+	};
+}
+
+async function createPluginWithConfig(
+	root: string,
+	config: Record<string, unknown>,
+) {
+	await mkdir(join(root, ".opencode"), { recursive: true });
+	await Bun.write(
+		join(root, ".opencode", "reprompt.json"),
+		JSON.stringify(config),
+	);
+
+	return RepromptPlugin({
+		directory: root,
+		worktree: root,
+		project: {} as never,
+		serverUrl: new URL("http://localhost:4096"),
+		$: {} as never,
+		client: createPluginClient() as never,
+	});
+}
 
 describe("reprompt integration", () => {
 	test("loads and merges global and project reprompt config", async () => {
@@ -28,12 +60,12 @@ describe("reprompt integration", () => {
 		await mkdir(join(root, ".opencode"), { recursive: true });
 		await Bun.write(
 			join(xdgRoot, "opencode", "reprompt.json"),
-			JSON.stringify({ enabled: true, runtime: { killSwitch: true } }),
+			JSON.stringify({ enabled: true, runtime: { mode: "helper-only" } }),
 		);
 		await Bun.write(
 			join(root, ".opencode", "reprompt.json"),
 			JSON.stringify({
-				runtime: { killSwitch: false },
+				runtime: { mode: "hook-and-helper" },
 				telemetry: { level: "debug" },
 			}),
 		);
@@ -42,7 +74,7 @@ describe("reprompt integration", () => {
 		const config = await loadRepromptConfig(root);
 
 		expect(config.enabled).toBe(true);
-		expect(config.runtime.killSwitch).toBe(false);
+		expect(config.runtime.mode).toBe("hook-and-helper");
 		expect(config.telemetry.level).toBe("debug");
 	});
 
@@ -87,8 +119,78 @@ describe("reprompt integration", () => {
 		expect(codemap.files[0]?.symbols).toContain("run");
 	});
 
-	test("plugin exposes helper tools without hook auto-reprompt wiring", async () => {
+	test("plugin exposes helper tools and incoming hook when enabled", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-plugin-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode"), { recursive: true });
+		await Bun.write(join(root, "src.ts"), "export const value = 1\n");
+		await Bun.write(
+			join(root, ".opencode", "reprompt.json"),
+			JSON.stringify({ enabled: true }),
+		);
+
+		const hooks = await RepromptPlugin({
+			directory: root,
+			worktree: root,
+			project: {} as never,
+			serverUrl: new URL("http://localhost:4096"),
+			$: {} as never,
+			client: {
+				session: {
+					create: async () => ({ data: { id: "child" } }),
+					prompt: async () => ({
+						data: { parts: [{ type: "text", text: "ok" }] },
+					}),
+				},
+			} as never,
+		});
+
+		expect(hooks.tool).toBeDefined();
+		expect(hooks.tool?.reprompt).toBeDefined();
+		expect((hooks as Record<string, unknown>)["chat.message"]).toBeDefined();
+
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+		const output = {
+			message: { content: "fix src.ts" },
+			parts: [{ type: "text", text: "fix src.ts" }],
+		};
+
+		await chatMessage(
+			{
+				sessionID: "root-session",
+				messageID: "msg-1",
+			},
+			output,
+		);
+
+		expect(output.parts[0]?.text).toContain(
+			'<reprompt-origin source="reprompt" />',
+		);
+		expect(output.parts[0]?.text).toContain("fix src.ts");
+		expect(output.message.content).toBe("fix src.ts");
+
+		const childOutput = {
+			message: { content: "fix src.ts" },
+			parts: [{ type: "text", text: "fix src.ts" }],
+		};
+		await chatMessage({ sessionID: "child-session" }, childOutput);
+
+		expect(childOutput.parts[0]?.text).toContain(
+			'<reprompt-origin source="reprompt" />',
+		);
+		expect(childOutput.message.content).toBe("fix src.ts");
+	});
+
+	test("incoming hook passes through reprompt-origin prompts", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-reprompt-hook-pass-through-"),
+		);
 		tempRoots.push(root);
 		await mkdir(join(root, ".opencode"), { recursive: true });
 		await Bun.write(
@@ -112,9 +214,156 @@ describe("reprompt integration", () => {
 			} as never,
 		});
 
-		expect(hooks.tool).toBeDefined();
-		expect(hooks.tool?.reprompt_retry).toBeDefined();
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+		const prompt = '<reprompt-origin source="reprompt" />\n\ncompiled prompt';
+		const output = {
+			message: {},
+			parts: [{ type: "text", text: prompt }],
+		};
+
+		await chatMessage({ sessionID: "child-session" }, output);
+
+		expect(output.parts[0]?.text).toBe(prompt);
+	});
+
+	test("plugin skips incoming hook registration in helper-only mode", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-helper-only-"));
+		tempRoots.push(root);
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "helper-only" },
+		});
+
+		expect(hooks.tool?.reprompt).toBeDefined();
 		expect((hooks as Record<string, unknown>)["chat.message"]).toBeUndefined();
+	});
+
+	test("incoming hook passes through structured first prompts unchanged", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-structured-"));
+		tempRoots.push(root);
+		await Bun.write(join(root, "auth.ts"), "export const value = 1\n");
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "hook-and-helper" },
+		});
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+		const prompt = [
+			"## Goal",
+			"- Update auth flow in `auth.ts`",
+			"- Run focused tests afterward",
+		].join("\n");
+		const output = {
+			message: { content: prompt },
+			parts: [{ type: "text", text: prompt }],
+		};
+
+		await chatMessage({ sessionID: "structured-session" }, output);
+
+		expect(output.parts[0]?.text).toBe(prompt);
+		expect(output.message.content).toBe(prompt);
+	});
+
+	test("incoming hook passes through non-text first prompts unchanged", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-non-text-"));
+		tempRoots.push(root);
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "hook-and-helper" },
+		});
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string; file?: string }>;
+			},
+		) => Promise<void>;
+		const output = {
+			message: {},
+			parts: [{ type: "image", file: "diagram.png" }],
+		};
+
+		await chatMessage({ sessionID: "non-text-session" }, output);
+
+		expect(output.parts).toEqual([{ type: "image", file: "diagram.png" }]);
+	});
+
+	test("incoming hook only rewrites the first message per session", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-first-only-"));
+		tempRoots.push(root);
+		await Bun.write(join(root, "auth.ts"), "export const value = 1\n");
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "hook-and-helper" },
+		});
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+
+		const first = {
+			message: { content: "fix auth.ts" },
+			parts: [{ type: "text", text: "fix auth.ts" }],
+		};
+		await chatMessage({ sessionID: "single-session" }, first);
+		expect(first.parts[0]?.text).toContain(REPROMPT_MARKER);
+
+		const secondPrompt = "fix billing.ts";
+		const second = {
+			message: { content: secondPrompt },
+			parts: [{ type: "text", text: secondPrompt }],
+		};
+		await chatMessage({ sessionID: "single-session" }, second);
+
+		expect(second.parts[0]?.text).toBe(secondPrompt);
+		expect(second.message.content).toBe(secondPrompt);
+	});
+
+	test("incoming hook fails closed for ambiguous terse prompts", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-fail-closed-"));
+		tempRoots.push(root);
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "hook-and-helper" },
+		});
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+		const output = {
+			message: { content: "fix it" },
+			parts: [{ type: "text", text: "fix it" }],
+		};
+
+		await chatMessage({ sessionID: "ambiguous-session" }, output);
+
+		expect(output.parts[0]?.text).toContain(REPROMPT_MARKER);
+		expect(output.parts[0]?.text).toContain("<fail_closed_instructions>");
+		expect(output.parts[0]?.text).toContain(
+			"Ask exactly one targeted clarification question",
+		);
 	});
 
 	test("helper tool executes child-session retry when execute=true", async () => {
@@ -136,7 +385,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true, retry: { maxAttempts: 2, cooldownMs: 0 } },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: {
 					task_summary: string;
@@ -199,7 +448,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true, retry: { maxAttempts: 2 } },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -253,7 +502,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true, retry: { maxAttempts: 2, cooldownMs: 0 } },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -310,7 +559,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -340,8 +589,8 @@ describe("reprompt integration", () => {
 		expect(result).toContain("reprompt execution failed: child-boom");
 	});
 
-	test("helper tool respects kill switch fallback", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-killswitch-"));
+		test("helper tool stays available in helper-only mode", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-helper-only-"));
 		tempRoots.push(root);
 		const tools = createPublicRepromptTools({
 			workspaceRoot: root,
@@ -358,11 +607,10 @@ describe("reprompt integration", () => {
 				runtime: {
 					mode: "helper-only",
 					promptMode: "auto",
-					killSwitch: true,
 				},
 			},
 		});
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -389,7 +637,67 @@ describe("reprompt integration", () => {
 			},
 		);
 
-		expect(result).toBe("reprompt suppressed: kill switch is enabled");
+			expect(result).toContain("decision:");
+		});
+
+	test("helper tool guard state is isolated per session", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-session-guard-"));
+		tempRoots.push(root);
+		await Bun.write(join(root, "src.ts"), "export const value = 1\n");
+		const tools = createPublicRepromptTools({
+			workspaceRoot: root,
+			client: {
+				session: {
+					create: async () => ({ data: { id: "child" } }),
+					prompt: async () => ({
+						data: { parts: [{ type: "text", text: "ok" }] },
+					}),
+				},
+			} as never,
+			config: {
+				enabled: true,
+				retry: { maxAttempts: 1, cooldownMs: 60_000 },
+			},
+		});
+		const tool = tools.reprompt as unknown as {
+			execute: (
+				args: Record<string, unknown>,
+				ctx: Record<string, unknown>,
+			) => Promise<string>;
+		};
+
+		const args = {
+			task_summary: "inspect file",
+			failure_summary: "need one bounded retry",
+			evidence_paths: ["src.ts"],
+			execute: false,
+		};
+		const first = await tool.execute(args, {
+			sessionID: "session-a",
+			messageID: "msg-a",
+			agent: "build",
+			directory: root,
+			worktree: root,
+			callID: "call-a",
+			abort: new AbortController().signal,
+			ask: async () => {},
+			metadata: async () => {},
+		});
+		const second = await tool.execute(args, {
+			sessionID: "session-b",
+			messageID: "msg-b",
+			agent: "build",
+			directory: root,
+			worktree: root,
+			callID: "call-b",
+			abort: new AbortController().signal,
+			ask: async () => {},
+			metadata: async () => {},
+		});
+
+		expect(first).toContain("decision:");
+		expect(second).toContain("decision:");
+		expect(second).not.toContain("cooldown-active");
 	});
 
 	test("telemetry persistence can be disabled explicitly", async () => {
@@ -412,7 +720,7 @@ describe("reprompt integration", () => {
 			},
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -464,7 +772,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: {
 					task_summary: string;
@@ -507,7 +815,8 @@ describe("reprompt integration", () => {
 		);
 
 		expect(result).toContain("decision: retry-helper");
-		expect(result).toContain("Evidence slices:");
+		expect(result).toContain("prompt_mode: compiler");
+		expect(result).toContain("<grounding_context>");
 	});
 
 	test("compiler mode previews a GPT-5.4-ready prompt from a simple prompt", async () => {
@@ -530,7 +839,7 @@ describe("reprompt integration", () => {
 			config: { enabled: true },
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: {
 					simple_prompt: string;
@@ -576,8 +885,8 @@ describe("reprompt integration", () => {
 		expect(telemetry).toContain('"promptMode":"compiler"');
 	});
 
-	test("legacy prompt mode preserves the v1 prompt shape", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-legacy-"));
+	test("compiler mode is the only supported prompt shape", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-compiler-only-"));
 		tempRoots.push(root);
 		await Bun.write(join(root, "src.ts"), "export const value = 1\n");
 		const tools = createPublicRepromptTools({
@@ -594,13 +903,12 @@ describe("reprompt integration", () => {
 				enabled: true,
 				runtime: {
 					mode: "helper-only",
-					promptMode: "legacy",
-					killSwitch: false,
+					promptMode: "compiler",
 				},
 			},
 		});
 
-		const tool = tools.reprompt_retry as unknown as {
+		const tool = tools.reprompt as unknown as {
 			execute: (
 				args: Record<string, unknown>,
 				ctx: Record<string, unknown>,
@@ -627,8 +935,7 @@ describe("reprompt integration", () => {
 			},
 		);
 
-		expect(result).toContain("prompt_mode: legacy");
-		expect(result).toContain("Task summary: inspect file");
-		expect(result).not.toContain("<output_contract>");
+		expect(result).toContain("prompt_mode: compiler");
+		expect(result).toContain("<output_contract>");
 	});
 });

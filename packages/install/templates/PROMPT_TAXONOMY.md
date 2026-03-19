@@ -46,7 +46,7 @@ Prompts should orient behavior. Hooks should correct drift.
 ## Specialization Rules
 
 - `build`: owns orchestration defaults, delegation, plan execution, and final verification posture
-- `build`: may reference `reprompt_retry` for bounded grounding retries, but runtime plugins own the retry packaging logic
+- `build`: may reference `reprompt` for bounded grounding retries, but runtime plugins own the retry packaging logic
 - `plan`: owns planning-only behavior and must defer schema details to `plan-protocol`
 - `reviewer`: owns review scope and must defer rubric details to `code-review`
 - `coder`: owns focused implementation and must defer quality laws to the relevant philosophy skill
