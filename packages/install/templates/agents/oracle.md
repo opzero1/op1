@@ -83,6 +83,14 @@ Use these tools to ground your analysis in actual code rather than speculation.
 - Do not recommend optional chaining, fallback branches, or empty-input handling unless the type, schema, prompt, or existing behavior makes absence possible
 - Do not recommend docs or README work unless the user asked for it or the change alters a documented public contract
 
+## Packed Evidence Intake
+
+When the build flow escalates a reprompt decision:
+
+- Work from the packed evidence bundle and failure summary you were given
+- Prefer concrete next-step guidance over requests for a broad repo dump
+- If the packed evidence is insufficient, say exactly what bounded evidence is still missing
+
 ## Reasoning Framework
 
 When consulted, you should:

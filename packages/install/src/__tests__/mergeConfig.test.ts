@@ -35,6 +35,7 @@ function createMockMcp(
 const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
 	workspace: false,
 	delegation: false,
+	reprompt: false,
 	astGrep: false,
 	lsp: false,
 };
@@ -42,6 +43,7 @@ const DEFAULT_PLUGIN_CHOICES: PluginChoice = {
 const ENABLED_PLUGIN_CHOICES: PluginChoice = {
 	workspace: true,
 	delegation: true,
+	reprompt: false,
 	astGrep: false,
 	lsp: false,
 };
@@ -529,6 +531,7 @@ describe("mergeConfig", () => {
 		expect(result).toEqual({
 			workspace: true,
 			delegation: true,
+			reprompt: false,
 			astGrep: true,
 			lsp: true,
 		});
@@ -540,6 +543,7 @@ describe("mergeConfig", () => {
 		expect(result).toEqual({
 			workspace: true,
 			delegation: true,
+			reprompt: false,
 			astGrep: false,
 			lsp: false,
 		});
@@ -551,6 +555,7 @@ describe("mergeConfig", () => {
 		expect(result).toEqual({
 			workspace: true,
 			delegation: false,
+			reprompt: false,
 			astGrep: false,
 			lsp: false,
 		});

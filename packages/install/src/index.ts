@@ -466,6 +466,7 @@ interface MainOptions {
 interface PluginChoice {
 	workspace: boolean;
 	delegation: boolean;
+	reprompt: boolean;
 	astGrep: boolean;
 	lsp: boolean;
 }
@@ -700,6 +701,7 @@ const INSTALLER_PROFILE_DEFAULTS: Record<
 		pluginChoices: {
 			workspace: true,
 			delegation: true,
+			reprompt: false,
 			astGrep: true,
 			lsp: true,
 		},
@@ -709,6 +711,7 @@ const INSTALLER_PROFILE_DEFAULTS: Record<
 		pluginChoices: {
 			workspace: true,
 			delegation: true,
+			reprompt: false,
 			astGrep: false,
 			lsp: false,
 		},
@@ -732,6 +735,7 @@ function resolveDefaultPluginChoices(
 	return {
 		workspace: defaults.workspace,
 		delegation: pluginsEnabled ? defaults.delegation : false,
+		reprompt: pluginsEnabled ? defaults.reprompt : false,
 		astGrep: pluginsEnabled ? defaults.astGrep : false,
 		lsp: pluginsEnabled ? defaults.lsp : false,
 	};
@@ -1341,6 +1345,9 @@ function mergeConfig(
 	) {
 		newPlugins.push("@op1/delegation");
 	}
+	if (pluginChoices.reprompt && !existingPlugins.includes("@op1/reprompt")) {
+		newPlugins.push("@op1/reprompt");
+	}
 	if (pluginChoices.astGrep && !existingPlugins.includes("@op1/ast-grep")) {
 		newPlugins.push("@op1/ast-grep");
 	}
@@ -1705,6 +1712,17 @@ export async function main(mainOptions: MainOptions = {}) {
 
 		if (!p.isCancel(wantDelegation)) {
 			pluginChoices.delegation = wantDelegation;
+		}
+
+		const wantReprompt = await p.confirm({
+			message:
+				"Enable reprompt helper plugin? (bounded evidence packing + explicit child-session retry tool)",
+			initialValue:
+				INSTALLER_PROFILE_DEFAULTS[installerProfile].pluginChoices.reprompt,
+		});
+
+		if (!p.isCancel(wantReprompt)) {
+			pluginChoices.reprompt = wantReprompt;
 		}
 
 		const wantAstGrep = await p.confirm({

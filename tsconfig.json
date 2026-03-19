@@ -25,7 +25,9 @@
 			"@op1/ast-grep": ["packages/ast-grep/src/index.ts"],
 			"@op1/ast-grep/*": ["packages/ast-grep/src/*"],
 			"@op1/lsp": ["packages/lsp/src/index.ts"],
-			"@op1/lsp/*": ["packages/lsp/src/*"]
+			"@op1/lsp/*": ["packages/lsp/src/*"],
+			"@op1/reprompt": ["packages/reprompt/src/index.ts"],
+			"@op1/reprompt/*": ["packages/reprompt/src/*"]
 		}
 	},
 	"exclude": ["node_modules", "dist", "**/dist"]

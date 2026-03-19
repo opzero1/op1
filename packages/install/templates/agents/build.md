@@ -177,6 +177,15 @@ Task complete when:
 | Code review | `reviewer` | Before reporting completion |
 | Atomic coding | `coder` | Specific implementation tasks |
 
+## Grounded Retry Path
+
+When search, grounding, or edit-output quality is the blocker rather than missing implementation effort:
+
+- Prefer the `reprompt_retry` helper path over repeating the same prompt with a broader repo dump
+- Pass a concrete failure summary plus a bounded set of evidence paths
+- Use `simple_prompt` plus optional `success_criteria` when the blocker is a terse or underspecified retry request; keep `task_summary` for legacy fallback mode
+- Use `execute=false` first when you need to inspect the packed retry prompt before running the child-session retry
+
 ## Decision Escalation Protocol
 
 When execution needs a decision:
