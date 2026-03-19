@@ -34,6 +34,10 @@ describe("prompt template contracts", () => {
 		const prompt = await readTemplate("agents", "plan.md");
 
 		expect(prompt).toContain('skill("plan-protocol")');
+		expect(prompt).toContain("question");
+		expect(prompt).toContain("Oracle");
+		expect(prompt).toContain("plan_context_write");
+		expect(prompt).toContain("plan_promote");
 		expect(prompt).not.toContain("Use this exact structure:");
 	});
 
@@ -64,7 +68,10 @@ describe("prompt template contracts", () => {
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
+		expect(planCommand).toContain("plan_context_write");
+		expect(planCommand).toContain("plan_promote");
 		expect(reviewCommand).toContain("code-review");
+		expect(workCommand).toContain("plan_context_read");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
 		expect(autoloopCommand).toContain("long-running-workflows");
 		expect(autoloopCommand).toContain(".opencode/workspace/autoloop/<slug>/");

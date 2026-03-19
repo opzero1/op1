@@ -198,6 +198,99 @@ describe("plan state manager", () => {
 		expect(state.plan_name).toBe("100-alpha");
 	});
 
+	test("stores structured plan context and promotes a draft plan", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const draftPath = join(env.plansDir, "100-alpha.md");
+		await Bun.write(draftPath, "# Plan\n\n## Goal\n\nAlpha");
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		await sm.upsertPlanRegistryEntry(draftPath, { lifecycle: "draft" });
+		await sm.syncPlanContext("100-alpha", {
+			stage: "draft",
+			goal: "Refine alpha planning flow",
+			chosen_pattern: "repo-first plan refinement",
+			affected_areas: ["packages/install", "packages/workspace"],
+			blast_radius: ["prompt templates", "workspace plan lifecycle"],
+			success_criteria: ["draft saved before promotion"],
+			failure_criteria: ["weak plan saved without confirmation"],
+			test_plan: ["bun test packages/workspace"],
+			open_risks: ["prompt flow drift"],
+			question_answers: [
+				{
+					id: "qa-1",
+					question: "Is the repo-first pattern correct?",
+					answers: ["Yes"],
+					source: "question-tool",
+					confirmed_by_user: true,
+					captured_at: "2026-03-19T00:00:00.000Z",
+				},
+			],
+			pattern_examples: [
+				{
+					name: "Workspace plan registry",
+					example_files: ["packages/workspace/src/index.ts"],
+					symbols: ["plan_save"],
+					why_it_fits: "Existing plan persistence should stay canonical.",
+					constraints: ["Keep active plan stable until approval"],
+					blast_radius: ["workspace tools"],
+					test_implications: ["plan-state tests"],
+					confirmed_by_user: true,
+				},
+			],
+		});
+
+		const promoted = await sm.promotePlan("100-alpha", {
+			sessionID: "session-1",
+		});
+
+		expect(promoted.plan_name).toBe("100-alpha");
+		expect(promoted.active_plan).toBe(draftPath);
+
+		const context = await sm.readPlanContext("100-alpha");
+		expect(context?.stage).toBe("active");
+		expect(context?.confirmed_by_user).toBe(true);
+		expect(context?.pattern_examples[0]?.name).toBe("Workspace plan registry");
+
+		const registry = await sm.readPlanRegistry();
+		expect(registry.plans["100-alpha"]?.lifecycle).toBe("active");
+	});
+
+	test("unarchives an unconfirmed plan back to draft lifecycle", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const draftPath = join(env.plansDir, "100-alpha.md");
+		await Bun.write(draftPath, "# Plan\n\n## Goal\n\nAlpha");
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		await sm.upsertPlanRegistryEntry(draftPath, { lifecycle: "draft" });
+		await sm.syncPlanContext("100-alpha", {
+			stage: "draft",
+			confirmed_by_user: false,
+		});
+
+		await sm.archivePlan("100-alpha");
+		const restored = await sm.unarchivePlan("100-alpha");
+
+		expect(restored.lifecycle).toBe("draft");
+		const context = await sm.readPlanContext("100-alpha");
+		expect(context?.stage).toBe("draft");
+	});
+
 	test("recovers plan registry JSON with trailing commas", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);

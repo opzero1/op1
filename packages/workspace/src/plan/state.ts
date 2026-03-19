@@ -79,7 +79,7 @@ export interface LinkPlanDocInput {
 	notes?: string;
 }
 
-export type PlanLifecycle = "active" | "inactive" | "archived";
+export type PlanLifecycle = "active" | "inactive" | "archived" | "draft";
 
 export interface PlanRegistryEntry {
 	plan_name: string;
@@ -95,6 +95,66 @@ export interface PlanRegistryEntry {
 export interface PlanRegistry {
 	version: 1;
 	plans: Record<string, PlanRegistryEntry>;
+}
+
+export type PlanContextStage = "draft" | "confirmed" | "active" | "archived";
+
+export interface PlanQuestionAnswer {
+	id: string;
+	question: string;
+	header?: string;
+	answers: string[];
+	source: "question-tool" | "freeform";
+	phase?: string;
+	task?: string;
+	confirmed_by_user: boolean;
+	captured_at: string;
+}
+
+export interface ConfirmedPatternExample {
+	name: string;
+	example_files: string[];
+	symbols: string[];
+	why_it_fits: string;
+	constraints: string[];
+	blast_radius: string[];
+	test_implications: string[];
+	confirmed_by_user: boolean;
+}
+
+export interface PlanContextRecord {
+	version: 1;
+	plan_name: string;
+	stage: PlanContextStage;
+	confirmed_by_user: boolean;
+	goal?: string;
+	chosen_pattern?: string;
+	affected_areas: string[];
+	blast_radius: string[];
+	success_criteria: string[];
+	failure_criteria: string[];
+	test_plan: string[];
+	open_risks: string[];
+	oracle_summary?: string;
+	question_answers: PlanQuestionAnswer[];
+	pattern_examples: ConfirmedPatternExample[];
+	updated_at: string;
+}
+
+export interface PlanContextPatch {
+	stage?: PlanContextStage;
+	confirmed_by_user?: boolean;
+	goal?: string;
+	chosen_pattern?: string;
+	affected_areas?: string[];
+	blast_radius?: string[];
+	success_criteria?: string[];
+	failure_criteria?: string[];
+	test_plan?: string[];
+	open_risks?: string[];
+	oracle_summary?: string;
+	question_answers?: PlanQuestionAnswer[];
+	pattern_examples?: ConfirmedPatternExample[];
 }
 
 // ==========================================
@@ -201,6 +261,10 @@ function uniqueStrings(values: string[]): string[] {
 	];
 }
 
+function uniqueStringsOrEmpty(values?: string[]): string[] {
+	return uniqueStrings(values ?? []);
+}
+
 function derivePlanMetadataFallback(
 	planName: string,
 	content: string,
@@ -226,6 +290,184 @@ function derivePlanMetadataFallback(
 
 function generateDocID(): string {
 	return `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function generateQuestionAnswerID(): string {
+	return `qa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeQuestionAnswer(value: unknown): PlanQuestionAnswer | null {
+	if (!value || typeof value !== "object") return null;
+
+	const raw = value as Record<string, unknown>;
+	if (typeof raw.question !== "string" || raw.question.trim().length === 0) {
+		return null;
+	}
+
+	return {
+		id:
+			typeof raw.id === "string" && raw.id.trim().length > 0
+				? raw.id
+				: generateQuestionAnswerID(),
+		question: raw.question.trim(),
+		header:
+			typeof raw.header === "string" && raw.header.trim().length > 0
+				? raw.header.trim()
+				: undefined,
+		answers: uniqueStrings(
+			Array.isArray(raw.answers) ? (raw.answers as string[]) : [],
+		),
+		source: raw.source === "question-tool" ? "question-tool" : "freeform",
+		phase:
+			typeof raw.phase === "string" && raw.phase.trim().length > 0
+				? raw.phase.trim()
+				: undefined,
+		task:
+			typeof raw.task === "string" && raw.task.trim().length > 0
+				? raw.task.trim()
+				: undefined,
+		confirmed_by_user: raw.confirmed_by_user !== false,
+		captured_at:
+			typeof raw.captured_at === "string" && raw.captured_at.trim().length > 0
+				? raw.captured_at
+				: nowIso(),
+	};
+}
+
+function normalizePatternExample(
+	value: unknown,
+): ConfirmedPatternExample | null {
+	if (!value || typeof value !== "object") return null;
+
+	const raw = value as Record<string, unknown>;
+	if (typeof raw.name !== "string" || raw.name.trim().length === 0) {
+		return null;
+	}
+	if (
+		typeof raw.why_it_fits !== "string" ||
+		raw.why_it_fits.trim().length === 0
+	) {
+		return null;
+	}
+
+	return {
+		name: raw.name.trim(),
+		example_files: uniqueStrings(
+			Array.isArray(raw.example_files) ? (raw.example_files as string[]) : [],
+		),
+		symbols: uniqueStrings(
+			Array.isArray(raw.symbols) ? (raw.symbols as string[]) : [],
+		),
+		why_it_fits: raw.why_it_fits.trim(),
+		constraints: uniqueStrings(
+			Array.isArray(raw.constraints) ? (raw.constraints as string[]) : [],
+		),
+		blast_radius: uniqueStrings(
+			Array.isArray(raw.blast_radius) ? (raw.blast_radius as string[]) : [],
+		),
+		test_implications: uniqueStrings(
+			Array.isArray(raw.test_implications)
+				? (raw.test_implications as string[])
+				: [],
+		),
+		confirmed_by_user: raw.confirmed_by_user !== false,
+	};
+}
+
+function createEmptyPlanContext(planName: string): PlanContextRecord {
+	return {
+		version: 1,
+		plan_name: planName,
+		stage: "draft",
+		confirmed_by_user: false,
+		affected_areas: [],
+		blast_radius: [],
+		success_criteria: [],
+		failure_criteria: [],
+		test_plan: [],
+		open_risks: [],
+		question_answers: [],
+		pattern_examples: [],
+		updated_at: nowIso(),
+	};
+}
+
+function normalizePlanContextRecord(
+	data: unknown,
+	planName: string,
+): PlanContextRecord {
+	if (!data || typeof data !== "object") {
+		return createEmptyPlanContext(planName);
+	}
+
+	const raw = data as Record<string, unknown>;
+	const questionAnswers = Array.isArray(raw.question_answers)
+		? raw.question_answers
+				.map((item) => normalizeQuestionAnswer(item))
+				.filter((item): item is PlanQuestionAnswer => item !== null)
+		: [];
+	const patternExamples = Array.isArray(raw.pattern_examples)
+		? raw.pattern_examples
+				.map((item) => normalizePatternExample(item))
+				.filter((item): item is ConfirmedPatternExample => item !== null)
+		: [];
+
+	return {
+		version: 1,
+		plan_name:
+			typeof raw.plan_name === "string" && raw.plan_name.trim().length > 0
+				? raw.plan_name
+				: planName,
+		stage:
+			raw.stage === "confirmed" ||
+			raw.stage === "active" ||
+			raw.stage === "archived"
+				? raw.stage
+				: "draft",
+		confirmed_by_user: raw.confirmed_by_user === true,
+		goal:
+			typeof raw.goal === "string" && raw.goal.trim().length > 0
+				? raw.goal.trim()
+				: undefined,
+		chosen_pattern:
+			typeof raw.chosen_pattern === "string" &&
+			raw.chosen_pattern.trim().length > 0
+				? raw.chosen_pattern.trim()
+				: undefined,
+		affected_areas: uniqueStrings(
+			Array.isArray(raw.affected_areas) ? (raw.affected_areas as string[]) : [],
+		),
+		blast_radius: uniqueStrings(
+			Array.isArray(raw.blast_radius) ? (raw.blast_radius as string[]) : [],
+		),
+		success_criteria: uniqueStrings(
+			Array.isArray(raw.success_criteria)
+				? (raw.success_criteria as string[])
+				: [],
+		),
+		failure_criteria: uniqueStrings(
+			Array.isArray(raw.failure_criteria)
+				? (raw.failure_criteria as string[])
+				: [],
+		),
+		test_plan: uniqueStrings(
+			Array.isArray(raw.test_plan) ? (raw.test_plan as string[]) : [],
+		),
+		open_risks: uniqueStrings(
+			Array.isArray(raw.open_risks) ? (raw.open_risks as string[]) : [],
+		),
+		oracle_summary:
+			typeof raw.oracle_summary === "string" &&
+			raw.oracle_summary.trim().length > 0
+				? raw.oracle_summary.trim()
+				: undefined,
+		question_answers: questionAnswers,
+		pattern_examples: patternExamples,
+		updated_at:
+			typeof raw.updated_at === "string" && raw.updated_at.trim().length > 0
+				? raw.updated_at
+				: nowIso(),
+	};
 }
 
 async function readTextIfExists(path: string): Promise<string | null> {
@@ -389,7 +631,8 @@ function normalizePlanRegistry(data: unknown): PlanRegistry {
 		const lifecycle =
 			record.lifecycle === "active" ||
 			record.lifecycle === "inactive" ||
-			record.lifecycle === "archived"
+			record.lifecycle === "archived" ||
+			record.lifecycle === "draft"
 				? record.lifecycle
 				: "inactive";
 
@@ -522,6 +765,11 @@ export function createStateManager(
 ) {
 	const planDocRegistryPath = join(workspaceDir, "plan-doc-links.json");
 	const planRegistryPath = join(workspaceDir, "plan-registry.json");
+	const planContextDir = join(workspaceDir, "plan-contexts");
+
+	function getPlanContextPath(planName: string): string {
+		return join(planContextDir, `${planName}.json`);
+	}
 
 	async function listPlans(): Promise<string[]> {
 		try {
@@ -689,7 +937,10 @@ export function createStateManager(
 
 		const resolveFallbackPlanPath = (excludePath?: string): string | null => {
 			const entries = Object.values(registry.plans)
-				.filter((entry) => entry.lifecycle !== "archived")
+				.filter(
+					(entry) =>
+						entry.lifecycle !== "archived" && entry.lifecycle !== "draft",
+				)
 				.filter((entry) => !excludePath || entry.path !== excludePath)
 				.sort((a, b) => b.plan_name.localeCompare(a.plan_name));
 
@@ -826,6 +1077,11 @@ export function createStateManager(
 				`Plan ${planName} is archived. Unarchive before activating.`,
 			);
 		}
+		if (targetEntry?.lifecycle === "draft") {
+			throw new Error(
+				`Plan ${planName} is a draft. Promote it before activating.`,
+			);
+		}
 
 		const previous = await readActivePlanState();
 		const fallbackMetadata = derivePlanMetadataFallback(planName, planContent);
@@ -854,7 +1110,16 @@ export function createStateManager(
 
 		const currentTime = nowIso();
 		for (const entry of Object.values(registry.plans)) {
-			if (entry.lifecycle === "archived") continue;
+			if (entry.lifecycle === "archived" || entry.lifecycle === "draft") {
+				if (entry.path === planPath) {
+					entry.lifecycle = "active";
+					entry.archived_at = undefined;
+					entry.updated_at = currentTime;
+					entry.title = nextState.title || entry.title;
+					entry.description = nextState.description || entry.description;
+				}
+				continue;
+			}
 			entry.lifecycle = entry.path === planPath ? "active" : "inactive";
 			entry.updated_at = currentTime;
 			if (entry.path === planPath) {
@@ -877,6 +1142,10 @@ export function createStateManager(
 		}
 
 		await writePlanRegistry(registry);
+		await syncPlanContext(planName, {
+			stage: "active",
+			confirmed_by_user: true,
+		});
 		return nextState;
 	}
 
@@ -905,6 +1174,8 @@ export function createStateManager(
 		if (!entry) {
 			throw new Error(`Plan record not found for ${planName}`);
 		}
+		const previousLifecycle = entry.lifecycle;
+		const existingContext = await readPlanContext(planName);
 
 		entry.lifecycle = "archived";
 		entry.archived_at = nowIso();
@@ -917,7 +1188,10 @@ export function createStateManager(
 		if (active?.active_plan === resolved) {
 			const latestRegistry = await syncPlanRegistry();
 			const fallback = Object.values(latestRegistry.plans)
-				.filter((record) => record.lifecycle !== "archived")
+				.filter(
+					(record) =>
+						record.lifecycle !== "archived" && record.lifecycle !== "draft",
+				)
 				.filter((record) => record.path !== resolved)
 				.sort((a, b) => b.plan_name.localeCompare(a.plan_name))[0];
 
@@ -930,6 +1204,12 @@ export function createStateManager(
 				nextActive = null;
 			}
 		}
+
+		await syncPlanContext(planName, {
+			stage: "archived",
+			confirmed_by_user:
+				existingContext?.confirmed_by_user ?? previousLifecycle !== "draft",
+		});
 
 		const finalRegistry = await syncPlanRegistry();
 		const archived = finalRegistry.plans[planName] || entry;
@@ -950,13 +1230,136 @@ export function createStateManager(
 		}
 
 		if (entry.lifecycle === "archived") {
-			entry.lifecycle = "inactive";
+			const existingContext = await readPlanContext(planName);
+			entry.lifecycle =
+				existingContext && !existingContext.confirmed_by_user
+					? "draft"
+					: "inactive";
 			entry.archived_at = undefined;
 			entry.updated_at = nowIso();
 			await writePlanRegistry(registry);
+			if (existingContext) {
+				await writePlanContext({
+					...existingContext,
+					stage: existingContext.confirmed_by_user ? "confirmed" : "draft",
+					updated_at: nowIso(),
+				});
+			}
 		}
 
 		return entry;
+	}
+
+	async function readPlanContext(
+		planName: string,
+	): Promise<PlanContextRecord | null> {
+		const content = await readTextIfExists(getPlanContextPath(planName));
+		if (!content) return null;
+
+		const parsed = parseJsonWithRecovery(content, getPlanContextPath(planName));
+		if (!parsed) return null;
+		return normalizePlanContextRecord(parsed, planName);
+	}
+
+	async function writePlanContext(context: PlanContextRecord): Promise<void> {
+		await mkdir(planContextDir, { recursive: true });
+		await Bun.write(
+			getPlanContextPath(context.plan_name),
+			JSON.stringify({ ...context, updated_at: nowIso() }, null, 2),
+		);
+	}
+
+	async function syncPlanContext(
+		planName: string,
+		patch: PlanContextPatch,
+	): Promise<PlanContextRecord> {
+		const existing =
+			(await readPlanContext(planName)) ?? createEmptyPlanContext(planName);
+		const next: PlanContextRecord = {
+			...existing,
+			plan_name: planName,
+			stage: patch.stage ?? existing.stage,
+			confirmed_by_user: patch.confirmed_by_user ?? existing.confirmed_by_user,
+			goal: patch.goal ?? existing.goal,
+			chosen_pattern: patch.chosen_pattern ?? existing.chosen_pattern,
+			affected_areas:
+				patch.affected_areas !== undefined
+					? uniqueStringsOrEmpty(patch.affected_areas)
+					: existing.affected_areas,
+			blast_radius:
+				patch.blast_radius !== undefined
+					? uniqueStringsOrEmpty(patch.blast_radius)
+					: existing.blast_radius,
+			success_criteria:
+				patch.success_criteria !== undefined
+					? uniqueStringsOrEmpty(patch.success_criteria)
+					: existing.success_criteria,
+			failure_criteria:
+				patch.failure_criteria !== undefined
+					? uniqueStringsOrEmpty(patch.failure_criteria)
+					: existing.failure_criteria,
+			test_plan:
+				patch.test_plan !== undefined
+					? uniqueStringsOrEmpty(patch.test_plan)
+					: existing.test_plan,
+			open_risks:
+				patch.open_risks !== undefined
+					? uniqueStringsOrEmpty(patch.open_risks)
+					: existing.open_risks,
+			oracle_summary: patch.oracle_summary ?? existing.oracle_summary,
+			question_answers: patch.question_answers ?? existing.question_answers,
+			pattern_examples: patch.pattern_examples ?? existing.pattern_examples,
+			updated_at: nowIso(),
+		};
+
+		await writePlanContext(next);
+		return next;
+	}
+
+	async function promotePlan(
+		identifier: string,
+		options?: {
+			sessionID?: string;
+		},
+	): Promise<ActivePlanState> {
+		const resolved = await resolvePlanPath(identifier);
+		if (!resolved) {
+			throw new Error(`Plan not found for identifier: ${identifier}`);
+		}
+
+		const planName = getPlanName(resolved);
+		const registry = await syncPlanRegistry();
+		const entry = registry.plans[planName];
+		if (!entry) {
+			throw new Error(`Plan record not found for ${planName}`);
+		}
+		if (entry.lifecycle === "archived") {
+			throw new Error(
+				`Plan ${planName} is archived. Unarchive before promoting.`,
+			);
+		}
+
+		if (entry.lifecycle !== "draft") {
+			await syncPlanContext(planName, {
+				stage: "confirmed",
+				confirmed_by_user: true,
+			});
+			return await setActivePlan(resolved, {
+				sessionID: options?.sessionID,
+			});
+		}
+
+		entry.lifecycle = "inactive";
+		entry.updated_at = nowIso();
+		await writePlanRegistry(registry);
+		await syncPlanContext(planName, {
+			stage: "confirmed",
+			confirmed_by_user: true,
+		});
+
+		return await setActivePlan(resolved, {
+			sessionID: options?.sessionID,
+		});
 	}
 
 	// Notepad helpers
@@ -1134,6 +1537,10 @@ export function createStateManager(
 		readNotepadFile,
 		appendToNotepadFile,
 		listPlans,
+		readPlanContext,
+		writePlanContext,
+		syncPlanContext,
+		promotePlan,
 		readPlanDocRegistry,
 		writePlanDocRegistry,
 		linkPlanDoc,

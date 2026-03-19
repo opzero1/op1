@@ -62,6 +62,7 @@ import { buildMcp0HealthSnapshot } from "./interop/mcp0-health.js";
 import { formatParseError, parsePlanMarkdown } from "./plan/schema.js";
 import {
 	type ActivePlanState,
+	type ConfirmedPatternExample,
 	createStateManager,
 	generatePlanMetadata,
 	generatePlanPath,
@@ -69,7 +70,9 @@ import {
 	type LinkPlanDocInput,
 	NOTEPAD_FILES,
 	type NotepadFile,
+	type PlanContextPatch,
 	type PlanDocType,
+	type PlanQuestionAnswer,
 } from "./plan/state.js";
 import { autoUpdatePlanStatus, calculatePlanStatus } from "./plan/status.js";
 import {
@@ -193,6 +196,175 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		}
 
 		return resolve(directory, pathValue);
+	}
+
+	function parseJsonArrayArg<T>(args: {
+		value?: string;
+		label: string;
+		mapper: (item: unknown) => T | null;
+	}): T[] {
+		if (!args.value) return [];
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(args.value);
+		} catch (error) {
+			throw new Error(
+				`${args.label} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+
+		if (!Array.isArray(parsed)) {
+			throw new Error(`${args.label} must be a JSON array.`);
+		}
+
+		return parsed
+			.map((item) => args.mapper(item))
+			.filter((item): item is T => item !== null);
+	}
+
+	function parsePlanQuestionAnswerInput(
+		value: unknown,
+	): PlanQuestionAnswer | null {
+		if (!value || typeof value !== "object") return null;
+
+		const raw = value as Record<string, unknown>;
+		if (typeof raw.question !== "string" || raw.question.trim().length === 0) {
+			return null;
+		}
+
+		return {
+			id:
+				typeof raw.id === "string" && raw.id.trim().length > 0
+					? raw.id.trim()
+					: `qa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			question: raw.question.trim(),
+			header:
+				typeof raw.header === "string" && raw.header.trim().length > 0
+					? raw.header.trim()
+					: undefined,
+			answers: Array.isArray(raw.answers)
+				? raw.answers
+						.filter((item): item is string => typeof item === "string")
+						.map((item) => item.trim())
+						.filter((item) => item.length > 0)
+				: [],
+			source: raw.source === "question-tool" ? "question-tool" : "freeform",
+			phase:
+				typeof raw.phase === "string" && raw.phase.trim().length > 0
+					? raw.phase.trim()
+					: undefined,
+			task:
+				typeof raw.task === "string" && raw.task.trim().length > 0
+					? raw.task.trim()
+					: undefined,
+			confirmed_by_user: raw.confirmed_by_user !== false,
+			captured_at:
+				typeof raw.captured_at === "string" && raw.captured_at.trim().length > 0
+					? raw.captured_at.trim()
+					: new Date().toISOString(),
+		};
+	}
+
+	function parsePatternExampleInput(
+		value: unknown,
+	): ConfirmedPatternExample | null {
+		if (!value || typeof value !== "object") return null;
+
+		const raw = value as Record<string, unknown>;
+		if (typeof raw.name !== "string" || raw.name.trim().length === 0) {
+			return null;
+		}
+		if (
+			typeof raw.why_it_fits !== "string" ||
+			raw.why_it_fits.trim().length === 0
+		) {
+			return null;
+		}
+
+		const parseList = (input: unknown): string[] =>
+			Array.isArray(input)
+				? input
+						.filter((item): item is string => typeof item === "string")
+						.map((item) => item.trim())
+						.filter((item) => item.length > 0)
+				: [];
+
+		return {
+			name: raw.name.trim(),
+			example_files: parseList(raw.example_files),
+			symbols: parseList(raw.symbols),
+			why_it_fits: raw.why_it_fits.trim(),
+			constraints: parseList(raw.constraints),
+			blast_radius: parseList(raw.blast_radius),
+			test_implications: parseList(raw.test_implications),
+			confirmed_by_user: raw.confirmed_by_user !== false,
+		};
+	}
+
+	function formatPlanContextBlock(
+		context: PlanContextPatch & { plan_name?: string },
+	): string {
+		const sections = [
+			"<plan-context>",
+			`stage: ${context.stage ?? "draft"}`,
+			`confirmed_by_user: ${context.confirmed_by_user === true ? "true" : "false"}`,
+		];
+
+		if (context.plan_name) {
+			sections.push(`plan_name: ${context.plan_name}`);
+		}
+		if (context.goal) {
+			sections.push("", "Goal:", `- ${context.goal}`);
+		}
+		if (context.chosen_pattern) {
+			sections.push("", "Chosen pattern:", `- ${context.chosen_pattern}`);
+		}
+
+		const pushList = (label: string, values?: string[]) => {
+			if (!values || values.length === 0) return;
+			sections.push("", `${label}:`, ...values.map((item) => `- ${item}`));
+		};
+
+		pushList("Affected areas", context.affected_areas);
+		pushList("Blast radius", context.blast_radius);
+		pushList("Success criteria", context.success_criteria);
+		pushList("Failure criteria", context.failure_criteria);
+		pushList("Test plan", context.test_plan);
+		pushList("Open risks", context.open_risks);
+
+		if (context.oracle_summary) {
+			sections.push("", "Oracle summary:", `- ${context.oracle_summary}`);
+		}
+
+		const patternExamples = context.pattern_examples ?? [];
+		if (patternExamples.length > 0) {
+			sections.push("", "Confirmed pattern examples:");
+			for (const pattern of patternExamples) {
+				sections.push(`- ${pattern.name}: ${pattern.why_it_fits}`);
+				if (pattern.example_files.length > 0) {
+					sections.push(`  files: ${pattern.example_files.join(", ")}`);
+				}
+				if (pattern.symbols.length > 0) {
+					sections.push(`  symbols: ${pattern.symbols.join(", ")}`);
+				}
+			}
+		}
+
+		const questionAnswers = context.question_answers ?? [];
+		if (questionAnswers.length > 0) {
+			sections.push("", "Captured confirmations:");
+			for (const item of questionAnswers) {
+				const answers =
+					item.answers.length > 0
+						? item.answers.join(", ")
+						: "(no answer recorded)";
+				sections.push(`- ${item.header ?? item.question}: ${answers}`);
+			}
+		}
+
+		sections.push("</plan-context>");
+		return sections.join("\n");
 	}
 
 	// ── Hook factories ─────────────────────────────────────
@@ -415,7 +587,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	if (toolExecuteAfterHook) hook["tool.execute.after"] = toolExecuteAfterHook;
 	if (shellEnvHook) hook["shell.env"] = shellEnvHook;
 	if (compactionHook) hook["experimental.session.compacting"] = compactionHook;
-
 	const eventHook = async (payload: { event?: unknown }) => {
 		void payload;
 	};
@@ -680,22 +851,22 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 			plan_save: tool({
 				description:
-					"Save the implementation plan as markdown. Must include citations (ref:task-id) for decisions based on research. Plan is validated before saving.",
+					"Save the implementation plan as markdown. Must include citations (ref:task-id) for decisions based on research. Supports draft saves before final promotion.",
 				args: {
 					content: tool.schema
 						.string()
 						.describe("The full plan in markdown format"),
 					mode: tool.schema
-						.enum(["active", "new"])
+						.enum(["active", "new", "draft"])
 						.optional()
 						.describe(
-							"'active' updates current active plan. 'new' creates a new plan file.",
+							"'active' updates the current active plan. 'new' creates a plan file. 'draft' creates a non-active draft plan for review and promotion.",
 						),
 					set_active: tool.schema
 						.boolean()
 						.optional()
 						.describe(
-							"When mode='new', set this new plan as active (default: true).",
+							"When mode='new', set this new plan as active (default: true). Ignored for draft mode.",
 						),
 				},
 				async execute(args, toolCtx) {
@@ -714,10 +885,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					const existingState = await sm.readActivePlanState(toolCtx.sessionID);
 					const mode = args.mode ?? "active";
 					const shouldSetActive =
-						mode === "new" ? (args.set_active ?? true) : true;
+						mode === "new" ? (args.set_active ?? true) : false;
 
 					let planPath: string;
 					let isNewPlan = false;
+					let isDraftPlan = false;
 					let metadata: { title: string; description: string } | undefined;
 
 					if (mode === "active" && existingState) {
@@ -731,6 +903,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						await mkdir(plansDir, { recursive: true });
 						planPath = generatePlanPath(plansDir);
 						isNewPlan = true;
+						isDraftPlan = mode === "draft";
 
 						metadata = await generatePlanMetadata(
 							ctx.client,
@@ -741,7 +914,17 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 					await Bun.write(planPath, autoUpdatedContent);
 
-					if (isNewPlan && (shouldSetActive || !existingState)) {
+					if (isNewPlan && mode === "draft") {
+						await sm.upsertPlanRegistryEntry(planPath, {
+							title: metadata?.title,
+							description: metadata?.description,
+							lifecycle: "draft",
+						});
+						await sm.syncPlanContext(getPlanName(planPath), {
+							stage: "draft",
+							confirmed_by_user: false,
+						});
+					} else if (isNewPlan && (shouldSetActive || !existingState)) {
 						await sm.setActivePlan(planPath, {
 							sessionID: toolCtx.sessionID,
 							title: metadata?.title,
@@ -751,7 +934,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						await sm.upsertPlanRegistryEntry(planPath, {
 							title: metadata?.title,
 							description: metadata?.description,
-							lifecycle: "inactive",
+							lifecycle: shouldSetActive ? "active" : "inactive",
 						});
 					}
 
@@ -778,9 +961,14 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							: "";
 
 					const relativePath = relative(directory, planPath);
-					const action = isNewPlan ? "created" : "updated";
-					const activeNote =
-						isNewPlan && !(shouldSetActive || !existingState)
+					const action = isNewPlan
+						? isDraftPlan
+							? "draft created"
+							: "created"
+						: "updated";
+					const activeNote = isDraftPlan
+						? " Draft saved for confirmation; use plan_context_write to persist approvals and plan_promote after the user confirms."
+						: isNewPlan && !(shouldSetActive || !existingState)
 							? " New plan saved without changing active plan."
 							: "";
 
@@ -808,7 +996,16 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							if (!(await planFile.exists())) {
 								return `❌ Active plan file not found at ${activePlan.active_plan}. The plan may have been deleted.`;
 							}
-							return await planFile.text();
+							const content = await planFile.text();
+							const context = await sm.readPlanContext(activePlan.plan_name);
+							if (!context) {
+								return content;
+							}
+
+							return `${content}\n\n---\n${formatPlanContextBlock({
+								...context,
+								plan_name: activePlan.plan_name,
+							})}`;
 						} catch (error) {
 							if (isSystemError(error) && error.code === "ENOENT") {
 								return `❌ Active plan file not found at ${activePlan.active_plan}. The plan may have been deleted.`;
@@ -878,6 +1075,22 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							record.lifecycle === "inactive" &&
 							record.path !== activePlan?.active_plan,
 					);
+					const draftPlans = records.filter(
+						(record) => record.lifecycle === "draft",
+					);
+
+					if (draftPlans.length > 0) {
+						planList.push(`## Draft Plans (${draftPlans.length})`);
+						for (const record of draftPlans) {
+							const relativePath = relative(directory, record.path);
+							const context = await sm.readPlanContext(record.plan_name);
+							const stageText = context ? `, stage: ${context.stage}` : "";
+							planList.push(
+								`- **${record.plan_name}**: ${relativePath} (updated: ${record.updated_at}${stageText})`,
+							);
+						}
+						planList.push("");
+					}
 
 					if (inactivePlans.length > 0) {
 						planList.push(
@@ -952,6 +1165,196 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					markCompactionStateDirty(toolCtx.sessionID);
 
 					return `✅ Active plan switched to ${state.plan_name} (${relative(directory, state.active_plan)}).`;
+				},
+			}),
+
+			plan_promote: tool({
+				description:
+					"Promote a draft or reviewed plan into the active execution plan after user approval.",
+				args: {
+					identifier: tool.schema
+						.string()
+						.describe("Draft plan name or path suffix from plan_list output"),
+				},
+				async execute(args, toolCtx) {
+					if (!toolCtx?.sessionID) {
+						return "❌ plan_promote requires sessionID. This is a system error.";
+					}
+
+					try {
+						const state = await sm.promotePlan(args.identifier, {
+							sessionID: toolCtx.sessionID,
+						});
+						markCompactionStateDirty(toolCtx.sessionID);
+						return `✅ Promoted ${state.plan_name} to the active plan (${relative(directory, state.active_plan)}).`;
+					} catch (error) {
+						if (error instanceof Error) {
+							return `❌ ${error.message}`;
+						}
+						throw error;
+					}
+				},
+			}),
+
+			plan_context_read: tool({
+				description:
+					"Read structured planning context for the active plan or a named draft/plan.",
+				args: {
+					plan_name: tool.schema
+						.string()
+						.optional()
+						.describe("Optional plan name. Defaults to the active plan."),
+				},
+				async execute(args, toolCtx) {
+					if (!toolCtx?.sessionID) {
+						return "❌ plan_context_read requires sessionID. This is a system error.";
+					}
+
+					let planName = args.plan_name;
+					if (!planName) {
+						const activePlan = await sm.readActivePlanState(toolCtx.sessionID);
+						if (!activePlan) {
+							return "No active plan. Use /plan to create one or provide plan_name.";
+						}
+						planName = activePlan.plan_name;
+					}
+
+					const context = await sm.readPlanContext(planName);
+					if (!context) {
+						return `No structured planning context found for ${planName}.`;
+					}
+
+					return formatPlanContextBlock({ ...context, plan_name: planName });
+				},
+			}),
+
+			plan_context_write: tool({
+				description:
+					"Persist structured planning context such as confirmations, blast radius, success criteria, and pattern examples.",
+				args: {
+					plan_name: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"Optional target plan name. Defaults to the active plan.",
+						),
+					stage: tool.schema
+						.enum(["draft", "confirmed", "active", "archived"])
+						.optional()
+						.describe("Planning stage for the stored context."),
+					confirmed_by_user: tool.schema
+						.boolean()
+						.optional()
+						.describe(
+							"Whether the user has explicitly confirmed this context.",
+						),
+					goal: tool.schema
+						.string()
+						.optional()
+						.describe("Confirmed goal statement."),
+					chosen_pattern: tool.schema
+						.string()
+						.optional()
+						.describe("Chosen repo pattern or implementation approach."),
+					affected_areas: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Affected files, packages, or subsystems."),
+					blast_radius: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe(
+							"Explicit blast-radius notes and reversibility constraints.",
+						),
+					success_criteria: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Implementation-ready success criteria."),
+					failure_criteria: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Failure conditions or fail-closed boundaries."),
+					test_plan: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Tests and verification steps required before /work."),
+					open_risks: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Outstanding risks that remain visible to /work."),
+					oracle_summary: tool.schema
+						.string()
+						.optional()
+						.describe("Oracle review summary or unresolved review note."),
+					question_answers_json: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"JSON array of question-answer objects captured from the question tool.",
+						),
+					pattern_examples_json: tool.schema
+						.string()
+						.optional()
+						.describe("JSON array of confirmed pattern example objects."),
+				},
+				async execute(args, toolCtx) {
+					if (!toolCtx?.sessionID) {
+						return "❌ plan_context_write requires sessionID. This is a system error.";
+					}
+
+					let planName = args.plan_name;
+					if (!planName) {
+						const activePlan = await sm.readActivePlanState(toolCtx.sessionID);
+						if (!activePlan) {
+							return "No active plan. Provide plan_name for a draft or create a plan first.";
+						}
+						planName = activePlan.plan_name;
+					}
+
+					try {
+						const questionAnswers = parseJsonArrayArg({
+							value: args.question_answers_json,
+							label: "question_answers_json",
+							mapper: parsePlanQuestionAnswerInput,
+						});
+						const patternExamples = parseJsonArrayArg({
+							value: args.pattern_examples_json,
+							label: "pattern_examples_json",
+							mapper: parsePatternExampleInput,
+						});
+
+						const patch: PlanContextPatch = {
+							stage: args.stage,
+							confirmed_by_user: args.confirmed_by_user,
+							goal: args.goal,
+							chosen_pattern: args.chosen_pattern,
+							affected_areas: args.affected_areas,
+							blast_radius: args.blast_radius,
+							success_criteria: args.success_criteria,
+							failure_criteria: args.failure_criteria,
+							test_plan: args.test_plan,
+							open_risks: args.open_risks,
+							oracle_summary: args.oracle_summary,
+							question_answers:
+								questionAnswers.length > 0 ? questionAnswers : undefined,
+							pattern_examples:
+								patternExamples.length > 0 ? patternExamples : undefined,
+						};
+
+						const context = await sm.syncPlanContext(planName, patch);
+						markCompactionStateDirty(toolCtx.sessionID);
+						return `✅ Saved structured planning context for ${planName}.\n\n${formatPlanContextBlock(
+							{
+								...context,
+								plan_name: planName,
+							},
+						)}`;
+					} catch (error) {
+						if (error instanceof Error) {
+							return `❌ ${error.message}`;
+						}
+						throw error;
+					}
 				},
 			}),
 
@@ -1585,6 +1988,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 };
 
 export default WorkspacePlugin;
+
 
 // ── Test Exports (backward compatibility) ──────────────────
 export { extractMarkdownParts, parsePlanMarkdown } from "./plan/schema.js";

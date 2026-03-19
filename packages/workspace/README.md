@@ -121,7 +121,7 @@ To disable tmux orchestration:
 
 Key tool groups exposed by this plugin:
 
-- Plan: `plan_save`, `plan_read`, `plan_list`, `plan_set_active`, `plan_archive`, `plan_unarchive`
+- Plan: `plan_save`, `plan_read`, `plan_list`, `plan_set_active`, `plan_promote`, `plan_archive`, `plan_unarchive`, `plan_context_read`, `plan_context_write`
 - Plan docs: `plan_doc_link`, `plan_doc_list`, `plan_doc_load`
 - Notepads: `notepad_read`, `notepad_write`, `notepad_list`
 - Sessions: `session_list`, `session_read`, `session_search`, `session_info`

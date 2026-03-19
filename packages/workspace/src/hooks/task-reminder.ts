@@ -5,8 +5,8 @@
  * plan/notepad tools. After a configurable threshold (default: 20),
  * appends a reminder to record progress.
  *
- * Resets whenever the agent uses plan_save, plan_read, plan_list,
- * notepad_write, notepad_read, notepad_list, or todowrite.
+ * Resets whenever the agent uses plan, plan-context, notepad,
+ * or todo persistence tools.
  */
 
 const DEFAULT_THRESHOLD = 20;
@@ -17,7 +17,9 @@ const PLAN_TOOLS = new Set([
 	"plan_read",
 	"plan_list",
 	"plan_set_active",
-	"plan_exit",
+	"plan_promote",
+	"plan_context_read",
+	"plan_context_write",
 	"plan_doc_link",
 	"plan_doc_list",
 	"plan_doc_load",
