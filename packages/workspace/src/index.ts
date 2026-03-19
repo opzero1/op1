@@ -868,6 +868,12 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe(
 							"When mode='new', set this new plan as active (default: true). Ignored for draft mode.",
 						),
+					identifier: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"Optional existing plan name or path suffix to update, mainly for draft refinement saves.",
+						),
 				},
 				async execute(args, toolCtx) {
 					if (!toolCtx?.sessionID) {
@@ -899,11 +905,43 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							existingState.session_ids.push(toolCtx.sessionID);
 							await sm.writeActivePlanState(existingState);
 						}
+					} else if (mode === "draft") {
+						isDraftPlan = true;
+
+						const records = await sm.listPlanRecords();
+						const resolvedDraftPath = args.identifier
+							? await sm.resolvePlanPath(args.identifier)
+							: undefined;
+						if (args.identifier && !resolvedDraftPath) {
+							return `❌ Draft plan not found for identifier \"${args.identifier}\".`;
+						}
+						if (args.identifier && resolvedDraftPath) {
+							const record = records.find(
+								(item) => item.path === resolvedDraftPath,
+							);
+							if (record?.lifecycle !== "draft") {
+								return `❌ ${args.identifier} is not a draft plan. Use mode='active' to update the active plan or provide a draft identifier.`;
+							}
+						}
+						const latestDraftPath = records.find(
+							(record) => record.lifecycle === "draft",
+						)?.path;
+						planPath = resolvedDraftPath ?? latestDraftPath ?? generatePlanPath(plansDir);
+
+						if (!(resolvedDraftPath ?? latestDraftPath)) {
+							await mkdir(plansDir, { recursive: true });
+							isNewPlan = true;
+						}
+
+						metadata = await generatePlanMetadata(
+							ctx.client,
+							args.content,
+							toolCtx.sessionID,
+						);
 					} else {
 						await mkdir(plansDir, { recursive: true });
 						planPath = generatePlanPath(plansDir);
 						isNewPlan = true;
-						isDraftPlan = mode === "draft";
 
 						metadata = await generatePlanMetadata(
 							ctx.client,
@@ -914,7 +952,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 					await Bun.write(planPath, autoUpdatedContent);
 
-					if (isNewPlan && mode === "draft") {
+					if (mode === "draft") {
 						await sm.upsertPlanRegistryEntry(planPath, {
 							title: metadata?.title,
 							description: metadata?.description,
@@ -1413,7 +1451,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					try {
 						const record = await sm.unarchivePlan(args.identifier);
 						markCompactionStateDirty(toolCtx.sessionID);
-						return `✅ Unarchived ${record.plan_name} (${relative(directory, record.path)}). Use plan_set_active to switch to it.`;
+						const nextStep =
+							record.lifecycle === "draft"
+								? "Review and promote it with plan_promote when ready."
+								: "Use plan_set_active to switch to it.";
+						return `✅ Unarchived ${record.plan_name} (${relative(directory, record.path)}). ${nextStep}`;
 					} catch (error) {
 						if (error instanceof Error) {
 							return `❌ ${error.message}`;

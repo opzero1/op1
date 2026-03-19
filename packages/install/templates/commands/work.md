@@ -13,7 +13,7 @@ You are now the **build agent** executing the implementation plan.
 
 1. **Acknowledge mode**: Say "ULTRAWORK MODE ENABLED! Switching to implementation mode."
 2. **Check plan set**: Call `plan_list` to view all plans and active plan
-3. **Recover target plan if archived**: Call `plan_unarchive` when needed, then `plan_set_active`
+3. **Recover target plan if archived**: Call `plan_unarchive`; if it restores an active-ready plan, use `plan_set_active`, and if it restores a draft, load its context and `plan_promote` it after confirmation
 4. **Load active plan**: Call `plan_read`
 5. **Load structured planning context**: Call `plan_context_read` so confirmed patterns, blast radius, and test expectations carry into implementation
 6. **Load wisdom**: Call `notepad_read`

@@ -114,6 +114,16 @@ describe("plan tools", () => {
 		expect(planFiles).toHaveLength(1);
 		const planName = planFiles[0].replace(/\.md$/, "");
 
+		const secondSaveResult = await planSaveTool.execute(
+			{ content: validPlan.replace("repo-first", "repo-guided"), mode: "draft" },
+			{ sessionID },
+		);
+		expect(secondSaveResult).toContain(planName);
+		const planFilesAfterSecondSave = (
+			await readdir(join(root, ".opencode", "workspace", "plans"))
+		).filter((name) => name.endsWith(".md"));
+		expect(planFilesAfterSecondSave).toHaveLength(1);
+
 		const contextResult = await planContextWriteTool.execute(
 			{
 				plan_name: planName,
