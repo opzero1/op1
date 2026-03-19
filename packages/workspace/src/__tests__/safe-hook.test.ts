@@ -73,6 +73,7 @@ describe("safe-hook config", () => {
 		const config = resolveHookConfig({
 			features: {
 				momentum: false,
+				notifications: false,
 				taskReminder: false,
 				externalScout: false,
 				contextScout: false,
@@ -80,6 +81,10 @@ describe("safe-hook config", () => {
 		});
 
 		expect(config.disabledHooks).toContain("momentum");
+		expect(config.disabledHooks).toContain(
+			"tool.execute.after.notificationChannels",
+		);
+		expect(config.disabledHooks).toContain("event.notificationChannels");
 		expect(config.disabledHooks).toContain("taskReminder");
 		expect(config.disabledHooks).toContain("tool.execute.after.contextScout");
 	});

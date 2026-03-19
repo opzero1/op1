@@ -131,7 +131,10 @@ const DISABLED_HOOKS_BY_FEATURE: Record<keyof HookFeatureFlags, string[]> = {
 	writePolicy: ["writePolicy"],
 	taskReminder: ["taskReminder"],
 	autonomyPolicy: ["autonomyPolicy"],
-	notifications: ["tool.execute.after.notificationChannels"],
+	notifications: [
+		"tool.execute.after.notificationChannels",
+		"event.notificationChannels",
+	],
 	verificationAutopilot: [],
 	hashAnchoredEdit: ["tool.execute.after.hashAnchorReadEnhancer"],
 	contextScout: ["tool.execute.after.contextScout"],

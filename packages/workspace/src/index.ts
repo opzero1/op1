@@ -37,6 +37,7 @@ import { createMomentumHook, type MomentumDeps } from "./hooks/momentum.js";
 import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
 import {
 	createNotificationChannelsHook,
+	createSessionReadyNotificationHook,
 	type NotificationClient,
 } from "./hooks/notification-channels.js";
 import {
@@ -587,8 +588,34 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	if (toolExecuteAfterHook) hook["tool.execute.after"] = toolExecuteAfterHook;
 	if (shellEnvHook) hook["shell.env"] = shellEnvHook;
 	if (compactionHook) hook["experimental.session.compacting"] = compactionHook;
+	const sessionReadyNotificationHook = createSafeRuntimeHook(
+		"event.notificationChannels",
+		() =>
+			createSessionReadyNotificationHook(
+				ctx.client as unknown as NotificationClient,
+				{
+					enabled: hookConfig.notifications.enabled,
+					desktop: hookConfig.notifications.desktop,
+					quietHours: hookConfig.notifications.quietHours,
+					timezone: hookConfig.notifications.timezone,
+					privacy: hookConfig.notifications.privacy,
+				},
+			),
+		hookConfig,
+	);
+
 	const eventHook = async (payload: { event?: unknown }) => {
-		void payload;
+		if (!sessionReadyNotificationHook) return;
+		if (!isSessionIdleEvent(payload.event)) return;
+
+		const sessionID = payload.event.properties.sessionID;
+		if (!sessionID) return;
+		if (await isDelegationChildSession(workspaceDir, sessionID)) return;
+
+		await sessionReadyNotificationHook({
+			sessionID,
+			source: payload.event.type,
+		});
 	};
 
 	// ── Return plugin ──────────────────────────────────────
@@ -2031,6 +2058,47 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 export default WorkspacePlugin;
 
+function isSessionIdleEvent(
+	event: unknown,
+): event is { type: "session.idle"; properties: { sessionID: string } } {
+	if (!event || typeof event !== "object") return false;
+	const record = event as {
+		type?: unknown;
+		properties?: { sessionID?: unknown };
+	};
+	return (
+		record.type === "session.idle" &&
+		typeof record.properties?.sessionID === "string" &&
+		record.properties.sessionID.length > 0
+	);
+}
+
+async function isDelegationChildSession(
+	workspaceDir: string,
+	sessionID: string,
+): Promise<boolean> {
+	const taskStoreFile = Bun.file(join(workspaceDir, "task-records.json"));
+	if (!(await taskStoreFile.exists())) return false;
+
+	let parsed: unknown;
+	try {
+		parsed = await taskStoreFile.json();
+	} catch {
+		return false;
+	}
+
+	if (!parsed || typeof parsed !== "object") return false;
+	const record = parsed as {
+		delegations?: Record<string, { child_session_id?: unknown }>;
+	};
+	if (!record.delegations || typeof record.delegations !== "object") {
+		return false;
+	}
+
+	return Object.values(record.delegations).some(
+		(item) => item?.child_session_id === sessionID,
+	);
+}
 
 // ── Test Exports (backward compatibility) ──────────────────
 export { extractMarkdownParts, parsePlanMarkdown } from "./plan/schema.js";

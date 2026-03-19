@@ -86,8 +86,30 @@ interface NotificationHookOptions {
 	privacy?: PrivacyMode;
 }
 
+export interface SessionReadyNotificationInput {
+	sessionID: string;
+	source?: string;
+}
+
+interface NotificationExtraInput {
+	sessionID: string;
+	callID?: string;
+	tool?: string;
+	source?: string;
+}
+
+interface NotificationEvent {
+	dedupeKey: string;
+	title: string;
+	message: string;
+	level: NotificationLevel;
+	extraInput: NotificationExtraInput;
+	ttlMs?: number;
+}
+
 const DEDUP_TTL_MS = 5 * 60 * 1000;
-const sentEvents = new Map<string, number>();
+const SESSION_READY_DEDUP_TTL_MS = 1_000;
+const sentEvents = new Map<string, { timestamp: number; ttlMs: number }>();
 
 const HH_MM_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -198,7 +220,7 @@ function notificationsPrivacyMode(raw: string | undefined): PrivacyMode {
 }
 
 function buildNotificationExtra(
-	input: NotificationInput,
+	input: NotificationExtraInput,
 	mode: PrivacyMode,
 ): Record<string, unknown> {
 	if (mode === "balanced") {
@@ -207,14 +229,18 @@ function buildNotificationExtra(
 			session_id: input.sessionID,
 			call_id: input.callID,
 			tool: input.tool,
+			source: input.source,
 		};
 	}
 
-	return {
+	const extra: Record<string, unknown> = {
 		privacy_mode: "strict",
 		session_id: input.sessionID,
-		call_id: input.callID,
 	};
+	if (input.callID) {
+		extra.call_id = input.callID;
+	}
+	return extra;
 }
 
 function notificationsEnabled(raw: string | undefined): boolean {
@@ -274,8 +300,8 @@ function createEventKey(input: NotificationInput): string {
 }
 
 function pruneDedup(now: number): void {
-	for (const [key, timestamp] of sentEvents.entries()) {
-		if (now - timestamp > DEDUP_TTL_MS) {
+	for (const [key, entry] of sentEvents.entries()) {
+		if (now - entry.timestamp > entry.ttlMs) {
 			sentEvents.delete(key);
 		}
 	}
@@ -327,6 +353,23 @@ function getNotificationMessage(
 	return null;
 }
 
+function getSessionReadyNotification(
+	input: SessionReadyNotificationInput,
+): NotificationEvent {
+	const source = input.source?.trim() || "session.idle";
+	return {
+		dedupeKey: `${input.sessionID}:${source}`,
+		title: "Ready for Input",
+		message: "Assistant turn complete. Ready for your next prompt.",
+		level: "info",
+		ttlMs: SESSION_READY_DEDUP_TTL_MS,
+		extraInput: {
+			sessionID: input.sessionID,
+			source,
+		},
+	};
+}
+
 function mapLevelToToastVariant(
 	level: NotificationLevel,
 ): "info" | "success" | "warning" | "error" {
@@ -340,6 +383,29 @@ export function createNotificationChannelsHook(
 	client: NotificationClient,
 	options?: NotificationHookOptions,
 ): (input: NotificationInput, output: NotificationOutput) => Promise<void> {
+	const dispatch = createNotificationDispatcher(client, options);
+
+	return async (input, output) => {
+		const event = getNotificationMessage(input, output);
+		if (!event) return;
+		await dispatch({
+			dedupeKey: createEventKey(input),
+			title: event.title,
+			message: event.message,
+			level: event.level,
+			extraInput: {
+				sessionID: input.sessionID,
+				callID: input.callID,
+				tool: input.tool,
+			},
+		});
+	};
+}
+
+function createNotificationDispatcher(
+	client: NotificationClient,
+	options?: NotificationHookOptions,
+): (event: NotificationEvent) => Promise<void> {
 	const getNow = options?.now ?? (() => new Date());
 	const getSystemTimezone =
 		options?.getSystemTimezone ??
@@ -371,7 +437,7 @@ export function createNotificationChannelsHook(
 			? options.privacy
 			: Bun.env.OP7_WORKSPACE_NOTIFICATIONS_PRIVACY;
 
-	return async (input, output) => {
+	return async (event: NotificationEvent): Promise<void> => {
 		if (!enabled) return;
 		if (!client.app?.log && !client.tui?.showToast && !desktopEnabled) return;
 
@@ -391,16 +457,13 @@ export function createNotificationChannelsHook(
 			}
 		}
 
-		const event = getNotificationMessage(input, output);
-		if (!event) return;
-
 		const nowMs = now.getTime();
 		pruneDedup(nowMs);
-
-		const key = createEventKey(input);
-		if (sentEvents.has(key)) return;
-
-		sentEvents.set(key, nowMs);
+		if (sentEvents.has(event.dedupeKey)) return;
+		sentEvents.set(event.dedupeKey, {
+			timestamp: nowMs,
+			ttlMs: event.ttlMs ?? DEDUP_TTL_MS,
+		});
 
 		const privacyMode = notificationsPrivacyMode(privacyInput);
 		const writeLog = client.app?.log
@@ -409,7 +472,7 @@ export function createNotificationChannelsHook(
 						service: "workspace.notifications",
 						level: event.level,
 						message: event.message,
-						extra: buildNotificationExtra(input, privacyMode),
+						extra: buildNotificationExtra(event.extraInput, privacyMode),
 					},
 				})
 			: Promise.resolve();
@@ -432,6 +495,18 @@ export function createNotificationChannelsHook(
 			: Promise.resolve();
 
 		await Promise.allSettled([writeLog, showToast, showDesktop]);
+	};
+}
+
+export function createSessionReadyNotificationHook(
+	client: NotificationClient,
+	options?: NotificationHookOptions,
+): (input: SessionReadyNotificationInput) => Promise<void> {
+	const dispatch = createNotificationDispatcher(client, options);
+
+	return async (input: SessionReadyNotificationInput): Promise<void> => {
+		const signal = getSessionReadyNotification(input);
+		return dispatch(signal);
 	};
 }
 

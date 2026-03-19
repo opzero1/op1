@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	createNotificationChannelsHook,
+	createSessionReadyNotificationHook,
 	type DesktopNotifier,
 	type NotificationClient,
 	resetNotificationChannelsState,
@@ -270,6 +271,56 @@ describe("notification channels hook", () => {
 		expect(desktopCalls.length).toBe(1);
 		expect(desktopCalls[0].title).toBe("Task Complete");
 		expect(desktopCalls[0].message).toContain("Desktop Task");
+	});
+
+	test("emits session ready notifications when enabled", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{
+			title?: string;
+			message?: string;
+			variant?: string;
+		}> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({
+						title: body?.title,
+						message: body?.message,
+						variant: body?.variant,
+					});
+				},
+			},
+		};
+
+		const hook = createSessionReadyNotificationHook(client, { desktop: false });
+		await hook({ sessionID: "session-1" });
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Ready for Input");
+		expect(toasts[0].message).toContain("Ready for your next prompt");
+		expect(toasts[0].variant).toBe("success");
+	});
+
+	test("deduplicates session ready notifications per session and source", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const calls: Array<{ message: string }> = [];
+		const client: NotificationClient = {
+			app: {
+				log: async ({ body }) => {
+					calls.push({ message: body.message });
+				},
+			},
+		};
+
+		const hook = createSessionReadyNotificationHook(client, { desktop: false });
+		await hook({ sessionID: "session-2", source: "session.idle" });
+		await hook({ sessionID: "session-2", source: "session.idle" });
+		await hook({ sessionID: "session-2", source: "session.idle.secondary" });
+
+		expect(calls.length).toBe(2);
+		expect(calls[0].message).toContain("Assistant turn complete");
 	});
 
 	test("gracefully no-ops when notification channels are unavailable", async () => {
