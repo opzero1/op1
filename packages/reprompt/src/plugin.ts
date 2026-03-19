@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { loadRepromptConfig } from "./config.js";
+import { createCommandPromptHook } from "./orchestration/command-message.js";
 import { createRetryGuardManager } from "./orchestration/guards.js";
 import { createIncomingPromptHook } from "./orchestration/incoming-message.js";
 import { createPublicRepromptTools } from "./orchestration/public-tools.js";
@@ -35,10 +36,22 @@ export const RepromptPlugin: Plugin = async (ctx) => {
 					telemetry,
 				})
 			: undefined;
+	const commandExecuteBefore =
+		config.enabled && config.runtime.mode === "hook-and-helper"
+			? createCommandPromptHook({
+					workspaceRoot: ctx.directory,
+					config,
+					guards,
+					telemetry,
+				})
+			: undefined;
 
 	return {
 		tool: tools,
 		...(chatMessage ? { "chat.message": chatMessage } : {}),
+		...(commandExecuteBefore
+			? { "command.execute.before": commandExecuteBefore }
+			: {}),
 	};
 };
 

@@ -149,6 +149,9 @@ describe("reprompt integration", () => {
 		expect(hooks.tool).toBeDefined();
 		expect(hooks.tool?.reprompt).toBeDefined();
 		expect((hooks as Record<string, unknown>)["chat.message"]).toBeDefined();
+		expect(
+			(hooks as Record<string, unknown>)["command.execute.before"],
+		).toBeDefined();
 
 		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
 			input: Record<string, unknown>,
@@ -197,6 +200,74 @@ describe("reprompt integration", () => {
 			'<reprompt-origin source="reprompt" />',
 		);
 		expect(childOutput.message.content).toBe("opx fix src.ts");
+	});
+
+	test("command hook compiles slash-command prompts with trailing opx", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-command-hook-"));
+		tempRoots.push(root);
+		const hooks = await createPluginWithConfig(root, { enabled: true });
+
+		const commandHook = (hooks as Record<string, unknown>)[
+			"command.execute.before"
+		] as (
+			input: { command: string; sessionID: string; arguments: string },
+			output: { parts: Array<{ type: string; text?: string }> },
+		) => Promise<void>;
+		const output = {
+			parts: [
+				{
+					type: "text",
+					text: "Create a refinement-first implementation plan.\n\n**Task:** fix auth flow opx",
+				},
+			],
+		};
+
+		await commandHook(
+			{
+				command: "plan",
+				sessionID: "command-session",
+				arguments: "fix auth flow opx",
+			},
+			output,
+		);
+
+		expect(output.parts[0]?.text).toContain(REPROMPT_MARKER);
+		expect(output.parts[0]?.text).toContain("fix auth flow");
+		expect(output.parts[0]?.text).not.toContain("fix auth flow opx");
+	});
+
+	test("command hook leaves plain slash-command prompts unchanged without trailing opx", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-command-pass-"));
+		tempRoots.push(root);
+		const hooks = await createPluginWithConfig(root, { enabled: true });
+
+		const commandHook = (hooks as Record<string, unknown>)[
+			"command.execute.before"
+		] as (
+			input: { command: string; sessionID: string; arguments: string },
+			output: { parts: Array<{ type: string; text?: string }> },
+		) => Promise<void>;
+		const output = {
+			parts: [
+				{
+					type: "text",
+					text: "Conduct comprehensive research.\n\n**Research Query:** bun workspace hooks",
+				},
+			],
+		};
+
+		await commandHook(
+			{
+				command: "research",
+				sessionID: "command-session",
+				arguments: "bun workspace hooks",
+			},
+			output,
+		);
+
+		expect(output.parts[0]?.text).toBe(
+			"Conduct comprehensive research.\n\n**Research Query:** bun workspace hooks",
+		);
 	});
 
 	test("incoming hook passes through reprompt-origin prompts", async () => {

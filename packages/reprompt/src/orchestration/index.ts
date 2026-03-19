@@ -1,3 +1,4 @@
+export { createCommandPromptHook } from "./command-message.js";
 export { buildCompilerContextPlan } from "./context-builder.js";
 export {
 	createRetryGuardManager,
@@ -15,6 +16,7 @@ export {
 	classifyIncomingPrompt,
 	extractPromptText,
 	normalizeRepromptArgs,
+	parseCommandTriggerArgs,
 	prepareRepromptPrompt,
 } from "./runtime.js";
 export {

@@ -51,6 +51,12 @@ export interface IncomingPromptDecision {
 	promptText: string;
 }
 
+export interface CommandTriggerDecision {
+	rawArgs: string;
+	sanitizedArgs: string;
+	opxEnabled: boolean;
+}
+
 const CASUAL_PROMPT_PATTERNS = [
 	/^(?:hi|hiya|hello|hey|yo|sup)[!.?]*$/i,
 	/^good\s+(?:morning|afternoon|evening)[!.?]*$/i,
@@ -82,6 +88,45 @@ function stripTrigger(promptText: string, marker: string): string | null {
 		return match[1]?.trim() ?? "";
 	}
 	return null;
+}
+
+export function parseCommandTriggerArgs(
+	args: string | undefined,
+	marker: string,
+): CommandTriggerDecision {
+	const rawArgs = args?.trim() ?? "";
+	const normalizedMarker = marker.trim().toLowerCase();
+	if (!normalizedMarker || !rawArgs) {
+		return {
+			rawArgs,
+			sanitizedArgs: rawArgs,
+			opxEnabled: false,
+		};
+	}
+
+	if (rawArgs.toLowerCase() === normalizedMarker) {
+		return {
+			rawArgs,
+			sanitizedArgs: "",
+			opxEnabled: true,
+		};
+	}
+
+	const escaped = normalizedMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const matched = rawArgs.match(new RegExp(`^(.*)\\s+${escaped}$`, "i"));
+	if (!matched) {
+		return {
+			rawArgs,
+			sanitizedArgs: rawArgs,
+			opxEnabled: false,
+		};
+	}
+
+	return {
+		rawArgs,
+		sanitizedArgs: matched[1]?.trim() ?? "",
+		opxEnabled: true,
+	};
 }
 
 function buildSliceRequests(paths: string[], reason: string): SliceRequest[] {

@@ -8,6 +8,7 @@ import { buildCompilerPrompt } from "../orchestration/prompt-builder.js";
 import {
 	classifyIncomingPrompt,
 	extractPromptText,
+	parseCommandTriggerArgs,
 } from "../orchestration/runtime.js";
 import { extractPromptHints } from "../orchestration/task-classifier.js";
 import { createRetryTrigger } from "../orchestration/triggers.js";
@@ -220,6 +221,34 @@ describe("reprompt core", () => {
 		expect(decision.action).toBe("compile");
 		expect(decision.reason).toBe("terse-prompt");
 		expect(decision.promptText).toBe("fix src/auth.ts");
+	});
+
+	test("parses trailing command opx suffix", () => {
+		const decision = parseCommandTriggerArgs("fix src/auth.ts opx", "opx");
+
+		expect(decision.opxEnabled).toBe(true);
+		expect(decision.rawArgs).toBe("fix src/auth.ts opx");
+		expect(decision.sanitizedArgs).toBe("fix src/auth.ts");
+	});
+
+	test("parses marker-only command suffix", () => {
+		const decision = parseCommandTriggerArgs("opx", "opx");
+
+		expect(decision.opxEnabled).toBe(true);
+		expect(decision.sanitizedArgs).toBe("");
+	});
+
+	test("does not treat leading or flag-style command markers as suffixes", () => {
+		expect(parseCommandTriggerArgs("opx fix src/auth.ts", "opx")).toEqual({
+			rawArgs: "opx fix src/auth.ts",
+			sanitizedArgs: "opx fix src/auth.ts",
+			opxEnabled: false,
+		});
+		expect(parseCommandTriggerArgs("fix src/auth.ts --opx", "opx")).toEqual({
+			rawArgs: "fix src/auth.ts --opx",
+			sanitizedArgs: "fix src/auth.ts --opx",
+			opxEnabled: false,
+		});
 	});
 
 	test("passes through unmarked task prompts", () => {
