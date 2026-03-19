@@ -6,6 +6,7 @@ OpenCode harness with batteries included. Keep plugins minimal and use commands/
 
 - `@op1/install` - interactive installer for agents, commands, and skills
 - `@op1/workspace` - plan/notepad continuity, safety hooks, worktree tooling
+- `@op1/delegation` - async `task` override, background output, task diagnostics
 - `@op1/ast-grep` - structural code search/replace
 - `@op1/lsp` - language-server navigation and diagnostics
 

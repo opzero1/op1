@@ -8,9 +8,9 @@
 
 	// =============================================
 	// PLUGINS
-	// Install: bun add @op1/workspace @op1/ast-grep @op1/lsp
+	// Install: bun add @op1/workspace @op1/delegation @op1/ast-grep @op1/lsp
 	// =============================================
-	"plugin": ["@op1/workspace", "@op1/ast-grep", "@op1/lsp"],
+	"plugin": ["@op1/workspace", "@op1/delegation", "@op1/ast-grep", "@op1/lsp"],
 
 	// Default model - change to your preferred model
 	"model": "anthropic/claude-sonnet-4-20250514",
@@ -18,11 +18,6 @@
 
 	// Default agent when none specified
 	"default_agent": "build",
-
-	// Keep full skill bodies discoverable even when SkillPointer writes category pointers.
-	"skills": {
-		"paths": ["~/.config/opencode/skill-vault"]
-	},
 
 	// =============================================
 	// PERMISSION DEFAULTS

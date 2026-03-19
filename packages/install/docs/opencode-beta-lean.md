@@ -22,9 +22,20 @@ These checks justify a leaner install path, but not a full removal of op1 workfl
 | `@op1/workspace` plans, notepads, continuation, worktrees, verification hooks | Keep | Still the clearest workflow value above raw beta features |
 | `@op1/delegation` background output, task graph, agent health | Keep | Beta has native subagents, but op1 still adds stronger orchestration visibility |
 | `@op1/ast-grep`, `@op1/lsp` | Optional by default | Useful, but the easiest overlap to trim first |
+| `@op1/code-intel` | Retain, non-core | Keep for safekeeping, but do not treat it as default harness weight |
 | Skill loading posture | Thin-wrap | Beta already discovers skills well; op1 should avoid extra weight where native loading is enough |
 | Session and todo surfaces | Watch | Beta APIs are strong enough that op1 should avoid duplicating them unless the workflow clearly needs more |
 | RTK integration | Companion only | Valuable alongside beta, but not something op1 should reimplement |
+
+## Current trim queue
+
+| Bucket | Items | Notes |
+|------|-------|-------|
+| Safe now | `packages/workspace/src/approval/`, `packages/workspace/src/skill-pointer/` | Empty tombstone directories; keep install-side config stripping only for legacy migration |
+| Safe now | `packages/opencode-bridge/`, `packages/orchestrator/` | Dist-only orphan artifacts with no supported installer or docs path |
+| Keep | `@op1/code-intel` | Retained for safekeeping, but outside the current core/default harness path |
+| Keep for now | `session_*` wrappers | Beta session APIs are real, but op1 still adds scoped views, redaction, and richer inspection |
+| Keep for now | worktree tooling | Native worktree support exists, but the op1 layer still adds safety and operator workflow around an experimental core surface |
 
 ## RTK readiness checks
 
@@ -40,6 +51,7 @@ Treat RTK as main-agent shell compression only. Subagent shell calls are still o
 ## Conservative deprecation shortlist
 
 - Default fewer code-intel plugins in beta-lean installs.
+- Delete tombstone directories and orphaned artifact packages before cutting user-visible workflow tools.
 - Avoid adding new wrapper behavior around native beta skills, todos, or session APIs unless op1 adds real workflow value.
 - Keep plan/notepad/continuation/worktree/task-graph features until beta closes the full workflow gap, not just the naming gap.
 
