@@ -37,6 +37,7 @@ import { createMomentumHook, type MomentumDeps } from "./hooks/momentum.js";
 import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
 import {
 	createNotificationChannelsHook,
+	createInputNeededNotificationHook,
 	createSessionReadyNotificationHook,
 	type NotificationClient,
 } from "./hooks/notification-channels.js";
@@ -395,6 +396,24 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					if (editSafetyBeforeHook) {
 						await editSafetyBeforeHook(input, output);
 					}
+
+					if (inputNeededNotificationHook) {
+						const toolName = input.tool.toLowerCase();
+						if (
+							toolName === "question" ||
+							toolName === "ask_user_question" ||
+							toolName === "askuserquestion"
+						) {
+							const questionText = getFirstQuestionText(output.args);
+							await inputNeededNotificationHook({
+								sessionID: input.sessionID,
+								callID: input.callID,
+								tool: input.tool,
+								source: "tool.execute.before",
+								questionText,
+							});
+						}
+					}
 				}
 			: null;
 
@@ -603,19 +622,45 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			),
 		hookConfig,
 	);
+	const inputNeededNotificationHook = createSafeRuntimeHook(
+		"event.notificationChannels.inputNeeded",
+		() =>
+			createInputNeededNotificationHook(
+				ctx.client as unknown as NotificationClient,
+				{
+					enabled: hookConfig.notifications.enabled,
+					desktop: hookConfig.notifications.desktop,
+					quietHours: hookConfig.notifications.quietHours,
+					timezone: hookConfig.notifications.timezone,
+					privacy: hookConfig.notifications.privacy,
+				},
+			),
+		hookConfig,
+	);
 
 	const eventHook = async (payload: { event?: unknown }) => {
-		if (!sessionReadyNotificationHook) return;
-		if (!isSessionIdleEvent(payload.event)) return;
+		if (sessionReadyNotificationHook && isSessionIdleEvent(payload.event)) {
+			const sessionID = payload.event.properties.sessionID;
+			if (!sessionID) return;
+			if (await isDelegationChildSession(workspaceDir, sessionID)) return;
 
-		const sessionID = payload.event.properties.sessionID;
-		if (!sessionID) return;
-		if (await isDelegationChildSession(workspaceDir, sessionID)) return;
+			await sessionReadyNotificationHook({
+				sessionID,
+				source: payload.event.type,
+			});
+			return;
+		}
 
-		await sessionReadyNotificationHook({
-			sessionID,
-			source: payload.event.type,
-		});
+		if (inputNeededNotificationHook && isPermissionEvent(payload.event)) {
+			const sessionID = getEventSessionID(payload.event.properties);
+			if (!sessionID) return;
+
+			await inputNeededNotificationHook({
+				sessionID,
+				source: payload.event.type,
+				kind: "permission",
+			});
+		}
 	};
 
 	// ── Return plugin ──────────────────────────────────────
@@ -2071,6 +2116,58 @@ function isSessionIdleEvent(
 		typeof record.properties?.sessionID === "string" &&
 		record.properties.sessionID.length > 0
 	);
+}
+
+function isPermissionEvent(
+	event: unknown,
+): event is {
+	type:
+		| "permission.ask"
+		| "permission.asked"
+		| "permission.updated"
+		| "permission.requested";
+	properties?: Record<string, unknown>;
+} {
+	if (!event || typeof event !== "object") return false;
+	const record = event as { type?: unknown; properties?: Record<string, unknown> };
+	return (
+		record.type === "permission.ask" ||
+		record.type === "permission.asked" ||
+		record.type === "permission.updated" ||
+		record.type === "permission.requested"
+	);
+}
+
+function getEventSessionID(
+	properties: Record<string, unknown> | undefined,
+): string | undefined {
+	const direct = properties?.sessionID;
+	if (typeof direct === "string" && direct.length > 0) return direct;
+
+	const alt = properties?.sessionId;
+	if (typeof alt === "string" && alt.length > 0) return alt;
+
+	const info = properties?.info as Record<string, unknown> | undefined;
+	const infoDirect = info?.sessionID;
+	if (typeof infoDirect === "string" && infoDirect.length > 0) return infoDirect;
+
+	const infoAlt = info?.sessionId;
+	if (typeof infoAlt === "string" && infoAlt.length > 0) return infoAlt;
+
+	return undefined;
+}
+
+function getFirstQuestionText(args: Record<string, unknown>): string | undefined {
+	const questions = args.questions;
+	if (!Array.isArray(questions) || questions.length === 0) return undefined;
+
+	const first = questions[0];
+	if (!first || typeof first !== "object") return undefined;
+
+	const question = (first as { question?: unknown }).question;
+	return typeof question === "string" && question.trim().length > 0
+		? question.trim()
+		: undefined;
 }
 
 async function isDelegationChildSession(

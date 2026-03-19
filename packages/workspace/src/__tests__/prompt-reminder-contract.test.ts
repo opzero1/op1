@@ -53,6 +53,19 @@ describe("prompt reminder contracts", () => {
 		expect(output.output).toContain("<done>COMPLETE</done>");
 	});
 
+	test("autonomy policy converts recovery option menus into autonomous recovery reminders", async () => {
+		const hook = createAutonomyPolicyHook();
+		const output = {
+			output:
+				"State file missing. Options: A) Create new state B) Continue with context only C) Restore from backup",
+		};
+
+		await hook({ tool: "task", sessionID: "session-recovery" }, output);
+
+		expect(output.output).toContain("AUTONOMOUS RECOVERY POLICY");
+		expect(output.output).toContain("pick the safest recovery path yourself");
+	});
+
 	test("stacked reminders stay under a compact output budget", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-prompt-budget-"));
 		tempRoots.push(root);

@@ -91,6 +91,15 @@ export interface SessionReadyNotificationInput {
 	source?: string;
 }
 
+export interface InputNeededNotificationInput {
+	sessionID: string;
+	callID?: string;
+	tool?: string;
+	source?: string;
+	kind?: "question" | "permission";
+	questionText?: string;
+}
+
 interface NotificationExtraInput {
 	sessionID: string;
 	callID?: string;
@@ -109,6 +118,8 @@ interface NotificationEvent {
 
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const SESSION_READY_DEDUP_TTL_MS = 1_000;
+const PERMISSION_HINT_PATTERN =
+	/\b(permission|approve|approval|allow|deny|consent)\b/i;
 const sentEvents = new Map<string, { timestamp: number; ttlMs: number }>();
 
 const HH_MM_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -370,6 +381,30 @@ function getSessionReadyNotification(
 	};
 }
 
+function getInputNeededNotification(
+	input: InputNeededNotificationInput,
+): NotificationEvent {
+	const source = input.source?.trim() || input.kind || "input-needed";
+	const isPermission =
+		input.kind === "permission" ||
+		PERMISSION_HINT_PATTERN.test(input.questionText?.trim() || "");
+
+	return {
+		dedupeKey: `${input.sessionID}:${source}:${input.callID ?? input.kind ?? "input"}`,
+		title: isPermission ? "Permission Needed" : "Question for You",
+		message: isPermission
+			? "Assistant needs permission to continue."
+			: "Assistant is asking a question.",
+		level: "info",
+		extraInput: {
+			sessionID: input.sessionID,
+			callID: input.callID,
+			tool: input.tool,
+			source,
+		},
+	};
+}
+
 function mapLevelToToastVariant(
 	level: NotificationLevel,
 ): "info" | "success" | "warning" | "error" {
@@ -506,6 +541,18 @@ export function createSessionReadyNotificationHook(
 
 	return async (input: SessionReadyNotificationInput): Promise<void> => {
 		const signal = getSessionReadyNotification(input);
+		return dispatch(signal);
+	};
+}
+
+export function createInputNeededNotificationHook(
+	client: NotificationClient,
+	options?: NotificationHookOptions,
+): (input: InputNeededNotificationInput) => Promise<void> {
+	const dispatch = createNotificationDispatcher(client, options);
+
+	return async (input: InputNeededNotificationInput): Promise<void> => {
+		const signal = getInputNeededNotification(input);
 		return dispatch(signal);
 	};
 }

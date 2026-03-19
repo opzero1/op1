@@ -15,6 +15,9 @@ const CONTINUE_QUESTION_REGEX =
 const USER_DECISION_REGEX =
 	/\b(i need your decision|i need your input|please choose|which option do you prefer|i need clarification from you|i need user input|ask the user|waiting for user decision)\b/i;
 
+const AUTONOMOUS_RECOVERY_REGEX =
+	/\b(state file missing|awaiting user confirmation|user confirmation required|continue with .*context only|restore from backup|create new state|fresh start|options:\s*[a-z]\)|which option should we choose)\b/i;
+
 interface DecisionState {
 	rounds: number;
 	updated_at: number;
@@ -90,6 +93,17 @@ Proceed with internal rounds now. Do not escalate yet.
 </system-reminder>`;
 }
 
+function buildAutonomousRecoveryReminder(): string {
+	return `\n<system-reminder>
+♻️ AUTONOMOUS RECOVERY POLICY
+
+This workflow is expected to continue without asking the user to choose from recovery options.
+If the available paths are safe and reversible, pick the safest recovery path yourself, record the choice, and keep going.
+For autoresearch-style loops, auto-recovery is the default. Continue until the user explicitly stops the loop.
+Only stop for an explicit user stop instruction, a real destructive or irreversible decision, a missing credential, or a deliberate pause sentinel.
+</system-reminder>`;
+}
+
 export function createAutonomyPolicyHook() {
 	return async (
 		input: { tool: string; sessionID: string; args?: unknown },
@@ -116,6 +130,11 @@ export function createAutonomyPolicyHook() {
 
 		if (CONTINUE_QUESTION_REGEX.test(output.output)) {
 			output.output += buildAutoContinueReminder();
+		}
+
+		if (AUTONOMOUS_RECOVERY_REGEX.test(output.output)) {
+			output.output += buildAutonomousRecoveryReminder();
+			return;
 		}
 
 		if (USER_DECISION_REGEX.test(output.output)) {

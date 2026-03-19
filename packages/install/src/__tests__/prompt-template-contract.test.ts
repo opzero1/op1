@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const templatesDir = join(import.meta.dir, "..", "..", "templates");
 
 async function readTemplate(...parts: string[]): Promise<string> {
 	return Bun.file(join(templatesDir, ...parts)).text();
+}
+
+async function pathExists(...parts: string[]): Promise<boolean> {
+	try {
+		await stat(join(templatesDir, ...parts));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 describe("prompt template contracts", () => {
@@ -126,6 +136,8 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain(
 			"Do not create git commits unless the user explicitly asks for them.",
 		);
+		expect(prompt).toContain("Do not pause just to present a menu of safe recovery options");
+		expect(prompt).toContain("## Autonomous Recovery");
 	});
 
 	test("context engineering documents context-scout and linked plan docs", async () => {
@@ -137,6 +149,39 @@ describe("prompt template contracts", () => {
 
 		expect(prompt).toContain("[context-scout]");
 		expect(prompt).toContain("Linked plan docs");
+	});
+
+	test("skill catalog removes legacy singular tree and empty skill directories", async () => {
+		const singularExists = await pathExists("skill");
+		expect(singularExists).toBe(false);
+
+		const skillEntries = await readdir(join(templatesDir, "skills"), {
+			withFileTypes: true,
+		});
+
+		const skillDirs = skillEntries.filter(
+			(entry) => entry.isDirectory() && !entry.name.startsWith("."),
+		);
+
+		for (const dir of skillDirs) {
+			const hasSkill = await pathExists("skills", dir.name, "SKILL.md");
+			expect(hasSkill).toBe(true);
+		}
+	});
+
+	test("agent-browser skill replaces chrome-devtools", async () => {
+		const agentBrowser = await readTemplate("skills", "agent-browser", "SKILL.md");
+
+		expect(agentBrowser).toContain("name: agent-browser");
+		expect(agentBrowser).toContain("Bash(agent-browser:*)");
+		expect(agentBrowser).toContain("snapshot -i");
+
+		const chromeDevtoolsExists = await pathExists(
+			"skills",
+			"chrome-devtools",
+			"SKILL.md",
+		);
+		expect(chromeDevtoolsExists).toBe(false);
 	});
 
 	test("prompt taxonomy documents layer ownership and shared defaults", async () => {

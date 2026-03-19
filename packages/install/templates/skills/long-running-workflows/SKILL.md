@@ -18,6 +18,7 @@ Keep progress durable and recoverable without turning every task into a runaway 
 - Persist state to disk so another agent can resume safely.
 - Do not rely on chat history alone for long-running work.
 - Do not create git commits unless the user explicitly asks for them.
+- Do not pause just to present a menu of safe recovery options; choose the safest reversible path and continue.
 
 ## Durable State Layout
 
@@ -52,6 +53,16 @@ When resuming long-running work:
 3. Check for `.paused`; if present, do not continue the loop.
 4. Rebuild the next-step queue from `ideas.md` and unfinished work.
 5. Continue from the last verified checkpoint instead of replaying the full history.
+
+## Autonomous Recovery
+
+When the workflow is intended to run autonomously and a recoverable problem appears:
+
+1. Prefer automatic recovery over user choice menus.
+2. Restore from the safest recent checkpoint if one exists.
+3. If no checkpoint exists, record the gap, start a new safe segment, and continue.
+4. For autoresearch-style loops, keep going until the user explicitly stops the loop or a pause sentinel exists.
+5. Only stop early when the choice is destructive, irreversible, or credential-bound.
 
 ## Logging Rules
 

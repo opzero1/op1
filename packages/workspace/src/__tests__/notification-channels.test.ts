@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	createNotificationChannelsHook,
+	createInputNeededNotificationHook,
 	createSessionReadyNotificationHook,
 	type DesktopNotifier,
 	type NotificationClient,
@@ -300,6 +301,90 @@ describe("notification channels hook", () => {
 		expect(toasts[0].title).toBe("Ready for Input");
 		expect(toasts[0].message).toContain("Ready for your next prompt");
 		expect(toasts[0].variant).toBe("success");
+	});
+
+	test("emits question notifications when enabled", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{
+			title?: string;
+			message?: string;
+			variant?: string;
+		}> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({
+						title: body?.title,
+						message: body?.message,
+						variant: body?.variant,
+					});
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-question",
+			callID: "call-question",
+			tool: "question",
+			source: "tool.execute.before",
+			questionText: "Which branch should we use?",
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Question for You");
+		expect(toasts[0].message).toContain("asking a question");
+		expect(toasts[0].variant).toBe("success");
+	});
+
+	test("maps permission-like questions to permission notifications", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({ title: body?.title, message: body?.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-permission-question",
+			callID: "call-permission-question",
+			tool: "question",
+			source: "tool.execute.before",
+			questionText: "Need permission to continue with this action?",
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Permission Needed");
+		expect(toasts[0].message).toContain("needs permission");
+	});
+
+	test("emits permission notifications when enabled", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const calls: Array<{ message: string }> = [];
+		const client: NotificationClient = {
+			app: {
+				log: async ({ body }) => {
+					calls.push({ message: body.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-permission",
+			source: "permission.updated",
+			kind: "permission",
+		});
+
+		expect(calls.length).toBe(1);
+		expect(calls[0].message).toContain("needs permission");
 	});
 
 	test("deduplicates session ready notifications per session and source", async () => {
