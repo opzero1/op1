@@ -35,6 +35,21 @@ describe("prompt template contracts", () => {
 			expect(prompt).toContain(`<${tag}>`);
 		}
 
+		expect(prompt).toContain("If the request is `/autoloop`");
+		expect(prompt).toContain("recover the autoloop state first");
+		expect(prompt).toContain("autoloop_status");
+		expect(prompt).toContain(
+			"does not replace the dedicated autoloop plan as the lifecycle source of truth",
+		);
+		expect(prompt).toContain("do not adopt the current feature plan");
+		expect(prompt).toContain(
+			"do not drift into ordinary completion-report mode",
+		);
+		expect(prompt).toContain("make it a running-status note only");
+		expect(prompt).toContain("prefer `autoloop_checkpoint`");
+		expect(prompt).toContain("set `command` to `autoloop:<slug>`");
+		expect(prompt).toContain("one slug and one git worktree per loop");
+		expect(prompt).toContain("prefer `worktree_create`");
 		expect(prompt).toContain(
 			"compatibility shims, adapters, fallback branches",
 		);
@@ -83,8 +98,37 @@ describe("prompt template contracts", () => {
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).toContain("plan_context_read");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
+		expect(autoloopCommand).toContain("plan-protocol");
 		expect(autoloopCommand).toContain("long-running-workflows");
 		expect(autoloopCommand).toContain(".opencode/workspace/autoloop/<slug>/");
+		expect(autoloopCommand).toContain("continuation_status");
+		expect(autoloopCommand).toContain("continuation_continue");
+		expect(autoloopCommand).toContain("continuation_stop");
+		expect(autoloopCommand).toContain("autoloop_status");
+		expect(autoloopCommand).toContain("autoloop_checkpoint");
+		expect(autoloopCommand).toContain("set `command` to `autoloop:<slug>`");
+		expect(autoloopCommand).toContain(
+			"Do not call `plan_list` just to adopt the currently active feature plan",
+		);
+		expect(autoloopCommand).toContain("dedicated workspace autoloop plan");
+		expect(autoloopCommand).toContain(
+			"keep the dedicated autoloop plan as the lifecycle source of truth",
+		);
+		expect(autoloopCommand).toContain(
+			"Continue verified iterations until explicitly stopped or .paused exists",
+		);
+		expect(autoloopCommand).toContain("max_iterations = 50");
+		expect(autoloopCommand).toContain(
+			'do not switch into a normal completion summary or "next steps" handoff',
+		);
+		expect(autoloopCommand).toContain(
+			"report only a concise running-status update",
+		);
+		expect(autoloopCommand).toContain(
+			"prefer `autoloop_checkpoint` for locked monotonic appends",
+		);
+		expect(autoloopCommand).toContain("one slug and one git worktree per loop");
+		expect(autoloopCommand).toContain("prefer `worktree_create`");
 		expect(deslopCommand).toContain("analyze-mode");
 		expect(deslopCommand).toContain("simplify");
 		expect(deslopCommand).toContain("code-philosophy");
@@ -133,10 +177,15 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain(".opencode/workspace/autoloop/<slug>/");
 		expect(prompt).toContain("state.jsonl");
 		expect(prompt).toContain(".paused");
+		expect(prompt).toContain("dedicated autoloop plan");
+		expect(prompt).toContain("continuation_status");
+		expect(prompt).toContain("continuation_stop");
 		expect(prompt).toContain(
 			"Do not create git commits unless the user explicitly asks for them.",
 		);
-		expect(prompt).toContain("Do not pause just to present a menu of safe recovery options");
+		expect(prompt).toContain(
+			"Do not pause just to present a menu of safe recovery options",
+		);
 		expect(prompt).toContain("## Autonomous Recovery");
 	});
 
@@ -170,7 +219,11 @@ describe("prompt template contracts", () => {
 	});
 
 	test("agent-browser skill replaces chrome-devtools", async () => {
-		const agentBrowser = await readTemplate("skills", "agent-browser", "SKILL.md");
+		const agentBrowser = await readTemplate(
+			"skills",
+			"agent-browser",
+			"SKILL.md",
+		);
 
 		expect(agentBrowser).toContain("name: agent-browser");
 		expect(agentBrowser).toContain("Bash(agent-browser:*)");

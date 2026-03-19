@@ -17,6 +17,7 @@ function createMockClient() {
 	};
 	let status = "running";
 	let childCount = 0;
+	let promptAsyncCalls = 0;
 
 	return {
 		app: {
@@ -42,7 +43,10 @@ function createMockClient() {
 			prompt: async () => ({
 				data: { parts: [{ type: "text", text: "sync result" }] },
 			}),
-			promptAsync: async () => ({ data: {} }),
+			promptAsync: async () => {
+				promptAsyncCalls += 1;
+				return { data: {} };
+			},
 			messages: async () => ({
 				data: [
 					{
@@ -68,6 +72,9 @@ function createMockClient() {
 		},
 		setStatus(next: string) {
 			status = next;
+		},
+		getPromptAsyncCalls() {
+			return promptAsyncCalls;
 		},
 	};
 }
@@ -340,5 +347,163 @@ describe("delegation plugin", () => {
 		expect(result).toContain("Task completed.");
 		expect(result).toContain("sync result");
 		expect(result).toContain("<task_metadata>");
+	});
+
+	test("auto-restarts background autoloop tasks after success when stop conditions stay open", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-"));
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		await mkdir(workspaceDir, { recursive: true });
+		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
+		await mkdir(autoloopDir, { recursive: true });
+		await Bun.write(
+			join(autoloopDir, "state.jsonl"),
+			[
+				JSON.stringify({
+					type: "config",
+					timestamp: "2026-03-19T00:00:00Z",
+					goal: "Improve the harness",
+					slug: "agent-harness",
+					max_iterations: 50,
+				}),
+				JSON.stringify({
+					type: "iteration",
+					iteration: 26,
+					timestamp: "2026-03-19T00:10:00Z",
+					action: "Made progress",
+					status: "passed",
+					outcome: "keep",
+					next_step: "Keep going",
+				}),
+			].join("\n"),
+		);
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const launched = await taskTool.execute(
+			{
+				description: "Autoloop worker",
+				prompt:
+					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
+				subagent_type: "build",
+				command: "autoloop:agent-harness@25",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(launched).toContain("Background task launched.");
+		expect(client.getPromptAsyncCalls()).toBe(1);
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(client.getPromptAsyncCalls()).toBe(2);
+		const taskRecords = JSON.parse(
+			await Bun.file(join(workspaceDir, "task-records.json")).text(),
+		) as {
+			delegations: Record<string, { status: string; command?: string }>;
+		};
+		const task = Object.values(taskRecords.delegations)[0];
+		expect(task.status).toBe("running");
+		expect(task.command).toBe("autoloop:agent-harness@26");
+	});
+
+	test("does not auto-restart autoloop tasks when paused or continuation is stopped", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-stop-"));
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		await mkdir(workspaceDir, { recursive: true });
+		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
+		await mkdir(autoloopDir, { recursive: true });
+		await Bun.write(join(autoloopDir, ".paused"), "");
+		await Bun.write(
+			join(workspaceDir, "continuation.json"),
+			JSON.stringify(
+				{
+					sessions: {
+						"parent-session": {
+							session_id: "parent-session",
+							mode: "stopped",
+							updated_at: "2026-03-19T00:00:00Z",
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(
+			join(autoloopDir, "state.jsonl"),
+			[
+				JSON.stringify({
+					type: "config",
+					timestamp: "2026-03-19T00:00:00Z",
+					goal: "Improve the harness",
+					slug: "agent-harness",
+					max_iterations: 50,
+				}),
+				JSON.stringify({
+					type: "iteration",
+					iteration: 26,
+					timestamp: "2026-03-19T00:10:00Z",
+					action: "Made progress",
+					status: "passed",
+					outcome: "keep",
+					next_step: "Keep going",
+				}),
+			].join("\n"),
+		);
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		await taskTool.execute(
+			{
+				description: "Autoloop worker",
+				prompt:
+					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
+				subagent_type: "build",
+				command: "autoloop:agent-harness@25",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(client.getPromptAsyncCalls()).toBe(1);
+		const taskRecords = JSON.parse(
+			await Bun.file(join(workspaceDir, "task-records.json")).text(),
+		) as {
+			delegations: Record<string, { status: string; command?: string }>;
+		};
+		const task = Object.values(taskRecords.delegations)[0];
+		expect(task.status).toBe("succeeded");
+		expect(task.command).toBe("autoloop:agent-harness@25");
 	});
 });

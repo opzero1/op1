@@ -41,8 +41,9 @@ Use these files:
 1. Create the state directory and initialize the files.
 2. Write `context.md` with the goal, scope, constraints, success metric, files in scope, and stop conditions.
 3. Start `state.jsonl` with a config/header entry describing the objective.
-4. Record each iteration in both `state.jsonl` and `worklog.md`.
-5. Refresh `context.md` whenever the strategy changes meaningfully.
+4. If workspace momentum/completion hooks depend on an active plan, create or recover a dedicated autoloop plan and keep one evergreen unchecked task for the running loop.
+5. Record each iteration in both `state.jsonl` and `worklog.md`.
+6. Refresh `context.md` whenever the strategy changes meaningfully.
 
 ## Resume Protocol
 
@@ -51,8 +52,9 @@ When resuming long-running work:
 1. Read `context.md` first.
 2. Read the latest entries from `state.jsonl` and `worklog.md`.
 3. Check for `.paused`; if present, do not continue the loop.
-4. Rebuild the next-step queue from `ideas.md` and unfinished work.
-5. Continue from the last verified checkpoint instead of replaying the full history.
+4. Best-effort: if workspace continuation tools are available, check `continuation_status` and move the session back to `running` with `continuation_continue` before resuming.
+5. Rebuild the next-step queue from `ideas.md` and unfinished work.
+6. Continue from the last verified checkpoint instead of replaying the full history.
 
 ## Autonomous Recovery
 
@@ -85,11 +87,13 @@ Keep the log append-only. If direction changes, start a new entry or segment; do
 - Stop when a destructive or irreversible decision requires user approval.
 - Stop when a required credential or external dependency is missing.
 - Stop when verification fails repeatedly and the issue is no longer localized.
+- Best-effort: when stopping cleanly, reflect that state with `continuation_stop` if continuation tools are available.
 
 ## Best Practices
 
 - Use `todowrite` for active execution steps and the state directory for durable recovery.
 - Update `notepad_write` with durable learnings and decisions when working against a plan.
+- Prefer a dedicated autoloop plan over reusing a feature plan when harness momentum depends on unfinished plan tasks.
 - Prefer small verified checkpoints over giant batches.
 - If a run can be resumed later, leave the next step written down explicitly.
 

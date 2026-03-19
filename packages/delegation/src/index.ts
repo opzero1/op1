@@ -35,6 +35,8 @@ import { sleep } from "./utils.js";
 
 const MAX_RUNNING_PER_AGENT = 5;
 const DEFAULT_BLOCK_TIMEOUT_MS = 60_000;
+const DEFAULT_AUTOLOOP_MAX_ITERATIONS = 50;
+const AUTOLOOP_COMMAND_PREFIX = "autoloop:";
 
 interface RuntimeEvent {
 	type?: string;
@@ -99,6 +101,148 @@ function getSessionIDFromCreateResponse(data: unknown): string | null {
 
 function isActiveTask(status: TaskStatus): boolean {
 	return status === "queued" || status === "blocked" || status === "running";
+}
+
+function parseAutoloopCommand(command?: string): {
+	slug: string;
+	last_seen_iteration?: number;
+} | null {
+	const trimmed = command?.trim();
+	if (!trimmed || !trimmed.startsWith(AUTOLOOP_COMMAND_PREFIX)) {
+		return null;
+	}
+
+	const raw = trimmed.slice(AUTOLOOP_COMMAND_PREFIX.length);
+	const [slugPart, iterationPart] = raw.split("@", 2);
+	const slug = slugPart?.trim();
+	if (!slug) return null;
+
+	const parsedIteration =
+		typeof iterationPart === "string" && /^\d+$/.test(iterationPart.trim())
+			? Number.parseInt(iterationPart.trim(), 10)
+			: undefined;
+
+	return {
+		slug,
+		last_seen_iteration:
+			typeof parsedIteration === "number" && Number.isFinite(parsedIteration)
+				? parsedIteration
+				: undefined,
+	};
+}
+
+function inferAutoloopSlugFromPrompt(prompt: string): string | null {
+	const match = prompt.match(/\.opencode\/workspace\/autoloop\/([^/\s`"']+)\//);
+	const slug = match?.[1]?.trim();
+	return slug && slug.length > 0 ? slug : null;
+}
+
+async function readContinuationMode(
+	workspaceDir: string,
+	rootSessionID: string,
+): Promise<"running" | "stopped" | "handoff" | null> {
+	const file = Bun.file(join(workspaceDir, "continuation.json"));
+	if (!(await file.exists())) return null;
+
+	try {
+		const parsed = JSON.parse(await file.text()) as {
+			sessions?: Record<string, { mode?: string }>;
+		};
+		const mode = parsed.sessions?.[rootSessionID]?.mode;
+		return mode === "running" || mode === "stopped" || mode === "handoff"
+			? mode
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+async function readAutoloopStateSummary(
+	workspaceDir: string,
+	task: TaskRecord,
+): Promise<{
+	slug: string;
+	last_seen_iteration?: number;
+	latest_iteration: number;
+	latest_outcome?: string;
+	max_iterations: number;
+	next_command: string;
+} | null> {
+	const commandState = parseAutoloopCommand(task.command);
+	const slug = commandState?.slug ?? inferAutoloopSlugFromPrompt(task.prompt);
+	if (!slug) return null;
+
+	const autoloopDir = join(workspaceDir, "autoloop", slug);
+	if (await Bun.file(join(autoloopDir, ".paused")).exists()) {
+		return null;
+	}
+
+	const continuationMode = await readContinuationMode(
+		workspaceDir,
+		task.root_session_id,
+	);
+	if (continuationMode === "stopped" || continuationMode === "handoff") {
+		return null;
+	}
+
+	const statePath = join(autoloopDir, "state.jsonl");
+	const stateFile = Bun.file(statePath);
+	if (!(await stateFile.exists())) return null;
+
+	let latestIteration = 0;
+	let latestOutcome: string | undefined;
+	let maxIterations = DEFAULT_AUTOLOOP_MAX_ITERATIONS;
+
+	try {
+		const lines = (await stateFile.text()).replace(/\r\n/g, "\n").split("\n");
+		for (const rawLine of lines) {
+			const line = rawLine.trim();
+			if (!line) continue;
+			const entry = JSON.parse(line) as Record<string, unknown>;
+			if (
+				entry.type === "config" &&
+				Number.isInteger(entry.max_iterations) &&
+				(entry.max_iterations as number) > 0
+			) {
+				maxIterations = entry.max_iterations as number;
+			}
+			if (
+				entry.type === "iteration" &&
+				Number.isInteger(entry.iteration) &&
+				(entry.iteration as number) >= latestIteration
+			) {
+				latestIteration = entry.iteration as number;
+				latestOutcome =
+					typeof entry.outcome === "string" ? entry.outcome : latestOutcome;
+			}
+		}
+	} catch {
+		return null;
+	}
+
+	if (latestIteration <= 0 || latestIteration >= maxIterations) {
+		return null;
+	}
+	if (latestOutcome === "blocked" || latestOutcome === "done") {
+		return null;
+	}
+
+	const lastSeenIteration = commandState?.last_seen_iteration;
+	if (
+		typeof lastSeenIteration === "number" &&
+		latestIteration <= lastSeenIteration
+	) {
+		return null;
+	}
+
+	return {
+		slug,
+		last_seen_iteration: lastSeenIteration,
+		latest_iteration: latestIteration,
+		latest_outcome: latestOutcome,
+		max_iterations: maxIterations,
+		next_command: `${AUTOLOOP_COMMAND_PREFIX}${slug}@${latestIteration}`,
+	};
 }
 
 function getToolCallID(toolCtx: DelegationToolContext): string | null {
@@ -342,6 +486,7 @@ async function getSessionStatus(
 async function refreshTaskFromRuntime(
 	client: DelegationClient,
 	state: TaskStateManager,
+	workspaceDir: string,
 	task: TaskRecord,
 ): Promise<TaskRecord> {
 	if (task.status !== "running") return task;
@@ -352,9 +497,28 @@ async function refreshTaskFromRuntime(
 			client,
 			task.child_session_id,
 		);
-		return state.transitionTask(task.id, "succeeded", {
+		const succeeded = await state.transitionTask(task.id, "succeeded", {
 			result: result ?? undefined,
 		});
+		const autoloop = await readAutoloopStateSummary(workspaceDir, succeeded);
+		if (!autoloop) {
+			return succeeded;
+		}
+
+		await state.restartTask({
+			id: task.id,
+			description: task.description,
+			prompt: task.prompt,
+			command: autoloop.next_command,
+			category: task.category,
+			routing: task.routing,
+			depends_on: task.depends_on,
+			concurrency_key: task.concurrency_key,
+			run_in_background: task.run_in_background,
+			initial_status: "queued",
+		});
+		await promoteRunnableTasks(client, state);
+		return (await state.getTask(task.id)) ?? succeeded;
 	}
 
 	if (status === "error") {
@@ -469,9 +633,27 @@ export const DelegationPlugin: Plugin = async (ctx: {
 
 			if (runtimeEvent.type === "session.idle") {
 				const result = await getLatestAssistantResult(client, sessionID);
-				await state.transitionTask(task.id, "succeeded", {
+				const succeeded = await state.transitionTask(task.id, "succeeded", {
 					result: result ?? undefined,
 				});
+				const autoloop = await readAutoloopStateSummary(
+					workspaceDir,
+					succeeded,
+				);
+				if (autoloop) {
+					await state.restartTask({
+						id: task.id,
+						description: task.description,
+						prompt: task.prompt,
+						command: autoloop.next_command,
+						category: task.category,
+						routing: task.routing,
+						depends_on: task.depends_on,
+						concurrency_key: task.concurrency_key,
+						run_in_background: task.run_in_background,
+						initial_status: "queued",
+					});
+				}
 				await promoteRunnableTasks(client, state);
 				return;
 			}
@@ -811,7 +993,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						);
 						const deadline = Date.now() + timeoutMs;
 						while (isActiveTask(current.status) && Date.now() < deadline) {
-							current = await refreshTaskFromRuntime(client, state, current);
+							current = await refreshTaskFromRuntime(
+								client,
+								state,
+								workspaceDir,
+								current,
+							);
 							if (!isActiveTask(current.status)) break;
 							await sleep(1000);
 							const latest = await state.getTask(current.id);

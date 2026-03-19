@@ -11,6 +11,13 @@ describe("completion promise hook", () => {
 
 		await hook({ tool: "task", sessionID: "session-a" }, output);
 		expect(output.output).toContain("COMPLETION CHECK");
+		expect(output.output).toContain(
+			"If the active plan or loop is truly complete",
+		);
+		expect(output.output).toContain("intentional /autoloop run");
+		expect(output.output).toContain(
+			'Do not switch into a wrap-up summary or "next steps" handoff',
+		);
 	});
 
 	test("resets iteration tracking when completion tag appears", async () => {

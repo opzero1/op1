@@ -51,6 +51,26 @@ describe("verification autopilot", () => {
 		expect(decisionIndex).toBeGreaterThan(manualQaIndex);
 	});
 
+	test("injects verification reminder for frontend and build tasks", async () => {
+		for (const subagentType of ["frontend", "build"] as const) {
+			const output = { output: `${subagentType} done` };
+
+			await handleVerification(
+				{
+					tool: "task",
+					sessionID: `session-${subagentType}`,
+					callID: `call-${subagentType}`,
+					args: { subagent_type: subagentType },
+				},
+				output,
+				"/tmp",
+			);
+
+			expect(output.output).toContain("MANDATORY VERIFICATION PROTOCOL");
+			expect(output.output).toContain(`${subagentType} task completed`);
+		}
+	});
+
 	test("skips duplicate reminder for same session/call", async () => {
 		const first = { output: "first" };
 		await handleVerification(

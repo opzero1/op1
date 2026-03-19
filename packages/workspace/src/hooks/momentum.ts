@@ -14,7 +14,7 @@ export interface MomentumDeps {
 }
 
 /** Tools that should trigger continuation checks */
-const CONTINUATION_TOOLS = new Set(["task"]);
+const CONTINUATION_TOOLS = new Set(["task", "bash"]);
 
 /**
  * Count completed and total tasks in plan content by looking at `- [x]` / `- [ ]` markers.
@@ -40,6 +40,10 @@ function findNextTask(content: string): string | null {
 	return match ? match[0].trim().replace(/^- \[ \] /, "") : null;
 }
 
+function isAutoloopPlan(content: string): boolean {
+	return /(?:^|\W)autoloop(?:\W|$)|\/autoloop/i.test(content);
+}
+
 /**
  * Build the continuation prompt that pushes the agent to keep going.
  */
@@ -47,6 +51,7 @@ function buildContinuationPrompt(
 	done: number,
 	total: number,
 	nextTask: string | null,
+	isAutoloop: boolean,
 ): string {
 	const remaining = total - done;
 	const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -60,12 +65,17 @@ Progress: ${done}/${total} tasks complete (${pct}%)
 Remaining: ${remaining} task${remaining !== 1 ? "s" : ""}`;
 
 	if (nextTask) {
-		prompt += `\n\n**Next up:** ${nextTask}`;
+		const nextLabel = isAutoloop ? "Loop focus:" : "Next up:";
+		prompt += `\n\n**${nextLabel}** ${nextTask}`;
 	}
+
+	const continuationLine = isAutoloop
+		? "Do NOT stop. Read the plan (plan_read), then keep the loop running from the current focus now."
+		: "Do NOT stop. Read the plan (plan_read), then continue with the next task now.";
 
 	prompt += `
 
-**Do NOT stop.** Read the plan (plan_read), then continue with the next task now.
+${continuationLine}
 Do not ask the user for permission to continue. Continue automatically.
 If you need to record progress, use notepad_write before continuing.
 </system-reminder>`;
@@ -106,12 +116,18 @@ export function createMomentumHook(deps: MomentumDeps) {
 
 			const content = await planFile.text();
 			const { done, total } = countPlanTasks(content);
+			const autoloopPlan = isAutoloopPlan(content);
 
 			// No tasks or all done — nothing to push
 			if (total === 0 || done >= total) return;
 
 			const nextTask = findNextTask(content);
-			const prompt = buildContinuationPrompt(done, total, nextTask);
+			const prompt = buildContinuationPrompt(
+				done,
+				total,
+				nextTask,
+				autoloopPlan,
+			);
 
 			if (typeof output.output === "string") {
 				output.output = output.output + prompt;

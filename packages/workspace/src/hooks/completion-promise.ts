@@ -44,8 +44,10 @@ export function createCompletionPromiseHook(
 ⚠️ COMPLETION CHECK [Iteration ${current}/${maxIterations}]
 
 You have completed ${current} task delegations without confirming plan completion.
-If the plan is 100% done, include <done>COMPLETE</done> in your next message.
-If tasks remain, continue working — but be intentional, not looping.
+If the active plan or loop is truly complete, include <done>COMPLETE</done> in your next message.
+If this is an intentional /autoloop run, continue until the user stops you, a .paused sentinel exists, or a genuine blocker is reached.
+Do not switch into a wrap-up summary or "next steps" handoff while the autoloop evergreen task is still open.
+If work remains, continue working — but be intentional, not looping.
 </system-reminder>`;
 		}
 	};

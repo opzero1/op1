@@ -55,9 +55,14 @@ export function createWritePolicyHook() {
 		// Check for explicit override
 		if (args?.directEdit === true) return;
 
-		// Only warn on orchestrator agents — detect via args metadata
-		// The `subagent_type` or `agent_type` field indicates the caller
-		const agentType = args?.agent_type as string | undefined;
+		const agentType =
+			typeof args?.subagent_type === "string"
+				? args.subagent_type
+				: typeof args?.agent === "string"
+					? args.agent
+					: typeof args?.agent_type === "string"
+						? args.agent_type
+						: undefined;
 
 		// If we can't detect agent type, skip (don't spam non-orchestrators)
 		if (!agentType || !ORCHESTRATOR_AGENTS.has(agentType)) return;

@@ -10,7 +10,7 @@ const MIN_DECISION_ROUNDS = 3;
 const DECISION_ROUND_TTL_MS = 5 * 60_000;
 
 const CONTINUE_QUESTION_REGEX =
-	/\b(i can continue|would you like me to continue|should i continue|shall i continue|let me know if you want me to continue)\b/i;
+	/\b(i can continue|i can keep going|would you like me to continue|would you like me to proceed|should i continue|should i proceed|shall i continue|shall i proceed|do you want me to continue|do you want me to proceed|want me to continue|want me to proceed|want me to keep going|let me know if you want me to continue|let me know if you'd like me to continue)\b/i;
 
 const USER_DECISION_REGEX =
 	/\b(i need your decision|i need your input|please choose|which option do you prefer|i need clarification from you|i need user input|ask the user|waiting for user decision)\b/i;
