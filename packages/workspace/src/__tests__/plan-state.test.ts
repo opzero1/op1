@@ -128,6 +128,89 @@ describe("plan state manager", () => {
 		expect(doc?.linked_plans.map((item) => item.plan_name)).toContain("plan-b");
 	});
 
+	test("serializes concurrent plan doc registry writes", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		const docPath = join(env.root, "docs", "eval-notes.md");
+		await mkdir(join(env.root, "docs"), { recursive: true });
+		await Bun.write(docPath, "# Eval Notes\n\nDetails");
+
+		await Promise.all(
+			Array.from({ length: 8 }, (_, index) =>
+				sm.linkPlanDoc(`plan-${index + 1}`, {
+					path: docPath,
+					type: "notes",
+					phase: "3",
+					task: `3.${index + 1}`,
+					title: "Eval Notes",
+				}),
+			),
+		);
+
+		const registry = await sm.readPlanDocRegistry();
+		const docEntry = Object.values(registry.docs).find(
+			(doc) => doc.path === docPath,
+		);
+		expect(docEntry).toBeDefined();
+		expect(docEntry?.linked_plans).toHaveLength(8);
+		for (let index = 0; index < 8; index += 1) {
+			expect(registry.plans[`plan-${index + 1}`]).toHaveLength(1);
+		}
+	});
+
+	test("serializes concurrent plan registry patch writes", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		const planPaths = await Promise.all(
+			Array.from({ length: 6 }, async (_, index) => {
+				const planPath = join(
+					env.plansDir,
+					`${index + 1}00-plan-${index + 1}.md`,
+				);
+				await Bun.write(planPath, `# Plan\n\n## Goal\n\nPlan ${index + 1}`);
+				return planPath;
+			}),
+		);
+
+		await Promise.all(
+			planPaths.map((planPath, index) =>
+				sm.upsertPlanRegistryEntry(planPath, {
+					title: `Title ${index + 1}`,
+					description: `Description ${index + 1}`,
+					lifecycle: index % 2 === 0 ? "draft" : "inactive",
+				}),
+			),
+		);
+
+		const registry = await sm.readPlanRegistry();
+		for (let index = 0; index < planPaths.length; index += 1) {
+			const planName = `${index + 1}00-plan-${index + 1}`;
+			expect(registry.plans[planName]?.title).toBe(`Title ${index + 1}`);
+			expect(registry.plans[planName]?.description).toBe(
+				`Description ${index + 1}`,
+			);
+			expect(registry.plans[planName]?.lifecycle).toBe(
+				index % 2 === 0 ? "draft" : "inactive",
+			);
+		}
+	});
+
 	test("resolves plan path by name", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);
@@ -210,6 +293,34 @@ describe("plan state manager", () => {
 		expect(alpha?.lifecycle).toBe("active");
 	});
 
+	test("serializes concurrent active-plan lifecycle updates", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const planPath = join(env.plansDir, "100-alpha.md");
+		await Bun.write(planPath, "# Plan\n\n## Goal\n\nAlpha");
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		await Promise.all([
+			sm.setActivePlan(planPath, { sessionID: "session-1" }),
+			sm.setActivePlan(planPath, { sessionID: "session-2" }),
+		]);
+
+		const state = await sm.readActivePlanState();
+		expect(state?.active_plan).toBe(planPath);
+		expect(state?.session_ids).toContain("session-1");
+		expect(state?.session_ids).toContain("session-2");
+
+		const registry = await sm.readPlanRegistry();
+		expect(registry.plans["100-alpha"]?.lifecycle).toBe("active");
+	});
+
 	test("cannot activate archived plan until unarchived", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);
@@ -273,12 +384,15 @@ describe("plan state manager", () => {
 			pattern_examples: [
 				{
 					name: "Workspace plan registry",
+					source_type: "repo",
 					example_files: ["packages/workspace/src/index.ts"],
 					symbols: ["plan_save"],
 					why_it_fits: "Existing plan persistence should stay canonical.",
 					constraints: ["Keep active plan stable until approval"],
 					blast_radius: ["workspace tools"],
 					test_implications: ["plan-state tests"],
+					code_example:
+						"await sm.syncPlanContext(planName, { pattern_examples: [...] });",
 					confirmed_by_user: true,
 				},
 			],
@@ -295,9 +409,46 @@ describe("plan state manager", () => {
 		expect(context?.stage).toBe("active");
 		expect(context?.confirmed_by_user).toBe(true);
 		expect(context?.pattern_examples[0]?.name).toBe("Workspace plan registry");
+		expect(context?.pattern_examples[0]?.source_type).toBe("repo");
+		expect(context?.pattern_examples[0]?.code_example).toContain(
+			"syncPlanContext",
+		);
 
 		const registry = await sm.readPlanRegistry();
 		expect(registry.plans["100-alpha"]?.lifecycle).toBe("active");
+	});
+
+	test("serializes concurrent plan context patch writes per plan", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		await Promise.all([
+			sm.syncPlanContext("100-alpha", {
+				stage: "draft",
+				goal: "Refine alpha planning flow",
+				affected_areas: ["packages/install"],
+			}),
+			sm.syncPlanContext("100-alpha", {
+				chosen_pattern: "repo-first plan refinement",
+				success_criteria: ["plan context merges concurrent updates"],
+			}),
+		]);
+
+		const context = await sm.readPlanContext("100-alpha");
+		expect(context?.stage).toBe("draft");
+		expect(context?.goal).toBe("Refine alpha planning flow");
+		expect(context?.chosen_pattern).toBe("repo-first plan refinement");
+		expect(context?.affected_areas).toEqual(["packages/install"]);
+		expect(context?.success_criteria).toEqual([
+			"plan context merges concurrent updates",
+		]);
 	});
 
 	test("unarchives an unconfirmed plan back to draft lifecycle", async () => {

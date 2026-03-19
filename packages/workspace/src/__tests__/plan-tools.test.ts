@@ -105,6 +105,52 @@ describe("plan tools", () => {
 		expect(await Bun.file(importedPath).exists()).toBe(true);
 	});
 
+	test("plan_set_active preserves concurrent session IDs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-set-active-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace", "plans"), {
+			recursive: true,
+		});
+		await Bun.write(
+			join(root, ".opencode", "workspace", "plans", "100-alpha.md"),
+			validPlan,
+		);
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planSetActiveTool = plugin.tool?.plan_set_active as unknown as {
+			execute: (
+				args: { identifier: string },
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		await Promise.all([
+			planSetActiveTool.execute(
+				{ identifier: "100-alpha" },
+				{ sessionID: "session-a" },
+			),
+			planSetActiveTool.execute(
+				{ identifier: "100-alpha" },
+				{ sessionID: "session-b" },
+			),
+		]);
+
+		const activePlanState = JSON.parse(
+			await Bun.file(
+				join(root, ".opencode", "workspace", "active-plan.json"),
+			).text(),
+		) as { session_ids: string[]; active_plan: string; plan_name: string };
+
+		expect(activePlanState.plan_name).toBe("100-alpha");
+		expect(activePlanState.session_ids).toContain("session-a");
+		expect(activePlanState.session_ids).toContain("session-b");
+		expect(activePlanState.active_plan).toContain("100-alpha.md");
+	});
+
 	test("draft save, context write, and promote flow stays structured", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-plan-tools-"));
 		tempRoots.push(root);
@@ -202,6 +248,7 @@ describe("plan tools", () => {
 				pattern_examples_json: JSON.stringify([
 					{
 						name: "Workspace plan save flow",
+						source_type: "repo",
 						example_files: ["packages/workspace/src/index.ts"],
 						symbols: ["plan_save", "plan_promote"],
 						why_it_fits:
@@ -209,6 +256,8 @@ describe("plan tools", () => {
 						constraints: ["Do not replace the active plan until approval"],
 						blast_radius: ["workspace tools"],
 						test_implications: ["plan-state tests"],
+						code_example:
+							"await planContextWriteTool.execute({ plan_name: planName, pattern_examples_json: JSON.stringify([...]) }, { sessionID });",
 						confirmed_by_user: true,
 					},
 				]),
@@ -229,6 +278,113 @@ describe("plan tools", () => {
 		);
 		expect(planReadResult).toContain("<plan-context>");
 		expect(planReadResult).toContain("repo-first staged refinement");
-		expect(planReadResult).toContain("Workspace plan save flow");
+		expect(planReadResult).toContain("Approved implementation references:");
+		expect(planReadResult).toContain("Workspace plan save flow [repo]");
+		expect(planReadResult).toContain("code example:");
+	});
+
+	test("plan_promote preserves concurrent session IDs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-promote-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planSaveTool = plugin.tool?.plan_save as unknown as {
+			execute: (
+				args: { content: string; mode: "draft" },
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+		const planPromoteTool = plugin.tool?.plan_promote as unknown as {
+			execute: (
+				args: { identifier: string },
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		await planSaveTool.execute(
+			{ content: validPlan, mode: "draft" },
+			{ sessionID: "draft-session" },
+		);
+
+		const planFiles = (
+			await readdir(join(root, ".opencode", "workspace", "plans"))
+		).filter((name) => name.endsWith(".md"));
+		const planName = planFiles[0].replace(/\.md$/, "");
+
+		await Promise.all([
+			planPromoteTool.execute(
+				{ identifier: planName },
+				{ sessionID: "session-a" },
+			),
+			planPromoteTool.execute(
+				{ identifier: planName },
+				{ sessionID: "session-b" },
+			),
+		]);
+
+		const activePlanState = JSON.parse(
+			await Bun.file(
+				join(root, ".opencode", "workspace", "active-plan.json"),
+			).text(),
+		) as { session_ids: string[]; active_plan: string; plan_name: string };
+
+		expect(activePlanState.plan_name).toBe(planName);
+		expect(activePlanState.session_ids).toContain("session-a");
+		expect(activePlanState.session_ids).toContain("session-b");
+		expect(activePlanState.active_plan).toContain(`${planName}.md`);
+	});
+
+	test("active plan saves preserve concurrent session IDs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-active-save-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planSaveTool = plugin.tool?.plan_save as unknown as {
+			execute: (
+				args: {
+					content: string;
+					mode?: "active" | "new" | "draft";
+					set_active?: boolean;
+				},
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		await planSaveTool.execute(
+			{ content: validPlan, mode: "new", set_active: true },
+			{ sessionID: "seed-session" },
+		);
+
+		await Promise.all([
+			planSaveTool.execute(
+				{ content: validPlan.replace("repo-first", "repo-first-a") },
+				{ sessionID: "session-a" },
+			),
+			planSaveTool.execute(
+				{ content: validPlan.replace("repo-first", "repo-first-b") },
+				{ sessionID: "session-b" },
+			),
+		]);
+
+		const activePlanState = JSON.parse(
+			await Bun.file(
+				join(root, ".opencode", "workspace", "active-plan.json"),
+			).text(),
+		) as { session_ids: string[]; active_plan: string };
+
+		expect(activePlanState.session_ids).toContain("seed-session");
+		expect(activePlanState.session_ids).toContain("session-a");
+		expect(activePlanState.session_ids).toContain("session-b");
+		expect(activePlanState.active_plan).toContain(".opencode/workspace/plans/");
 	});
 });

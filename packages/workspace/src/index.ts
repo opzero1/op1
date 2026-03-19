@@ -340,12 +340,19 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 		return {
 			name: raw.name.trim(),
+			source_type:
+				raw.source_type === "best-practice" ? "best-practice" : "repo",
 			example_files: parseList(raw.example_files),
 			symbols: parseList(raw.symbols),
 			why_it_fits: raw.why_it_fits.trim(),
 			constraints: parseList(raw.constraints),
 			blast_radius: parseList(raw.blast_radius),
 			test_implications: parseList(raw.test_implications),
+			code_example:
+				typeof raw.code_example === "string" &&
+				raw.code_example.trim().length > 0
+					? raw.code_example.trim()
+					: undefined,
 			confirmed_by_user: raw.confirmed_by_user !== false,
 		};
 	}
@@ -387,14 +394,30 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 		const patternExamples = context.pattern_examples ?? [];
 		if (patternExamples.length > 0) {
-			sections.push("", "Confirmed pattern examples:");
+			sections.push("", "Approved implementation references:");
 			for (const pattern of patternExamples) {
-				sections.push(`- ${pattern.name}: ${pattern.why_it_fits}`);
+				sections.push(
+					`- ${pattern.name} [${pattern.source_type === "best-practice" ? "best-practice" : "repo"}]: ${pattern.why_it_fits}`,
+				);
 				if (pattern.example_files.length > 0) {
 					sections.push(`  files: ${pattern.example_files.join(", ")}`);
 				}
 				if (pattern.symbols.length > 0) {
 					sections.push(`  symbols: ${pattern.symbols.join(", ")}`);
+				}
+				if (pattern.constraints.length > 0) {
+					sections.push(`  constraints: ${pattern.constraints.join("; ")}`);
+				}
+				if (pattern.test_implications.length > 0) {
+					sections.push(
+						`  test implications: ${pattern.test_implications.join("; ")}`,
+					);
+				}
+				if (pattern.code_example) {
+					sections.push("  code example:");
+					sections.push(
+						...pattern.code_example.split("\n").map((line) => `    ${line}`),
+					);
 				}
 			}
 		}
@@ -1454,7 +1477,9 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					pattern_examples_json: tool.schema
 						.string()
 						.optional()
-						.describe("JSON array of confirmed pattern example objects."),
+						.describe(
+							"JSON array of approved pattern example objects, including optional source_type and code_example guidance.",
+						),
 				},
 				async execute(args, toolCtx) {
 					if (!toolCtx?.sessionID) {

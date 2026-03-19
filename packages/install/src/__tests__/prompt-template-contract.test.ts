@@ -63,6 +63,10 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("Oracle");
 		expect(prompt).toContain("plan_context_write");
 		expect(prompt).toContain("plan_promote");
+		expect(prompt).toContain("bounded pattern-scout pass");
+		expect(prompt).toContain("follow existing pattern?");
+		expect(prompt).toContain("code_example");
+		expect(prompt).toContain("planning-question-quality evaluation artifact");
 		expect(prompt).not.toContain("Use this exact structure:");
 	});
 
@@ -95,8 +99,15 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain("plan-protocol");
 		expect(planCommand).toContain("plan_context_write");
 		expect(planCommand).toContain("plan_promote");
+		expect(planCommand).toContain("bounded internal pattern-scout pass");
+		expect(planCommand).toContain("follow existing pattern?");
+		expect(planCommand).toContain("source_type");
+		expect(planCommand).toContain(
+			"planning-question-quality evaluation artifact",
+		);
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).toContain("plan_context_read");
+		expect(workCommand).toContain("approved implementation reference");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
 		expect(autoloopCommand).toContain("plan-protocol");
 		expect(autoloopCommand).toContain("long-running-workflows");

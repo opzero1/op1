@@ -113,12 +113,14 @@ export interface PlanQuestionAnswer {
 
 export interface ConfirmedPatternExample {
 	name: string;
+	source_type: "repo" | "best-practice";
 	example_files: string[];
 	symbols: string[];
 	why_it_fits: string;
 	constraints: string[];
 	blast_radius: string[];
 	test_implications: string[];
+	code_example?: string;
 	confirmed_by_user: boolean;
 }
 
@@ -249,6 +251,35 @@ function nowIso(): string {
 	return new Date().toISOString();
 }
 
+async function acquireDirectoryLock(
+	lockPath: string,
+	timeoutMs: number = 5000,
+): Promise<() => Promise<void>> {
+	const start = Date.now();
+
+	while (Date.now() - start < timeoutMs) {
+		try {
+			await mkdir(lockPath);
+			return async () => {
+				await rm(lockPath, { recursive: true, force: true });
+			};
+		} catch (error) {
+			if (
+				error instanceof Error &&
+				/(File exists|EEXIST)/.test(error.message)
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 25));
+				continue;
+			}
+			throw error;
+		}
+	}
+
+	throw new Error(
+		`Plan doc registry lock timeout after ${timeoutMs}ms: ${lockPath}`,
+	);
+}
+
 function todayIso(): string {
 	return new Date().toISOString().slice(0, 10);
 }
@@ -352,6 +383,7 @@ function normalizePatternExample(
 
 	return {
 		name: raw.name.trim(),
+		source_type: raw.source_type === "best-practice" ? "best-practice" : "repo",
 		example_files: uniqueStrings(
 			Array.isArray(raw.example_files) ? (raw.example_files as string[]) : [],
 		),
@@ -370,6 +402,10 @@ function normalizePatternExample(
 				? (raw.test_implications as string[])
 				: [],
 		),
+		code_example:
+			typeof raw.code_example === "string" && raw.code_example.trim().length > 0
+				? raw.code_example.trim()
+				: undefined,
 		confirmed_by_user: raw.confirmed_by_user !== false,
 	};
 }
@@ -765,11 +801,126 @@ export function createStateManager(
 	importPlansDirs: string[] = [],
 ) {
 	const planDocRegistryPath = join(workspaceDir, "plan-doc-links.json");
+	const planDocRegistryLockPath = join(workspaceDir, ".plan-doc-links.lock");
 	const planRegistryPath = join(workspaceDir, "plan-registry.json");
+	const planRegistryLockPath = join(workspaceDir, ".plan-registry.lock");
 	const planContextDir = join(workspaceDir, "plan-contexts");
+	const planContextLockDir = join(workspaceDir, ".plan-context-locks");
+	const activePlanLifecycleLockPath = join(
+		workspaceDir,
+		".active-plan-lifecycle.lock",
+	);
+	let activePlanLifecycleMutationQueue: Promise<void> = Promise.resolve();
+	let planRegistryMutationQueue: Promise<void> = Promise.resolve();
+	let planDocRegistryMutationQueue: Promise<void> = Promise.resolve();
+	const planContextMutationQueues = new Map<string, Promise<void>>();
 	const importRoots = importPlansDirs.filter(
 		(dir, index, all) => dir.length > 0 && all.indexOf(dir) === index,
 	);
+
+	async function withPlanDocRegistryMutation<T>(
+		work: () => Promise<T>,
+	): Promise<T> {
+		const previous = planDocRegistryMutationQueue.catch(() => undefined);
+		let finishCurrent!: () => void;
+		planDocRegistryMutationQueue = new Promise<void>((resolve) => {
+			finishCurrent = resolve;
+		});
+
+		await previous;
+
+		let release: (() => Promise<void>) | undefined;
+		try {
+			release = await acquireDirectoryLock(planDocRegistryLockPath);
+			return await work();
+		} finally {
+			if (release) {
+				await release();
+			}
+			finishCurrent();
+		}
+	}
+
+	async function withPlanRegistryMutation<T>(
+		work: () => Promise<T>,
+	): Promise<T> {
+		const previous = planRegistryMutationQueue.catch(() => undefined);
+		let finishCurrent!: () => void;
+		planRegistryMutationQueue = new Promise<void>((resolve) => {
+			finishCurrent = resolve;
+		});
+
+		await previous;
+
+		let release: (() => Promise<void>) | undefined;
+		try {
+			release = await acquireDirectoryLock(planRegistryLockPath);
+			return await work();
+		} finally {
+			if (release) {
+				await release();
+			}
+			finishCurrent();
+		}
+	}
+
+	async function withPlanContextMutation<T>(
+		planName: string,
+		work: () => Promise<T>,
+	): Promise<T> {
+		const previous = planContextMutationQueues
+			.get(planName)
+			?.catch(() => undefined);
+		let finishCurrent!: () => void;
+		const current = new Promise<void>((resolve) => {
+			finishCurrent = resolve;
+		});
+		planContextMutationQueues.set(planName, current);
+
+		await previous;
+
+		let release: (() => Promise<void>) | undefined;
+		try {
+			await mkdir(planContextLockDir, { recursive: true });
+			const lockPath = join(
+				planContextLockDir,
+				`${planName.replace(/[^A-Za-z0-9._-]+/g, "-")}.lock`,
+			);
+			release = await acquireDirectoryLock(lockPath);
+			return await work();
+		} finally {
+			if (release) {
+				await release();
+			}
+			finishCurrent();
+			if (planContextMutationQueues.get(planName) === current) {
+				planContextMutationQueues.delete(planName);
+			}
+		}
+	}
+
+	async function withActivePlanLifecycleMutation<T>(
+		work: () => Promise<T>,
+	): Promise<T> {
+		const previous = activePlanLifecycleMutationQueue.catch(() => undefined);
+		let finishCurrent!: () => void;
+		activePlanLifecycleMutationQueue = new Promise<void>((resolve) => {
+			finishCurrent = resolve;
+		});
+
+		await previous;
+
+		let release: (() => Promise<void>) | undefined;
+		try {
+			release = await acquireDirectoryLock(activePlanLifecycleLockPath);
+			return await withPlanRegistryMutation(work);
+		} finally {
+			if (release) {
+				await release();
+			}
+			finishCurrent();
+		}
+	}
 
 	function getPlanContextPath(planName: string): string {
 		return join(planContextDir, `${planName}.json`);
@@ -892,44 +1043,46 @@ export function createStateManager(
 			>
 		>,
 	): Promise<PlanRegistryEntry> {
-		const registry = await syncPlanRegistry();
-		const planName = getPlanName(planPath);
+		return withPlanRegistryMutation(async () => {
+			const registry = await syncPlanRegistry();
+			const planName = getPlanName(planPath);
 
-		const existing = registry.plans[planName];
-		if (!existing) {
-			const content = await readTextIfExists(planPath);
-			const metadata = content
-				? derivePlanMetadataFallback(planName, content)
-				: {
-						title: planName,
-						description: `Implementation plan (${todayIso()})`,
-					};
+			const existing = registry.plans[planName];
+			if (!existing) {
+				const content = await readTextIfExists(planPath);
+				const metadata = content
+					? derivePlanMetadataFallback(planName, content)
+					: {
+							title: planName,
+							description: `Implementation plan (${todayIso()})`,
+						};
 
-			registry.plans[planName] = {
-				plan_name: planName,
-				path: planPath,
-				lifecycle: patch?.lifecycle || "inactive",
-				created_at: nowIso(),
-				updated_at: nowIso(),
-				title: patch?.title || metadata.title,
-				description: patch?.description || metadata.description,
-				archived_at: patch?.archived_at,
-			};
-		} else {
-			existing.path = planPath;
-			existing.updated_at = nowIso();
-			if (patch?.title) existing.title = patch.title;
-			if (patch?.description) existing.description = patch.description;
-			if (patch?.lifecycle) existing.lifecycle = patch.lifecycle;
-			if (patch?.archived_at !== undefined)
-				existing.archived_at = patch.archived_at;
-		}
+				registry.plans[planName] = {
+					plan_name: planName,
+					path: planPath,
+					lifecycle: patch?.lifecycle || "inactive",
+					created_at: nowIso(),
+					updated_at: nowIso(),
+					title: patch?.title || metadata.title,
+					description: patch?.description || metadata.description,
+					archived_at: patch?.archived_at,
+				};
+			} else {
+				existing.path = planPath;
+				existing.updated_at = nowIso();
+				if (patch?.title) existing.title = patch.title;
+				if (patch?.description) existing.description = patch.description;
+				if (patch?.lifecycle) existing.lifecycle = patch.lifecycle;
+				if (patch?.archived_at !== undefined)
+					existing.archived_at = patch.archived_at;
+			}
 
-		await writePlanRegistry(registry);
-		return registry.plans[planName];
+			await writePlanRegistry(registry);
+			return registry.plans[planName];
+		});
 	}
 
-	async function clearActivePlanState(): Promise<void> {
+	async function clearActivePlanStateFile(): Promise<void> {
 		try {
 			await rm(activePlanPath, { force: true });
 		} catch (error) {
@@ -938,7 +1091,15 @@ export function createStateManager(
 		}
 	}
 
-	async function writeActivePlanState(state: ActivePlanState): Promise<void> {
+	async function clearActivePlanState(): Promise<void> {
+		await withActivePlanLifecycleMutation(async () => {
+			await clearActivePlanStateFile();
+		});
+	}
+
+	async function writeActivePlanStateFile(
+		state: ActivePlanState,
+	): Promise<void> {
 		await mkdir(workspaceDir, { recursive: true });
 
 		const normalized: ActivePlanState = {
@@ -953,7 +1114,13 @@ export function createStateManager(
 		await Bun.write(activePlanPath, JSON.stringify(normalized, null, 2));
 	}
 
-	async function readActivePlanState(
+	async function writeActivePlanState(state: ActivePlanState): Promise<void> {
+		await withActivePlanLifecycleMutation(async () => {
+			await writeActivePlanStateFile(state);
+		});
+	}
+
+	async function readActivePlanStateInternal(
 		sessionID?: string,
 	): Promise<ActivePlanState | null> {
 		let parsedState: ActivePlanState | null = null;
@@ -1011,7 +1178,7 @@ export function createStateManager(
 					}
 
 					if (shouldRewrite) {
-						await writeActivePlanState(parsedState);
+						await writeActivePlanStateFile(parsedState);
 					}
 
 					return parsedState;
@@ -1021,13 +1188,13 @@ export function createStateManager(
 
 		const fallbackPath = resolveFallbackPlanPath(parsedState?.active_plan);
 		if (!fallbackPath) {
-			await clearActivePlanState();
+			await clearActivePlanStateFile();
 			return null;
 		}
 
 		const fallbackContent = await readTextIfExists(fallbackPath);
 		if (fallbackContent === null) {
-			await clearActivePlanState();
+			await clearActivePlanStateFile();
 			return null;
 		}
 
@@ -1049,7 +1216,7 @@ export function createStateManager(
 			description: parsedState?.description || fallbackMetadata.description,
 		};
 
-		await writeActivePlanState(recovered);
+		await writeActivePlanStateFile(recovered);
 
 		const fallbackEntry = registry.plans[fallbackPlanName];
 		if (fallbackEntry) {
@@ -1062,14 +1229,30 @@ export function createStateManager(
 		return recovered;
 	}
 
-	async function appendSessionToActivePlan(sessionID: string): Promise<void> {
-		const state = await readActivePlanState(sessionID);
+	async function readActivePlanState(
+		sessionID?: string,
+	): Promise<ActivePlanState | null> {
+		return withActivePlanLifecycleMutation(async () =>
+			readActivePlanStateInternal(sessionID),
+		);
+	}
+
+	async function appendSessionToActivePlanInternal(
+		sessionID: string,
+	): Promise<void> {
+		const state = await readActivePlanStateInternal(sessionID);
 		if (!state) return;
 
 		if (!state.session_ids.includes(sessionID)) {
 			state.session_ids.push(sessionID);
-			await writeActivePlanState(state);
+			await writeActivePlanStateFile(state);
 		}
+	}
+
+	async function appendSessionToActivePlan(sessionID: string): Promise<void> {
+		await withActivePlanLifecycleMutation(async () => {
+			await appendSessionToActivePlanInternal(sessionID);
+		});
 	}
 
 	async function resolvePlanPath(identifier: string): Promise<string | null> {
@@ -1091,7 +1274,7 @@ export function createStateManager(
 		return null;
 	}
 
-	async function setActivePlan(
+	async function setActivePlanInternal(
 		planPath: string,
 		options?: {
 			sessionID?: string;
@@ -1118,7 +1301,7 @@ export function createStateManager(
 			);
 		}
 
-		const previous = await readActivePlanState();
+		const previous = await readActivePlanStateInternal();
 		const fallbackMetadata = derivePlanMetadataFallback(planName, planContent);
 
 		const nextState: ActivePlanState = {
@@ -1141,7 +1324,7 @@ export function createStateManager(
 				fallbackMetadata.description,
 		};
 
-		await writeActivePlanState(nextState);
+		await writeActivePlanStateFile(nextState);
 
 		const currentTime = nowIso();
 		for (const entry of Object.values(registry.plans)) {
@@ -1184,6 +1367,19 @@ export function createStateManager(
 		return nextState;
 	}
 
+	async function setActivePlan(
+		planPath: string,
+		options?: {
+			sessionID?: string;
+			title?: string;
+			description?: string;
+		},
+	): Promise<ActivePlanState> {
+		return withActivePlanLifecycleMutation(async () =>
+			setActivePlanInternal(planPath, options),
+		);
+	}
+
 	async function listPlanRecords(): Promise<PlanRegistryEntry[]> {
 		const registry = await syncPlanRegistry();
 		return Object.values(registry.plans).sort((a, b) =>
@@ -1191,7 +1387,7 @@ export function createStateManager(
 		);
 	}
 
-	async function archivePlan(
+	async function archivePlanInternal(
 		identifier: string,
 		options?: { sessionID?: string },
 	): Promise<{
@@ -1217,7 +1413,7 @@ export function createStateManager(
 		entry.updated_at = nowIso();
 		await writePlanRegistry(registry);
 
-		const active = await readActivePlanState();
+		const active = await readActivePlanStateInternal();
 		let nextActive: ActivePlanState | null = active;
 
 		if (active?.active_plan === resolved) {
@@ -1231,11 +1427,11 @@ export function createStateManager(
 				.sort((a, b) => b.plan_name.localeCompare(a.plan_name))[0];
 
 			if (fallback) {
-				nextActive = await setActivePlan(fallback.path, {
+				nextActive = await setActivePlanInternal(fallback.path, {
 					sessionID: options?.sessionID,
 				});
 			} else {
-				await clearActivePlanState();
+				await clearActivePlanStateFile();
 				nextActive = null;
 			}
 		}
@@ -1251,7 +1447,21 @@ export function createStateManager(
 		return { archived, activePlan: nextActive };
 	}
 
-	async function unarchivePlan(identifier: string): Promise<PlanRegistryEntry> {
+	async function archivePlan(
+		identifier: string,
+		options?: { sessionID?: string },
+	): Promise<{
+		archived: PlanRegistryEntry;
+		activePlan: ActivePlanState | null;
+	}> {
+		return withActivePlanLifecycleMutation(async () =>
+			archivePlanInternal(identifier, options),
+		);
+	}
+
+	async function unarchivePlanInternal(
+		identifier: string,
+	): Promise<PlanRegistryEntry> {
 		const resolved = await resolvePlanPath(identifier);
 		if (!resolved) {
 			throw new Error(`Plan not found for identifier: ${identifier}`);
@@ -1285,6 +1495,12 @@ export function createStateManager(
 		return entry;
 	}
 
+	async function unarchivePlan(identifier: string): Promise<PlanRegistryEntry> {
+		return withActivePlanLifecycleMutation(async () =>
+			unarchivePlanInternal(identifier),
+		);
+	}
+
 	async function readPlanContext(
 		planName: string,
 	): Promise<PlanContextRecord | null> {
@@ -1296,7 +1512,9 @@ export function createStateManager(
 		return normalizePlanContextRecord(parsed, planName);
 	}
 
-	async function writePlanContext(context: PlanContextRecord): Promise<void> {
+	async function writePlanContextFile(
+		context: PlanContextRecord,
+	): Promise<void> {
 		await mkdir(planContextDir, { recursive: true });
 		await Bun.write(
 			getPlanContextPath(context.plan_name),
@@ -1304,54 +1522,63 @@ export function createStateManager(
 		);
 	}
 
+	async function writePlanContext(context: PlanContextRecord): Promise<void> {
+		await withPlanContextMutation(context.plan_name, async () => {
+			await writePlanContextFile(context);
+		});
+	}
+
 	async function syncPlanContext(
 		planName: string,
 		patch: PlanContextPatch,
 	): Promise<PlanContextRecord> {
-		const existing =
-			(await readPlanContext(planName)) ?? createEmptyPlanContext(planName);
-		const next: PlanContextRecord = {
-			...existing,
-			plan_name: planName,
-			stage: patch.stage ?? existing.stage,
-			confirmed_by_user: patch.confirmed_by_user ?? existing.confirmed_by_user,
-			goal: patch.goal ?? existing.goal,
-			chosen_pattern: patch.chosen_pattern ?? existing.chosen_pattern,
-			affected_areas:
-				patch.affected_areas !== undefined
-					? uniqueStringsOrEmpty(patch.affected_areas)
-					: existing.affected_areas,
-			blast_radius:
-				patch.blast_radius !== undefined
-					? uniqueStringsOrEmpty(patch.blast_radius)
-					: existing.blast_radius,
-			success_criteria:
-				patch.success_criteria !== undefined
-					? uniqueStringsOrEmpty(patch.success_criteria)
-					: existing.success_criteria,
-			failure_criteria:
-				patch.failure_criteria !== undefined
-					? uniqueStringsOrEmpty(patch.failure_criteria)
-					: existing.failure_criteria,
-			test_plan:
-				patch.test_plan !== undefined
-					? uniqueStringsOrEmpty(patch.test_plan)
-					: existing.test_plan,
-			open_risks:
-				patch.open_risks !== undefined
-					? uniqueStringsOrEmpty(patch.open_risks)
-					: existing.open_risks,
-			oracle_summary: patch.oracle_summary ?? existing.oracle_summary,
-			question_answers: patch.question_answers ?? existing.question_answers,
-			pattern_examples: patch.pattern_examples ?? existing.pattern_examples,
-			updated_at: nowIso(),
-		};
+		return withPlanContextMutation(planName, async () => {
+			const existing =
+				(await readPlanContext(planName)) ?? createEmptyPlanContext(planName);
+			const next: PlanContextRecord = {
+				...existing,
+				plan_name: planName,
+				stage: patch.stage ?? existing.stage,
+				confirmed_by_user:
+					patch.confirmed_by_user ?? existing.confirmed_by_user,
+				goal: patch.goal ?? existing.goal,
+				chosen_pattern: patch.chosen_pattern ?? existing.chosen_pattern,
+				affected_areas:
+					patch.affected_areas !== undefined
+						? uniqueStringsOrEmpty(patch.affected_areas)
+						: existing.affected_areas,
+				blast_radius:
+					patch.blast_radius !== undefined
+						? uniqueStringsOrEmpty(patch.blast_radius)
+						: existing.blast_radius,
+				success_criteria:
+					patch.success_criteria !== undefined
+						? uniqueStringsOrEmpty(patch.success_criteria)
+						: existing.success_criteria,
+				failure_criteria:
+					patch.failure_criteria !== undefined
+						? uniqueStringsOrEmpty(patch.failure_criteria)
+						: existing.failure_criteria,
+				test_plan:
+					patch.test_plan !== undefined
+						? uniqueStringsOrEmpty(patch.test_plan)
+						: existing.test_plan,
+				open_risks:
+					patch.open_risks !== undefined
+						? uniqueStringsOrEmpty(patch.open_risks)
+						: existing.open_risks,
+				oracle_summary: patch.oracle_summary ?? existing.oracle_summary,
+				question_answers: patch.question_answers ?? existing.question_answers,
+				pattern_examples: patch.pattern_examples ?? existing.pattern_examples,
+				updated_at: nowIso(),
+			};
 
-		await writePlanContext(next);
-		return next;
+			await writePlanContextFile(next);
+			return next;
+		});
 	}
 
-	async function promotePlan(
+	async function promotePlanInternal(
 		identifier: string,
 		options?: {
 			sessionID?: string;
@@ -1379,7 +1606,7 @@ export function createStateManager(
 				stage: "confirmed",
 				confirmed_by_user: true,
 			});
-			return await setActivePlan(resolved, {
+			return await setActivePlanInternal(resolved, {
 				sessionID: options?.sessionID,
 			});
 		}
@@ -1392,9 +1619,20 @@ export function createStateManager(
 			confirmed_by_user: true,
 		});
 
-		return await setActivePlan(resolved, {
+		return await setActivePlanInternal(resolved, {
 			sessionID: options?.sessionID,
 		});
+	}
+
+	async function promotePlan(
+		identifier: string,
+		options?: {
+			sessionID?: string;
+		},
+	): Promise<ActivePlanState> {
+		return withActivePlanLifecycleMutation(async () =>
+			promotePlanInternal(identifier, options),
+		);
 	}
 
 	// Notepad helpers
@@ -1476,71 +1714,73 @@ export function createStateManager(
 		planName: string,
 		input: LinkPlanDocInput,
 	): Promise<PlanDocLink> {
-		const registry = await readPlanDocRegistry();
+		return withPlanDocRegistryMutation(async () => {
+			const registry = await readPlanDocRegistry();
 
-		const existingDoc = Object.values(registry.docs).find(
-			(doc) => doc.path === input.path,
-		);
-		const docID = existingDoc?.id || generateDocID();
+			const existingDoc = Object.values(registry.docs).find(
+				(doc) => doc.path === input.path,
+			);
+			const docID = existingDoc?.id || generateDocID();
 
-		if (!registry.docs[docID]) {
-			registry.docs[docID] = {
+			if (!registry.docs[docID]) {
+				registry.docs[docID] = {
+					id: docID,
+					path: input.path,
+					type: input.type,
+					title: input.title,
+					linked_plans: [],
+				};
+			}
+
+			if (input.title && !registry.docs[docID].title) {
+				registry.docs[docID].title = input.title;
+			}
+
+			const planLinks = registry.plans[planName] || [];
+			const duplicate = planLinks.find(
+				(link) =>
+					link.id === docID &&
+					(link.phase || "") === (input.phase || "") &&
+					(link.task || "") === (input.task || ""),
+			);
+
+			if (duplicate) {
+				return duplicate;
+			}
+
+			const link: PlanDocLink = {
 				id: docID,
 				path: input.path,
 				type: input.type,
 				title: input.title,
-				linked_plans: [],
-			};
-		}
-
-		if (input.title && !registry.docs[docID].title) {
-			registry.docs[docID].title = input.title;
-		}
-
-		const planLinks = registry.plans[planName] || [];
-		const duplicate = planLinks.find(
-			(link) =>
-				link.id === docID &&
-				(link.phase || "") === (input.phase || "") &&
-				(link.task || "") === (input.task || ""),
-		);
-
-		if (duplicate) {
-			return duplicate;
-		}
-
-		const link: PlanDocLink = {
-			id: docID,
-			path: input.path,
-			type: input.type,
-			title: input.title,
-			phase: input.phase,
-			task: input.task,
-			notes: input.notes,
-			linked_at: nowIso(),
-		};
-
-		registry.plans[planName] = [...planLinks, link];
-
-		const backlinks = registry.docs[docID].linked_plans;
-		const backlinkExists = backlinks.some(
-			(backlink) =>
-				backlink.plan_name === planName &&
-				(backlink.phase || "") === (input.phase || "") &&
-				(backlink.task || "") === (input.task || ""),
-		);
-
-		if (!backlinkExists) {
-			backlinks.push({
-				plan_name: planName,
 				phase: input.phase,
 				task: input.task,
-				linked_at: link.linked_at,
-			});
-		}
+				notes: input.notes,
+				linked_at: nowIso(),
+			};
 
-		await writePlanDocRegistry(registry);
-		return link;
+			registry.plans[planName] = [...planLinks, link];
+
+			const backlinks = registry.docs[docID].linked_plans;
+			const backlinkExists = backlinks.some(
+				(backlink) =>
+					backlink.plan_name === planName &&
+					(backlink.phase || "") === (input.phase || "") &&
+					(backlink.task || "") === (input.task || ""),
+			);
+
+			if (!backlinkExists) {
+				backlinks.push({
+					plan_name: planName,
+					phase: input.phase,
+					task: input.task,
+					linked_at: link.linked_at,
+				});
+			}
+
+			await writePlanDocRegistry(registry);
+			return link;
+		});
 	}
 
 	async function getPlanDocLinks(planName: string): Promise<PlanDocLink[]> {

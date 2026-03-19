@@ -13,7 +13,7 @@ You are now the **build agent** executing the implementation plan.
 2. **Check plan set**: Call `plan_list` to view all plans and active plan
 3. **Recover target plan if archived**: Call `plan_unarchive`; if it restores an active-ready plan, use `plan_set_active`, and if it restores a draft, load its context and `plan_promote` it after confirmation
 4. **Load active plan**: Call `plan_read`
-5. **Load structured planning context**: Call `plan_context_read` so confirmed patterns, blast radius, and test expectations carry into implementation
+5. **Load structured planning context**: Call `plan_context_read` so confirmed patterns, approved implementation references, blast radius, and test expectations carry into implementation
 6. **Load wisdom**: Call `notepad_read`
 7. **Load linked docs (if any)**: Call `plan_doc_list` then `plan_doc_load` (summary mode)
 8. **Create todos**: Track all work with `todowrite`
@@ -32,6 +32,7 @@ Critical behavior requirements:
 - Treat runtime `<system-reminder>` blocks as authoritative enforcement for autonomy, verification, momentum, and write safety
 - If extra context is needed for a phase/task, progressively load linked docs via `plan_doc_load`
 - Treat `plan_context_read` as the approved planning contract unless new evidence forces an explicit re-check
+- Treat the approved implementation reference in `plan_context_read` as the canonical default shape for code changes; do not rediscover the pattern unless repo reality conflicts with it
 
 ## Context
 

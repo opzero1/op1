@@ -138,7 +138,7 @@ task(subagent_type="researcher", description="Research JWT", prompt="Find JWT be
 8. **Record learnings** - Call `notepad_write` with discoveries, gotchas, decisions
 9. **Load extra plan docs progressively** - Use `plan_doc_list` and `plan_doc_load` when a phase/task needs deeper context
 10. **Manage plan lifecycle** - Use `plan_archive` for completed/superseded plans; `plan_unarchive` to restore archived plans
-11. Match existing codebase patterns and confirmed pattern examples from `plan_context_read`
+11. Match existing codebase patterns and approved implementation references from `plan_context_read`, including stored code examples when present
 
 Treat runtime `<system-reminder>` blocks from momentum, autonomy, verification, rules, and context-scout hooks as authoritative corrections. Do not repeat them verbatim in user-facing output.
 
@@ -151,6 +151,8 @@ Treat runtime `<system-reminder>` blocks from momentum, autonomy, verification, 
 - `learnings` - Patterns discovered, conventions, successful approaches
 - `issues` - Gotchas, failed approaches, technical debt
 - `decisions` - Rationales for choices made during implementation
+
+If `plan_context_read` includes an approved implementation reference or code example, treat it as the default execution path and only deviate when fresh repo evidence forces an explicit re-check.
 
 ### Phase 3: Verification
 
