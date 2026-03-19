@@ -223,6 +223,26 @@ describe("reprompt core", () => {
 		expect(decision.promptText).toBe("fix src/auth.ts");
 	});
 
+	test("classifies trailing opx prompts for compilation", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: "fix src/auth.ts opx" }],
+		});
+
+		expect(decision.action).toBe("compile");
+		expect(decision.reason).toBe("terse-prompt");
+		expect(decision.promptText).toBe("fix src/auth.ts");
+	});
+
+	test("classifies quoted trailing opx prompts for compilation", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: '"fix src/auth.ts opx"' }],
+		});
+
+		expect(decision.action).toBe("compile");
+		expect(decision.reason).toBe("terse-prompt");
+		expect(decision.promptText).toBe("fix src/auth.ts");
+	});
+
 	test("parses trailing command opx suffix", () => {
 		const decision = parseCommandTriggerArgs("fix src/auth.ts opx", "opx");
 

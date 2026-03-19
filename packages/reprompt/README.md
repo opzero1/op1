@@ -9,6 +9,8 @@ Optional OpenCode plugin for incoming prompt compilation, bounded evidence packi
 - exposes `reprompt` for manual bounded retries and child-session escalation
 - fails closed by passing the original prompt through when compilation is suppressed or unsafe
 
+Incoming chat prompts can opt in with either a leading marker (`opx fix auth flow`) or a trailing marker (`fix auth flow opx`). Slash commands support the trailing form on command arguments as well.
+
 ## Config
 
 Create either `~/.config/opencode/reprompt.json` or `.opencode/reprompt.json`.

@@ -81,11 +81,19 @@ function stripTrigger(promptText: string, marker: string): string | null {
 	const quoted = promptText.trim().match(/^(["'])([\s\S]*)\1$/);
 	if (quoted?.[2]) texts.push(quoted[2].trim());
 	for (const text of texts) {
-		const match = text.match(
+		const prefixMatch = text.match(
 			new RegExp(`^${escaped}(?::|\\s+)([\\s\\S]*)$`, "i"),
 		);
-		if (!match) continue;
-		return match[1]?.trim() ?? "";
+		if (prefixMatch) {
+			return prefixMatch[1]?.trim() ?? "";
+		}
+
+		const suffixMatch = text.match(
+			new RegExp(`^([\\s\\S]*?)\\s+${escaped}$`, "i"),
+		);
+		if (suffixMatch) {
+			return suffixMatch[1]?.trim() ?? "";
+		}
 	}
 	return null;
 }
