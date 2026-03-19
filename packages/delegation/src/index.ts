@@ -99,6 +99,32 @@ function getSessionIDFromCreateResponse(data: unknown): string | null {
 	return typeof record.id === "string" ? record.id : null;
 }
 
+async function createChildSessionForTask(
+	client: DelegationClient,
+	input: {
+		description: string;
+		agent: string;
+		parent_session_id: string;
+	},
+): Promise<string> {
+	const session = await client.session.create({
+		body: {
+			title: `${input.description} (@${input.agent} task)`,
+			parentID: input.parent_session_id,
+		},
+	});
+	if (session.error) {
+		throw new Error(String(session.error));
+	}
+
+	const childSessionID = getSessionIDFromCreateResponse(session.data);
+	if (!childSessionID) {
+		throw new Error("Failed to create child session for task.");
+	}
+
+	return childSessionID;
+}
+
 function isActiveTask(status: TaskStatus): boolean {
 	return status === "queued" || status === "blocked" || status === "running";
 }
@@ -514,6 +540,53 @@ async function startTaskSession(
 	}
 }
 
+async function restartAutoloopTask(
+	client: DelegationClient,
+	state: TaskStateManager,
+	task: TaskRecord,
+	nextCommand: string,
+): Promise<TaskRecord> {
+	const childSessionID = await createChildSessionForTask(client, {
+		description: task.description,
+		agent: task.agent,
+		parent_session_id: task.parent_session_id,
+	});
+
+	return state.restartTask({
+		id: task.id,
+		child_session_id: childSessionID,
+		description: task.description,
+		prompt: task.prompt,
+		command: nextCommand,
+		category: task.category,
+		routing: task.routing,
+		depends_on: task.depends_on,
+		concurrency_key: task.concurrency_key,
+		run_in_background: task.run_in_background,
+		initial_status: "queued",
+	});
+}
+
+async function advanceAutoloopTaskAfterSuccess(
+	client: DelegationClient,
+	state: TaskStateManager,
+	workspaceDir: string,
+	task: TaskRecord,
+): Promise<TaskRecord | null> {
+	const autoloop = await readAutoloopStateSummary(workspaceDir, task);
+	if (!autoloop) {
+		return null;
+	}
+
+	if (autoloop.decision === "stop") {
+		return state.transitionTask(task.id, "succeeded", {
+			result: appendAutoloopStopReason(task.result, autoloop),
+		});
+	}
+
+	return restartAutoloopTask(client, state, task, autoloop.next_command);
+}
+
 async function promoteRunnableTasks(
 	client: DelegationClient,
 	state: TaskStateManager,
@@ -598,30 +671,17 @@ async function refreshTaskFromRuntime(
 		const succeeded = await state.transitionTask(task.id, "succeeded", {
 			result: result ?? undefined,
 		});
-		const autoloop = await readAutoloopStateSummary(workspaceDir, succeeded);
-		if (!autoloop) {
+		const advanced = await advanceAutoloopTaskAfterSuccess(
+			client,
+			state,
+			workspaceDir,
+			succeeded,
+		);
+		if (!advanced) {
 			return succeeded;
 		}
-		if (autoloop.decision === "stop") {
-			return state.transitionTask(task.id, "succeeded", {
-				result: appendAutoloopStopReason(succeeded.result, autoloop),
-			});
-		}
-
-		await state.restartTask({
-			id: task.id,
-			description: task.description,
-			prompt: task.prompt,
-			command: autoloop.next_command,
-			category: task.category,
-			routing: task.routing,
-			depends_on: task.depends_on,
-			concurrency_key: task.concurrency_key,
-			run_in_background: task.run_in_background,
-			initial_status: "queued",
-		});
 		await promoteRunnableTasks(client, state);
-		return (await state.getTask(task.id)) ?? succeeded;
+		return (await state.getTask(task.id)) ?? advanced;
 	}
 
 	if (status === "error") {
@@ -739,28 +799,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 				const succeeded = await state.transitionTask(task.id, "succeeded", {
 					result: result ?? undefined,
 				});
-				const autoloop = await readAutoloopStateSummary(
+				await advanceAutoloopTaskAfterSuccess(
+					client,
+					state,
 					workspaceDir,
 					succeeded,
 				);
-				if (autoloop?.decision === "restart") {
-					await state.restartTask({
-						id: task.id,
-						description: task.description,
-						prompt: task.prompt,
-						command: autoloop.next_command,
-						category: task.category,
-						routing: task.routing,
-						depends_on: task.depends_on,
-						concurrency_key: task.concurrency_key,
-						run_in_background: task.run_in_background,
-						initial_status: "queued",
-					});
-				} else if (autoloop?.decision === "stop") {
-					await state.transitionTask(task.id, "succeeded", {
-						result: appendAutoloopStopReason(succeeded.result, autoloop),
-					});
-				}
 				await promoteRunnableTasks(client, state);
 				return;
 			}
@@ -950,16 +994,11 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							return `❌ Task not found: ${requestedTaskID}`;
 						}
 					} else {
-						const session = await client.session.create({
-							body: {
-								title: `${description} (@${agent} task)`,
-								parentID: toolCtx.sessionID,
-							},
+						childSessionID = await createChildSessionForTask(client, {
+							description,
+							agent,
+							parent_session_id: toolCtx.sessionID,
 						});
-						childSessionID = getSessionIDFromCreateResponse(session.data);
-						if (!childSessionID) {
-							return "❌ Failed to create child session for task.";
-						}
 
 						const taskID = await generateTaskID(state);
 						task = await state.createTask({

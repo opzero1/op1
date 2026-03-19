@@ -216,7 +216,7 @@ export function createContinuationStateManager(workspaceDir: string) {
 	async function isContinuationAllowed(sessionID: string): Promise<boolean> {
 		const current = await getSession(sessionID);
 		if (!current) return true;
-		return current.mode !== "stopped";
+		return current.mode === "running";
 	}
 
 	async function setSessionTmuxMetadata(input: {

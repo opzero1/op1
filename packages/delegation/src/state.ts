@@ -524,6 +524,7 @@ export function createTaskStateManager(
 
 	async function restartTask(input: {
 		id: string;
+		child_session_id?: string;
 		description?: string;
 		prompt: string;
 		command?: string;
@@ -555,6 +556,7 @@ export function createTaskStateManager(
 
 			const nextRecord: TaskRecord = {
 				...current,
+				child_session_id: input.child_session_id ?? current.child_session_id,
 				description: input.description ?? current.description,
 				prompt: input.prompt,
 				command:

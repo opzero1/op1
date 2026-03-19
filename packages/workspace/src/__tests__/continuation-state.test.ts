@@ -53,6 +53,21 @@ describe("continuation state manager", () => {
 		expect(await manager.isContinuationAllowed("session-a")).toBe(true);
 	});
 
+	test("blocks continuation when mode is handoff", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const manager = createContinuationStateManager(env.workspaceDir);
+		await manager.setSessionMode({
+			session_id: "session-a",
+			mode: "handoff",
+			handoff_to: "reviewer",
+			handoff_summary: "done",
+		});
+
+		expect(await manager.isContinuationAllowed("session-a")).toBe(false);
+	});
+
 	test("honors idempotency keys", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);
