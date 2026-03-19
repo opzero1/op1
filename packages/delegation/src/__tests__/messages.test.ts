@@ -1,0 +1,68 @@
+import { expect, test } from "bun:test";
+import { formatFullSession } from "../messages.js";
+import type { TaskRecord } from "../state.js";
+
+function createTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
+	return {
+		id: "calm-river-spark",
+		root_session_id: "root-session",
+		parent_session_id: "parent-session",
+		child_session_id: "child-session-1",
+		description: "Autoloop worker",
+		agent: "build",
+		prompt: "Continue the loop.",
+		run_in_background: true,
+		status: "succeeded",
+		created_at: "2026-03-19T00:00:00.000Z",
+		updated_at: "2026-03-19T00:01:00.000Z",
+		completed_at: "2026-03-19T00:01:00.000Z",
+		...overrides,
+	};
+}
+
+test("formatFullSession includes persisted result when it differs from the latest assistant text", () => {
+	const output = formatFullSession(
+		[
+			{
+				id: "msg-1",
+				info: {
+					role: "assistant",
+					time: { created: "2026-03-19T00:01:00.000Z" },
+				},
+				parts: [{ type: "text", text: "background result" }],
+			},
+		],
+		{
+			task: createTask({
+				result:
+					"background result\n\nAutoloop stop reason: .paused is present for slug 'agent-harness'.",
+			}),
+		},
+	);
+
+	expect(output).toContain("Latest result:");
+	expect(output).toContain(
+		"Autoloop stop reason: .paused is present for slug 'agent-harness'.",
+	);
+	expect(output).toContain("### assistant @ 2026-03-19T00:01:00.000Z");
+});
+
+test("formatFullSession skips latest result duplication when it matches the assistant text", () => {
+	const output = formatFullSession(
+		[
+			{
+				id: "msg-1",
+				info: {
+					role: "assistant",
+					time: { created: "2026-03-19T00:01:00.000Z" },
+				},
+				parts: [{ type: "text", text: "background result" }],
+			},
+		],
+		{
+			task: createTask({ result: "background result" }),
+		},
+	);
+
+	expect(output).not.toContain("Latest result:");
+});

@@ -160,21 +160,42 @@ async function readContinuationMode(
 async function readAutoloopStateSummary(
 	workspaceDir: string,
 	task: TaskRecord,
-): Promise<{
-	slug: string;
-	last_seen_iteration?: number;
-	latest_iteration: number;
-	latest_outcome?: string;
-	max_iterations: number;
-	next_command: string;
-} | null> {
+): Promise<
+	| {
+			decision: "restart";
+			slug: string;
+			last_seen_iteration?: number;
+			latest_iteration: number;
+			latest_outcome?: string;
+			max_iterations: number;
+			next_command: string;
+	  }
+	| {
+			decision: "stop";
+			slug: string;
+			latest_iteration?: number;
+			max_iterations?: number;
+			stop_reason:
+				| "paused"
+				| "max_iterations"
+				| "no_new_checkpoint_progress"
+				| "continuation_stopped"
+				| "continuation_handoff"
+				| "terminal_outcome";
+	  }
+	| null
+> {
 	const commandState = parseAutoloopCommand(task.command);
 	const slug = commandState?.slug ?? inferAutoloopSlugFromPrompt(task.prompt);
 	if (!slug) return null;
 
 	const autoloopDir = join(workspaceDir, "autoloop", slug);
 	if (await Bun.file(join(autoloopDir, ".paused")).exists()) {
-		return null;
+		return {
+			decision: "stop",
+			slug,
+			stop_reason: "paused",
+		};
 	}
 
 	const continuationMode = await readContinuationMode(
@@ -182,7 +203,14 @@ async function readAutoloopStateSummary(
 		task.root_session_id,
 	);
 	if (continuationMode === "stopped" || continuationMode === "handoff") {
-		return null;
+		return {
+			decision: "stop",
+			slug,
+			stop_reason:
+				continuationMode === "stopped"
+					? "continuation_stopped"
+					: "continuation_handoff",
+		};
 	}
 
 	const statePath = join(autoloopDir, "state.jsonl");
@@ -220,11 +248,26 @@ async function readAutoloopStateSummary(
 		return null;
 	}
 
-	if (latestIteration <= 0 || latestIteration >= maxIterations) {
+	if (latestIteration <= 0) {
 		return null;
 	}
+	if (latestIteration >= maxIterations) {
+		return {
+			decision: "stop",
+			slug,
+			latest_iteration: latestIteration,
+			max_iterations: maxIterations,
+			stop_reason: "max_iterations",
+		};
+	}
 	if (latestOutcome === "blocked" || latestOutcome === "done") {
-		return null;
+		return {
+			decision: "stop",
+			slug,
+			latest_iteration: latestIteration,
+			max_iterations: maxIterations,
+			stop_reason: "terminal_outcome",
+		};
 	}
 
 	const lastSeenIteration = commandState?.last_seen_iteration;
@@ -232,10 +275,17 @@ async function readAutoloopStateSummary(
 		typeof lastSeenIteration === "number" &&
 		latestIteration <= lastSeenIteration
 	) {
-		return null;
+		return {
+			decision: "stop",
+			slug,
+			latest_iteration: latestIteration,
+			max_iterations: maxIterations,
+			stop_reason: "no_new_checkpoint_progress",
+		};
 	}
 
 	return {
+		decision: "restart",
 		slug,
 		last_seen_iteration: lastSeenIteration,
 		latest_iteration: latestIteration,
@@ -243,6 +293,54 @@ async function readAutoloopStateSummary(
 		max_iterations: maxIterations,
 		next_command: `${AUTOLOOP_COMMAND_PREFIX}${slug}@${latestIteration}`,
 	};
+}
+
+function describeAutoloopStopReason(input: {
+	slug: string;
+	stop_reason:
+		| "paused"
+		| "max_iterations"
+		| "no_new_checkpoint_progress"
+		| "continuation_stopped"
+		| "continuation_handoff"
+		| "terminal_outcome";
+	latest_iteration?: number;
+	max_iterations?: number;
+}): string {
+	switch (input.stop_reason) {
+		case "paused":
+			return `Autoloop stop reason: .paused is present for slug '${input.slug}'.`;
+		case "max_iterations":
+			return `Autoloop stop reason: reached max_iterations (${input.max_iterations ?? DEFAULT_AUTOLOOP_MAX_ITERATIONS}) at iteration ${input.latest_iteration ?? "unknown"}.`;
+		case "no_new_checkpoint_progress":
+			return `Autoloop stop reason: no new checkpoint progress beyond iteration ${input.latest_iteration ?? "unknown"}.`;
+		case "continuation_stopped":
+			return `Autoloop stop reason: continuation mode is stopped for slug '${input.slug}'.`;
+		case "continuation_handoff":
+			return `Autoloop stop reason: continuation mode is handoff for slug '${input.slug}'.`;
+		case "terminal_outcome":
+			return `Autoloop stop reason: latest checkpoint outcome is terminal for slug '${input.slug}'.`;
+	}
+}
+
+function appendAutoloopStopReason(
+	result: string | undefined,
+	input: {
+		slug: string;
+		stop_reason:
+			| "paused"
+			| "max_iterations"
+			| "no_new_checkpoint_progress"
+			| "continuation_stopped"
+			| "continuation_handoff"
+			| "terminal_outcome";
+		latest_iteration?: number;
+		max_iterations?: number;
+	},
+): string {
+	const note = describeAutoloopStopReason(input);
+	const base = result?.trimEnd();
+	return base && base.length > 0 ? `${base}\n\n${note}` : note;
 }
 
 function getToolCallID(toolCtx: DelegationToolContext): string | null {
@@ -504,6 +602,11 @@ async function refreshTaskFromRuntime(
 		if (!autoloop) {
 			return succeeded;
 		}
+		if (autoloop.decision === "stop") {
+			return state.transitionTask(task.id, "succeeded", {
+				result: appendAutoloopStopReason(succeeded.result, autoloop),
+			});
+		}
 
 		await state.restartTask({
 			id: task.id,
@@ -640,7 +743,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					workspaceDir,
 					succeeded,
 				);
-				if (autoloop) {
+				if (autoloop?.decision === "restart") {
 					await state.restartTask({
 						id: task.id,
 						description: task.description,
@@ -652,6 +755,10 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						concurrency_key: task.concurrency_key,
 						run_in_background: task.run_in_background,
 						initial_status: "queued",
+					});
+				} else if (autoloop?.decision === "stop") {
+					await state.transitionTask(task.id, "succeeded", {
+						result: appendAutoloopStopReason(succeeded.result, autoloop),
 					});
 				}
 				await promoteRunnableTasks(client, state);

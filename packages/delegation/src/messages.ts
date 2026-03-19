@@ -130,6 +130,8 @@ export function formatFullSession(
 	options: FullSessionFormatOptions,
 ): string {
 	const messages = normalizeMessages(data);
+	const latestAssistantText = extractLatestAssistantText(data)?.trim();
+	const resultText = options.task.result?.trim();
 	const limited =
 		typeof options.messageLimit === "number" &&
 		Number.isFinite(options.messageLimit)
@@ -144,6 +146,16 @@ export function formatFullSession(
 		`Agent: ${options.task.agent}`,
 		"",
 	];
+
+	if (
+		resultText &&
+		(options.task.status === "succeeded" || options.task.status === "failed") &&
+		resultText !== latestAssistantText
+	) {
+		lines.push("Latest result:");
+		lines.push(resultText);
+		lines.push("");
+	}
 
 	if (limited.length === 0) {
 		lines.push("(No session messages yet)");
