@@ -15,7 +15,14 @@ type ChatMessageInput = {
 	variant?: string;
 };
 
-type TextPart = { type: string; text?: string };
+type TextPart = {
+	type: string;
+	text?: string;
+	id?: string;
+	sessionID?: string;
+	messageID?: string;
+	[key: string]: unknown;
+};
 
 type ChatMessageOutput = {
 	message?: Record<string, unknown>;
@@ -23,7 +30,12 @@ type ChatMessageOutput = {
 };
 
 function replaceTextParts(output: ChatMessageOutput, prompt: string): void {
-	output.parts.splice(0, output.parts.length, { type: "text", text: prompt });
+	const first = output.parts.find((part) => part.type === "text");
+	if (!first) return;
+	output.parts.splice(0, output.parts.length, {
+		...first,
+		text: prompt,
+	});
 }
 
 export function createIncomingPromptHook(input: {
@@ -51,7 +63,10 @@ export function createIncomingPromptHook(input: {
 		}
 		seenSessions.add(hookInput.sessionID);
 
-		const incoming = classifyIncomingPrompt({ parts: output.parts });
+		const incoming = classifyIncomingPrompt({
+			parts: output.parts,
+			marker: input.config.runtime.triggerPrefix,
+		});
 		if (incoming.action !== "compile") {
 			await input.telemetry.record({
 				eventType: "incoming-processed",

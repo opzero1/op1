@@ -204,7 +204,7 @@ describe("reprompt core", () => {
 
 	test("classifies terse incoming prompts for compilation", () => {
 		const decision = classifyIncomingPrompt({
-			parts: [{ type: "text", text: "fix src/auth.ts" }],
+			parts: [{ type: "text", text: "opx fix src/auth.ts" }],
 		});
 
 		expect(decision.action).toBe("compile");
@@ -212,18 +212,47 @@ describe("reprompt core", () => {
 		expect(decision.promptText).toBe("fix src/auth.ts");
 	});
 
+	test("classifies quoted opx prompts for compilation", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: '"opx fix src/auth.ts"' }],
+		});
+
+		expect(decision.action).toBe("compile");
+		expect(decision.reason).toBe("terse-prompt");
+		expect(decision.promptText).toBe("fix src/auth.ts");
+	});
+
+	test("passes through unmarked task prompts", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: "fix src/auth.ts" }],
+		});
+
+		expect(decision.action).toBe("pass-through");
+		expect(decision.reason).toBe("no-trigger-marker");
+	});
+
 	test("passes through structured incoming prompts", () => {
 		const decision = classifyIncomingPrompt({
 			parts: [
 				{
 					type: "text",
-					text: "## Goal\n- update auth flow\n- run tests\n<output_contract>",
+					text: "opx ## Goal\n- update auth flow\n- run tests\n<output_contract>",
 				},
 			],
 		});
 
 		expect(decision.action).toBe("pass-through");
 		expect(decision.reason).toBe("already-structured");
+	});
+
+	test("passes through casual incoming prompts", () => {
+		const decision = classifyIncomingPrompt({
+			parts: [{ type: "text", text: "opx hi" }],
+		});
+
+		expect(decision.action).toBe("pass-through");
+		expect(decision.reason).toBe("casual-prompt");
+		expect(decision.promptText).toBe("hi");
 	});
 
 	test("extracts prompt text from text parts only", () => {

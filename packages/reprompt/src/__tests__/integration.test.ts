@@ -75,6 +75,7 @@ describe("reprompt integration", () => {
 
 		expect(config.enabled).toBe(true);
 		expect(config.runtime.mode).toBe("hook-and-helper");
+		expect(config.runtime.triggerPrefix).toBe("opx");
 		expect(config.telemetry.level).toBe("debug");
 	});
 
@@ -157,8 +158,16 @@ describe("reprompt integration", () => {
 			},
 		) => Promise<void>;
 		const output = {
-			message: { content: "fix src.ts" },
-			parts: [{ type: "text", text: "fix src.ts" }],
+			message: { content: "opx fix src.ts" },
+			parts: [
+				{
+					id: "part-1",
+					sessionID: "root-session",
+					messageID: "msg-1",
+					type: "text",
+					text: "opx fix src.ts",
+				},
+			],
 		};
 
 		await chatMessage(
@@ -173,18 +182,21 @@ describe("reprompt integration", () => {
 			'<reprompt-origin source="reprompt" />',
 		);
 		expect(output.parts[0]?.text).toContain("fix src.ts");
-		expect(output.message.content).toBe("fix src.ts");
+		expect(output.parts[0]?.id).toBe("part-1");
+		expect(output.parts[0]?.sessionID).toBe("root-session");
+		expect(output.parts[0]?.messageID).toBe("msg-1");
+		expect(output.message.content).toBe("opx fix src.ts");
 
 		const childOutput = {
-			message: { content: "fix src.ts" },
-			parts: [{ type: "text", text: "fix src.ts" }],
+			message: { content: "opx fix src.ts" },
+			parts: [{ type: "text", text: "opx fix src.ts" }],
 		};
 		await chatMessage({ sessionID: "child-session" }, childOutput);
 
 		expect(childOutput.parts[0]?.text).toContain(
 			'<reprompt-origin source="reprompt" />',
 		);
-		expect(childOutput.message.content).toBe("fix src.ts");
+		expect(childOutput.message.content).toBe("opx fix src.ts");
 	});
 
 	test("incoming hook passes through reprompt-origin prompts", async () => {
@@ -230,6 +242,52 @@ describe("reprompt integration", () => {
 		await chatMessage({ sessionID: "child-session" }, output);
 
 		expect(output.parts[0]?.text).toBe(prompt);
+	});
+
+	test("incoming hook passes through casual first prompts unchanged", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-casual-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode"), { recursive: true });
+		await Bun.write(
+			join(root, ".opencode", "reprompt.json"),
+			JSON.stringify({ enabled: true }),
+		);
+
+		const hooks = await RepromptPlugin({
+			directory: root,
+			worktree: root,
+			project: {} as never,
+			serverUrl: new URL("http://localhost:4096"),
+			$: {} as never,
+			client: {
+				session: {
+					create: async () => ({ data: { id: "child" } }),
+					prompt: async () => ({
+						data: { parts: [{ type: "text", text: "ok" }] },
+					}),
+				},
+			} as never,
+		});
+
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+		const output = {
+			message: { content: "hi" },
+			parts: [{ type: "text", text: "hi" }],
+		};
+
+		await chatMessage(
+			{ sessionID: "casual-session", messageID: "msg-1" },
+			output,
+		);
+
+		expect(output.parts[0]?.text).toBe("hi");
+		expect(output.message.content).toBe("hi");
 	});
 
 	test("plugin skips incoming hook registration in helper-only mode", async () => {
@@ -320,13 +378,13 @@ describe("reprompt integration", () => {
 		) => Promise<void>;
 
 		const first = {
-			message: { content: "fix auth.ts" },
-			parts: [{ type: "text", text: "fix auth.ts" }],
+			message: { content: "opx fix auth.ts" },
+			parts: [{ type: "text", text: "opx fix auth.ts" }],
 		};
 		await chatMessage({ sessionID: "single-session" }, first);
 		expect(first.parts[0]?.text).toContain(REPROMPT_MARKER);
 
-		const secondPrompt = "fix billing.ts";
+		const secondPrompt = "opx fix billing.ts";
 		const second = {
 			message: { content: secondPrompt },
 			parts: [{ type: "text", text: secondPrompt }],
@@ -353,8 +411,8 @@ describe("reprompt integration", () => {
 			},
 		) => Promise<void>;
 		const output = {
-			message: { content: "fix it" },
-			parts: [{ type: "text", text: "fix it" }],
+			message: { content: "opx fix it" },
+			parts: [{ type: "text", text: "opx fix it" }],
 		};
 
 		await chatMessage({ sessionID: "ambiguous-session" }, output);
@@ -589,7 +647,7 @@ describe("reprompt integration", () => {
 		expect(result).toContain("reprompt execution failed: child-boom");
 	});
 
-		test("helper tool stays available in helper-only mode", async () => {
+	test("helper tool stays available in helper-only mode", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-helper-only-"));
 		tempRoots.push(root);
 		const tools = createPublicRepromptTools({
@@ -637,8 +695,8 @@ describe("reprompt integration", () => {
 			},
 		);
 
-			expect(result).toContain("decision:");
-		});
+		expect(result).toContain("decision:");
+	});
 
 	test("helper tool guard state is isolated per session", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-session-guard-"));

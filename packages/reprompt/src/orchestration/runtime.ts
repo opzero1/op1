@@ -51,6 +51,39 @@ export interface IncomingPromptDecision {
 	promptText: string;
 }
 
+const CASUAL_PROMPT_PATTERNS = [
+	/^(?:hi|hiya|hello|hey|yo|sup)[!.?]*$/i,
+	/^good\s+(?:morning|afternoon|evening)[!.?]*$/i,
+	/^how(?:'s| is) it going\??$/i,
+	/^how are you\??$/i,
+	/^what(?:'s| is) up\??$/i,
+	/^(?:thanks|thank you)[!.?]*$/i,
+	/^(?:ok|okay|cool|nice|sounds good)[!.?]*$/i,
+];
+
+function isCasualPrompt(promptText: string): boolean {
+	const normalized = promptText.trim().replace(/\s+/g, " ");
+	if (!normalized || normalized.length > 80) return false;
+	return CASUAL_PROMPT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function stripTrigger(promptText: string, marker: string): string | null {
+	const raw = marker.trim();
+	if (!raw) return null;
+	const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const texts = [promptText.trim()];
+	const quoted = promptText.trim().match(/^(["'])([\s\S]*)\1$/);
+	if (quoted?.[2]) texts.push(quoted[2].trim());
+	for (const text of texts) {
+		const match = text.match(
+			new RegExp(`^${escaped}(?::|\\s+)([\\s\\S]*)$`, "i"),
+		);
+		if (!match) continue;
+		return match[1]?.trim() ?? "";
+	}
+	return null;
+}
+
 function buildSliceRequests(paths: string[], reason: string): SliceRequest[] {
 	return paths.map((path) => ({
 		kind: "file" as const,
@@ -109,6 +142,7 @@ export function extractPromptText(
 
 export function classifyIncomingPrompt(input: {
 	parts: Array<{ type: string; text?: string }>;
+	marker?: string;
 }): IncomingPromptDecision {
 	if (input.parts.some((part) => part.type !== "text")) {
 		return {
@@ -131,6 +165,22 @@ export function classifyIncomingPrompt(input: {
 		return { action: "pass-through", reason: "slash-command", promptText };
 	}
 
+	const text = stripTrigger(promptText, input.marker?.trim() || "opx");
+	if (text === null) {
+		return { action: "pass-through", reason: "no-trigger-marker", promptText };
+	}
+	if (!text) {
+		return { action: "pass-through", reason: "empty-trigger", promptText: "" };
+	}
+
+	if (isCasualPrompt(text)) {
+		return {
+			action: "pass-through",
+			reason: "casual-prompt",
+			promptText: text,
+		};
+	}
+
 	const structuredSignals = [
 		/```/m,
 		/<[a-z][^>]*>/im,
@@ -139,42 +189,42 @@ export function classifyIncomingPrompt(input: {
 		/^\s*\d+\.\s/m,
 		/^\|.+\|/m,
 		/<output_contract>|<grounding_context>|<task_brief>/m,
-	].some((pattern) => pattern.test(promptText));
-	const lineCount = promptText.split(/\n+/).filter(Boolean).length;
-	const wordCount = promptText.split(/\s+/).filter(Boolean).length;
+	].some((pattern) => pattern.test(text));
+	const lineCount = text.split(/\n+/).filter(Boolean).length;
+	const wordCount = text.split(/\s+/).filter(Boolean).length;
 
-	if (structuredSignals && (lineCount > 2 || promptText.length > 180)) {
+	if (structuredSignals && (lineCount > 2 || text.length > 180)) {
 		return {
 			action: "pass-through",
 			reason: "already-structured",
-			promptText,
+			promptText: text,
 		};
 	}
 
-	if (promptText.length > 700 || lineCount > 8) {
+	if (text.length > 700 || lineCount > 8) {
 		return {
 			action: "pass-through",
 			reason: "long-form-prompt",
-			promptText,
+			promptText: text,
 		};
 	}
 
 	if (wordCount <= 24) {
-		return { action: "compile", reason: "terse-prompt", promptText };
+		return { action: "compile", reason: "terse-prompt", promptText: text };
 	}
 
 	if (!structuredSignals && lineCount <= 4 && wordCount <= 80) {
 		return {
 			action: "compile",
 			reason: "underspecified-prompt",
-			promptText,
+			promptText: text,
 		};
 	}
 
 	return {
 		action: "pass-through",
 		reason: "not-confident-enough",
-		promptText,
+		promptText: text,
 	};
 }
 

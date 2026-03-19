@@ -17,6 +17,7 @@ export type TelemetryLevel = z.infer<typeof telemetryLevelSchema>;
 export const runtimeConfigSchema = z.object({
 	mode: runtimeModeSchema.optional(),
 	promptMode: promptModeSchema.optional(),
+	triggerPrefix: z.string().trim().min(1).optional(),
 });
 
 export const retryPolicySchema = z.object({
@@ -68,6 +69,7 @@ export const repromptConfigDefaults = {
 	runtime: {
 		mode: "hook-and-helper",
 		promptMode: "auto",
+		triggerPrefix: "opx",
 	},
 	retry: {
 		maxAttempts: 1,
