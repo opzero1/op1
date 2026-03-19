@@ -762,28 +762,63 @@ export function createStateManager(
 	plansDir: string,
 	notepadsDir: string,
 	activePlanPath: string,
+	importPlansDirs: string[] = [],
 ) {
 	const planDocRegistryPath = join(workspaceDir, "plan-doc-links.json");
 	const planRegistryPath = join(workspaceDir, "plan-registry.json");
 	const planContextDir = join(workspaceDir, "plan-contexts");
+	const importRoots = importPlansDirs.filter(
+		(dir, index, all) => dir.length > 0 && all.indexOf(dir) === index,
+	);
 
 	function getPlanContextPath(planName: string): string {
 		return join(planContextDir, `${planName}.json`);
 	}
 
-	async function listPlans(): Promise<string[]> {
+	async function listPlansInDir(
+		dir: string,
+		options?: { ensure?: boolean },
+	): Promise<string[]> {
 		try {
-			await mkdir(plansDir, { recursive: true });
-			const files = await readdir(plansDir);
+			if (options?.ensure) {
+				await mkdir(dir, { recursive: true });
+			}
+			const files = await readdir(dir);
 			return files
 				.filter((f) => f.endsWith(".md"))
-				.map((f) => join(plansDir, f))
+				.map((f) => join(dir, f))
 				.sort()
 				.reverse();
 		} catch (error) {
 			if (!isSystemError(error) || error.code !== "ENOENT") throw error;
 			return [];
 		}
+	}
+
+	async function importExternalPlans(): Promise<void> {
+		if (importRoots.length === 0) return;
+		await mkdir(plansDir, { recursive: true });
+		const existing = new Set(
+			(await listPlansInDir(plansDir)).map((planPath) => getPlanName(planPath)),
+		);
+
+		for (const dir of importRoots) {
+			const candidates = await listPlansInDir(dir);
+			for (const planPath of candidates) {
+				const planName = getPlanName(planPath);
+				if (existing.has(planName)) continue;
+				const content = await readTextIfExists(planPath);
+				if (content === null) continue;
+				await Bun.write(join(plansDir, `${planName}.md`), content);
+				existing.add(planName);
+			}
+		}
+	}
+
+	async function listPlans(): Promise<string[]> {
+		await listPlansInDir(plansDir, { ensure: true });
+		await importExternalPlans();
+		return await listPlansInDir(plansDir, { ensure: true });
 	}
 
 	async function readPlanRegistry(): Promise<PlanRegistry> {

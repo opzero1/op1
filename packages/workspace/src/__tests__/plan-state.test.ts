@@ -10,19 +10,29 @@ async function createTempWorkspace(): Promise<{
 	root: string;
 	workspaceDir: string;
 	plansDir: string;
+	compatPlansDir: string;
 	notepadsDir: string;
 	activePlanPath: string;
 }> {
 	const root = await mkdtemp(join(tmpdir(), "op1-workspace-test-"));
 	const workspaceDir = join(root, ".opencode", "workspace");
 	const plansDir = join(workspaceDir, "plans");
+	const compatPlansDir = join(root, ".opencode", "plans");
 	const notepadsDir = join(workspaceDir, "notepads");
 	const activePlanPath = join(workspaceDir, "active-plan.json");
 
 	await mkdir(plansDir, { recursive: true });
+	await mkdir(compatPlansDir, { recursive: true });
 	await mkdir(notepadsDir, { recursive: true });
 
-	return { root, workspaceDir, plansDir, notepadsDir, activePlanPath };
+	return {
+		root,
+		workspaceDir,
+		plansDir,
+		compatPlansDir,
+		notepadsDir,
+		activePlanPath,
+	};
 }
 
 let tempRoots: string[] = [];
@@ -132,10 +142,37 @@ describe("plan state manager", () => {
 			env.plansDir,
 			env.notepadsDir,
 			env.activePlanPath,
+			[env.compatPlansDir],
 		);
 
 		const resolved = await sm.resolvePlanPath("200-beta");
 		expect(resolved).toBe(p2);
+	});
+
+	test("imports compatible plans from .opencode/plans into workspace registry", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const compatPlan = join(env.compatPlansDir, "300-compat.md");
+		const importedPlan = join(env.plansDir, "300-compat.md");
+		await Bun.write(compatPlan, "# Plan\n\n## Goal\n\nCompat");
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+			[env.compatPlansDir],
+		);
+
+		const resolved = await sm.resolvePlanPath("300-compat");
+		expect(resolved).toBe(importedPlan);
+		expect(await Bun.file(importedPlan).exists()).toBe(true);
+
+		const records = await sm.listPlanRecords();
+		expect(
+			records.find((record) => record.plan_name === "300-compat")?.path,
+		).toBe(importedPlan);
 	});
 
 	test("archives active plan and promotes next non-archived plan", async () => {

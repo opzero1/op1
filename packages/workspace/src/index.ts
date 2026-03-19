@@ -36,8 +36,8 @@ import { createHashAnchorReadEnhancerHook } from "./hooks/hash-anchor-read-enhan
 import { createMomentumHook, type MomentumDeps } from "./hooks/momentum.js";
 import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
 import {
-	createNotificationChannelsHook,
 	createInputNeededNotificationHook,
+	createNotificationChannelsHook,
 	createSessionReadyNotificationHook,
 	type NotificationClient,
 } from "./hooks/notification-channels.js";
@@ -106,6 +106,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	// New project-scoped directories
 	const workspaceDir = join(directory, ".opencode", "workspace");
 	const plansDir = join(workspaceDir, "plans");
+	const compatPlansDir = join(directory, ".opencode", "plans");
 	const notepadsDir = join(workspaceDir, "notepads");
 	const activePlanPath = join(workspaceDir, "active-plan.json");
 
@@ -115,6 +116,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		plansDir,
 		notepadsDir,
 		activePlanPath,
+		[compatPlansDir],
 	);
 	const contextScoutState = createContextScoutStateManager(workspaceDir);
 	const continuationState = createContinuationStateManager(workspaceDir);
@@ -985,7 +987,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							? await sm.resolvePlanPath(args.identifier)
 							: undefined;
 						if (args.identifier && !resolvedDraftPath) {
-							return `❌ Draft plan not found for identifier \"${args.identifier}\".`;
+							return `❌ Draft plan not found for identifier "${args.identifier}".`;
 						}
 						if (args.identifier && resolvedDraftPath) {
 							const record = records.find(
@@ -998,7 +1000,10 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						const latestDraftPath = records.find(
 							(record) => record.lifecycle === "draft",
 						)?.path;
-						planPath = resolvedDraftPath ?? latestDraftPath ?? generatePlanPath(plansDir);
+						planPath =
+							resolvedDraftPath ??
+							latestDraftPath ??
+							generatePlanPath(plansDir);
 
 						if (!(resolvedDraftPath ?? latestDraftPath)) {
 							await mkdir(plansDir, { recursive: true });
@@ -2118,9 +2123,7 @@ function isSessionIdleEvent(
 	);
 }
 
-function isPermissionEvent(
-	event: unknown,
-): event is {
+function isPermissionEvent(event: unknown): event is {
 	type:
 		| "permission.ask"
 		| "permission.asked"
@@ -2129,7 +2132,10 @@ function isPermissionEvent(
 	properties?: Record<string, unknown>;
 } {
 	if (!event || typeof event !== "object") return false;
-	const record = event as { type?: unknown; properties?: Record<string, unknown> };
+	const record = event as {
+		type?: unknown;
+		properties?: Record<string, unknown>;
+	};
 	return (
 		record.type === "permission.ask" ||
 		record.type === "permission.asked" ||
@@ -2149,7 +2155,8 @@ function getEventSessionID(
 
 	const info = properties?.info as Record<string, unknown> | undefined;
 	const infoDirect = info?.sessionID;
-	if (typeof infoDirect === "string" && infoDirect.length > 0) return infoDirect;
+	if (typeof infoDirect === "string" && infoDirect.length > 0)
+		return infoDirect;
 
 	const infoAlt = info?.sessionId;
 	if (typeof infoAlt === "string" && infoAlt.length > 0) return infoAlt;
@@ -2157,7 +2164,9 @@ function getEventSessionID(
 	return undefined;
 }
 
-function getFirstQuestionText(args: Record<string, unknown>): string | undefined {
+function getFirstQuestionText(
+	args: Record<string, unknown>,
+): string | undefined {
 	const questions = args.questions;
 	if (!Array.isArray(questions) || questions.length === 0) return undefined;
 

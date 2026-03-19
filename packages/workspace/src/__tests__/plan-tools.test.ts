@@ -58,6 +58,53 @@ Refine terse planning requests into confirmed implementation-ready plans
 `;
 
 describe("plan tools", () => {
+	test("imports approved plans from .opencode/plans before activation", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-import-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "plans"), { recursive: true });
+		await Bun.write(
+			join(root, ".opencode", "plans", "1773890649825-hidden-engine.md"),
+			validPlan,
+		);
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planListTool = plugin.tool?.plan_list as unknown as {
+			execute: (
+				args: Record<string, never>,
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+		const planSetActiveTool = plugin.tool?.plan_set_active as unknown as {
+			execute: (
+				args: { identifier: string },
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		const sessionID = "import-session";
+		const planList = await planListTool.execute({}, { sessionID });
+		expect(planList).toContain("1773890649825-hidden-engine");
+
+		const activate = await planSetActiveTool.execute(
+			{ identifier: "1773890649825-hidden-engine" },
+			{ sessionID },
+		);
+		expect(activate).toContain("Active plan switched");
+
+		const importedPath = join(
+			root,
+			".opencode",
+			"workspace",
+			"plans",
+			"1773890649825-hidden-engine.md",
+		);
+		expect(await Bun.file(importedPath).exists()).toBe(true);
+	});
+
 	test("draft save, context write, and promote flow stays structured", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-plan-tools-"));
 		tempRoots.push(root);
@@ -115,7 +162,10 @@ describe("plan tools", () => {
 		const planName = planFiles[0].replace(/\.md$/, "");
 
 		const secondSaveResult = await planSaveTool.execute(
-			{ content: validPlan.replace("repo-first", "repo-guided"), mode: "draft" },
+			{
+				content: validPlan.replace("repo-first", "repo-guided"),
+				mode: "draft",
+			},
 			{ sessionID },
 		);
 		expect(secondSaveResult).toContain(planName);
