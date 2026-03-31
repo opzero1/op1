@@ -74,7 +74,7 @@ import { handleVerification } from "./hooks/verification.js";
 import { createWritePolicyHook } from "./hooks/write-policy.js";
 import { buildMcpOAuthHelperSnapshot } from "./interop/mcp-oauth-helper.js";
 import { buildMcp0HealthSnapshot } from "./interop/mcp0-health.js";
-
+import { setLoggerSink } from "./logging.js";
 import { formatParseError, parsePlanMarkdown } from "./plan/schema.js";
 import {
 	type ActivePlanState,
@@ -134,6 +134,15 @@ async function acquireAutoloopCheckpointLock(
 
 export const WorkspacePlugin: Plugin = async (ctx) => {
 	const { directory } = ctx;
+	setLoggerSink(
+		ctx.client.app?.log
+			? async (entry) => {
+					await ctx.client.app.log({
+						body: entry,
+					});
+				}
+			: null,
+	);
 
 	const projectId = await getProjectId(directory);
 

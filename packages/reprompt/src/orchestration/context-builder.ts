@@ -56,6 +56,68 @@ function existingWorkspacePath(
 	return null;
 }
 
+function scoreHintPath(input: {
+	path: string;
+	searchTerms: string[];
+	symbols: string[];
+}): number {
+	const lower = input.path.toLowerCase();
+	const segments = lower.split("/");
+	const base = segments[segments.length - 1] ?? lower;
+	let score = 0;
+
+	for (const term of input.searchTerms) {
+		if (!lower.includes(term)) continue;
+		score += Math.min(8, Math.max(3, term.length));
+		if (segments.includes(term) || base === term || base.startsWith(`${term}.`)) {
+			score += 6;
+		}
+	}
+
+	for (const symbol of input.symbols) {
+		const needle = symbol.toLowerCase();
+		if (!lower.includes(needle)) continue;
+		score += 4;
+		if (base.includes(needle)) {
+			score += 2;
+		}
+	}
+
+	return score;
+}
+
+function matchHintPaths(input: {
+	availablePaths: Set<string>;
+	searchTerms: string[];
+	symbols: string[];
+	limit?: number;
+}): string[] {
+	const ranked = [...input.availablePaths]
+		.map((path) => ({
+			path,
+			score: scoreHintPath({
+				path,
+				searchTerms: input.searchTerms,
+				symbols: input.symbols,
+			}),
+		}))
+		.filter((entry) => entry.score > 0)
+		.sort((left, right) => {
+			if (right.score !== left.score) {
+				return right.score - left.score;
+			}
+			const leftDepth = left.path.split("/").length;
+			const rightDepth = right.path.split("/").length;
+			if (leftDepth !== rightDepth) {
+				return leftDepth - rightDepth;
+			}
+			return left.path.localeCompare(right.path);
+		})
+		.slice(0, input.limit ?? 6);
+
+	return ranked.map((entry) => entry.path);
+}
+
 export interface CompilerContextPlan {
 	requests: SliceRequest[];
 	contextSlices: EvidenceSlice[];
@@ -96,6 +158,11 @@ export function buildCompilerContextPlan(input: {
 		...(input.evidencePaths ?? []),
 		...referencedPromptPaths,
 	];
+	const matchedHintPaths = matchHintPaths({
+		availablePaths,
+		searchTerms: promptHints.searchTerms,
+		symbols: promptHints.symbols,
+	});
 	const recentPaths = classification.includeRecentEdits
 		? input.snapshot.diff.slice(0, 4).map((entry) => entry.path)
 		: [];
@@ -106,6 +173,7 @@ export function buildCompilerContextPlan(input: {
 		...new Set([
 			...(input.failurePaths ?? []),
 			...requestedEvidencePaths,
+			...matchedHintPaths,
 			...recentPaths,
 			...codePaths,
 		]),
@@ -123,6 +191,17 @@ export function buildCompilerContextPlan(input: {
 			kind: "file",
 			path,
 			reason: "explicit evidence path",
+			contextBefore: 10,
+			contextAfter: 10,
+		});
+	}
+
+	for (const path of matchedHintPaths) {
+		if (requestedEvidencePaths.includes(path)) continue;
+		requests.push({
+			kind: "file",
+			path,
+			reason: "path matched prompt hint",
 			contextBefore: 10,
 			contextAfter: 10,
 		});

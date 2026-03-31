@@ -236,6 +236,42 @@ describe("reprompt integration", () => {
 		expect(output.parts[0]?.text).not.toContain("fix auth flow opx");
 	});
 
+	test("command hook compiles slash-command prompts with leading opx", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-reprompt-command-hook-leading-"),
+		);
+		tempRoots.push(root);
+		const hooks = await createPluginWithConfig(root, { enabled: true });
+
+		const commandHook = (hooks as Record<string, unknown>)[
+			"command.execute.before"
+		] as (
+			input: { command: string; sessionID: string; arguments: string },
+			output: { parts: Array<{ type: string; text?: string }> },
+		) => Promise<void>;
+		const output = {
+			parts: [
+				{
+					type: "text",
+					text: "Create a refinement-first implementation plan.\n\n**Task:** opx fix auth flow",
+				},
+			],
+		};
+
+		await commandHook(
+			{
+				command: "plan",
+				sessionID: "command-session",
+				arguments: "opx fix auth flow",
+			},
+			output,
+		);
+
+		expect(output.parts[0]?.text).toContain(REPROMPT_MARKER);
+		expect(output.parts[0]?.text).toContain("fix auth flow");
+		expect(output.parts[0]?.text).not.toContain("opx fix auth flow");
+	});
+
 	test("command hook leaves plain slash-command prompts unchanged without trailing opx", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-command-pass-"));
 		tempRoots.push(root);
@@ -431,7 +467,7 @@ describe("reprompt integration", () => {
 		expect(output.parts).toEqual([{ type: "image", file: "diagram.png" }]);
 	});
 
-	test("incoming hook only rewrites the first message per session", async () => {
+	test("incoming hook rewrites marked prompts after the first message", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-first-only-"));
 		tempRoots.push(root);
 		await Bun.write(join(root, "auth.ts"), "export const value = 1\n");
@@ -462,8 +498,39 @@ describe("reprompt integration", () => {
 		};
 		await chatMessage({ sessionID: "single-session" }, second);
 
-		expect(second.parts[0]?.text).toBe(secondPrompt);
+		expect(second.parts[0]?.text).toContain(REPROMPT_MARKER);
+		expect(second.parts[0]?.text).toContain("fix billing.ts");
 		expect(second.message.content).toBe(secondPrompt);
+	});
+
+	test("incoming hook rewrites multiline prompts with trailing opx", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-reprompt-multiline-"));
+		tempRoots.push(root);
+		await Bun.write(join(root, "auth.ts"), "export const value = 1\n");
+
+		const hooks = await createPluginWithConfig(root, {
+			enabled: true,
+			runtime: { mode: "hook-and-helper" },
+		});
+		const chatMessage = (hooks as Record<string, unknown>)["chat.message"] as (
+			input: Record<string, unknown>,
+			output: {
+				message: Record<string, unknown>;
+				parts: Array<{ type: string; text?: string }>;
+			},
+		) => Promise<void>;
+
+		const prompt = "fix auth flow\n- inspect auth.ts\n- run targeted tests opx";
+		const output = {
+			message: { content: prompt },
+			parts: [{ type: "text", text: prompt }],
+		};
+
+		await chatMessage({ sessionID: "multiline-session" }, output);
+
+		expect(output.parts[0]?.text).toContain(REPROMPT_MARKER);
+		expect(output.parts[0]?.text).toContain("inspect auth.ts");
+		expect(output.parts[0]?.text).toContain("run targeted tests");
 	});
 
 	test("incoming hook fails closed for ambiguous terse prompts", async () => {

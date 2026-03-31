@@ -156,7 +156,7 @@ export async function collectRepoSnapshot(
 	workspaceRoot: string,
 	options: RepoSnapshotOptions = {},
 ): Promise<RepoSnapshot> {
-	const maxTrackedFiles = options.maxTrackedFiles ?? 400;
+	const maxTrackedFiles = options.maxTrackedFiles ?? 4000;
 	const maxTreeEntries = options.maxTreeEntries ?? 16;
 	const maxSamplesPerTreeEntry = options.maxSamplesPerTreeEntry ?? 4;
 	const maxDiffEntries = options.maxDiffEntries ?? 40;

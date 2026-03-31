@@ -9,7 +9,7 @@ Optional OpenCode plugin for incoming prompt compilation, bounded evidence packi
 - exposes `reprompt` for manual bounded retries and child-session escalation
 - fails closed by passing the original prompt through when compilation is suppressed or unsafe
 
-Incoming chat prompts can opt in with either a leading marker (`opx fix auth flow`) or a trailing marker (`fix auth flow opx`). Slash commands support the trailing form on command arguments as well.
+Incoming chat prompts can opt in with either a leading marker (`opx fix auth flow`) or a trailing marker (`fix auth flow opx`). Slash commands support both forms as well (`/plan opx fix auth flow` and `/plan fix auth flow opx`).
 
 ## Config
 

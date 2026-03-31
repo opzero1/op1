@@ -121,6 +121,15 @@ export function parseCommandTriggerArgs(
 	}
 
 	const escaped = normalizedMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const prefix = rawArgs.match(new RegExp(`^${escaped}(?::|\\s+)([\\s\\S]*)$`, "i"));
+	if (prefix) {
+		return {
+			rawArgs,
+			sanitizedArgs: prefix[1]?.trim() ?? "",
+			opxEnabled: true,
+		};
+	}
+
 	const matched = rawArgs.match(new RegExp(`^(.*)\\s+${escaped}$`, "i"));
 	if (!matched) {
 		return {
@@ -246,22 +255,6 @@ export function classifyIncomingPrompt(input: {
 	const lineCount = text.split(/\n+/).filter(Boolean).length;
 	const wordCount = text.split(/\s+/).filter(Boolean).length;
 
-	if (structuredSignals && (lineCount > 2 || text.length > 180)) {
-		return {
-			action: "pass-through",
-			reason: "already-structured",
-			promptText: text,
-		};
-	}
-
-	if (text.length > 700 || lineCount > 8) {
-		return {
-			action: "pass-through",
-			reason: "long-form-prompt",
-			promptText: text,
-		};
-	}
-
 	if (wordCount <= 24) {
 		return { action: "compile", reason: "terse-prompt", promptText: text };
 	}
@@ -270,6 +263,22 @@ export function classifyIncomingPrompt(input: {
 		return {
 			action: "compile",
 			reason: "underspecified-prompt",
+			promptText: text,
+		};
+	}
+
+	if (text.length > 700 || lineCount > 8) {
+		return {
+			action: "compile",
+			reason: "explicit-marker-long-form",
+			promptText: text,
+		};
+	}
+
+	if (structuredSignals || lineCount > 1) {
+		return {
+			action: "compile",
+			reason: "explicit-marker-structured",
 			promptText: text,
 		};
 	}

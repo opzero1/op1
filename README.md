@@ -2,6 +2,12 @@
 
 OpenCode harness with batteries included. Minimal plugins, maximum capability via skills and commands.
 
+## Recent Updates
+
+- `@op1/reprompt` now accepts both leading and trailing `opx` markers on chat prompts and slash-command arguments.
+- Marked prompts can be recompiled after the first turn, and multi-repo retries now prioritize repo/path hints more aggressively.
+- `@op1/workspace` can forward plugin logs to the host app logger; stderr logging stays opt-in with `OP1_PLUGIN_STDERR_LOGS=true`.
+
 ## Installation
 
 ```bash
@@ -11,7 +17,7 @@ bunx @op1/install
 The interactive installer will:
 - Back up your existing config (if any)
 - Install a lean set of agent/command/skill templates
-- Configure workspace-first plugins (`@op1/workspace`, `@op1/delegation`, and optional `@op1/lsp` / `@op1/ast-grep`)
+- Configure workspace-first plugins (`@op1/workspace`, `@op1/delegation`, and optional `@op1/reprompt` / `@op1/lsp` / `@op1/ast-grep`)
 - Configure MCP servers (Context7 and Grep.app by default, with optional categories)
 - Let you configure per-agent models or a global model
 
@@ -62,6 +68,12 @@ Then add to your `opencode.json`:
 | [`@op1/install`](https://www.npmjs.com/package/@op1/install) | Interactive CLI installer | `bunx @op1/install` |
 | [`@op1/workspace`](https://www.npmjs.com/package/@op1/workspace) | Plan management, notepads, verification hooks | `bun add @op1/workspace` |
 | [`@op1/delegation`](https://www.npmjs.com/package/@op1/delegation) | Async `task` override, background output, cancellation, task diagnostics | `bun add @op1/delegation` |
+
+### Runtime Helpers
+
+| Package | Description | Install |
+|---------|-------------|---------|
+| [`@op1/reprompt`](https://www.npmjs.com/package/@op1/reprompt) | Incoming prompt compiler and bounded retry helper | `bun add @op1/reprompt` |
 
 ### Code Tools
 

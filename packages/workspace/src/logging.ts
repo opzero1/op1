@@ -8,12 +8,23 @@ export enum LogLevel {
 
 type LogExtras = Record<string, unknown>;
 
+type LogSinkInput = {
+	service: string;
+	level: "debug" | "info" | "warn" | "error";
+	message: string;
+	extra?: LogExtras;
+};
+
+type LogSink = (input: LogSinkInput) => Promise<void> | void;
+
 type Logger = {
 	debug: (message: string, extras?: LogExtras) => void;
 	info: (message: string, extras?: LogExtras) => void;
 	warn: (message: string, extras?: LogExtras) => void;
 	error: (message: string, extras?: LogExtras) => void;
 };
+
+let activeSink: LogSink | null = null;
 
 const levelPriority: Record<LogLevel, number> = {
 	[LogLevel.DEBUG]: 0,
@@ -69,11 +80,38 @@ function serializeExtras(extras?: LogExtras): string {
 	return ` ${pairs.join(" ")}`;
 }
 
+function toSinkLevel(level: LogLevel): LogSinkInput["level"] {
+	if (level === LogLevel.DEBUG) return "debug";
+	if (level === LogLevel.INFO) return "info";
+	if (level === LogLevel.WARN) return "warn";
+	return "error";
+}
+
+export function setLoggerSink(sink: LogSink | null): void {
+	activeSink = sink;
+}
+
 export function createLogger(service: string): Logger {
 	const threshold = parseLogLevel(Bun.env.OP7_WORKSPACE_LOG_LEVEL);
 
 	function write(level: LogLevel, message: string, extras?: LogExtras): void {
 		if (!shouldLog(level, threshold)) return;
+
+		if (activeSink) {
+			void Promise.resolve(
+				activeSink({
+					service,
+					level: toSinkLevel(level),
+					message,
+					...(extras ? { extra: extras } : {}),
+				}),
+			).catch(() => undefined);
+			return;
+		}
+
+		if (Bun.env.OP1_PLUGIN_STDERR_LOGS !== "true") {
+			return;
+		}
 
 		const timestamp = new Date().toISOString();
 		const line = `${timestamp} ${level} service=${service} ${message}${serializeExtras(extras)}\n`;

@@ -203,6 +203,14 @@ describe("reprompt core", () => {
 		expect(hints.symbols).toContain("AuthService");
 	});
 
+	test("keeps reprompt as a searchable compiler hint", () => {
+		const hints = extractPromptHints({
+			promptText: "fix reprompt smoke in op1",
+		});
+
+		expect(hints.searchTerms).toContain("reprompt");
+	});
+
 	test("classifies terse incoming prompts for compilation", () => {
 		const decision = classifyIncomingPrompt({
 			parts: [{ type: "text", text: "opx fix src/auth.ts" }],
@@ -258,12 +266,15 @@ describe("reprompt core", () => {
 		expect(decision.sanitizedArgs).toBe("");
 	});
 
-	test("does not treat leading or flag-style command markers as suffixes", () => {
+	test("parses leading command opx prefix", () => {
 		expect(parseCommandTriggerArgs("opx fix src/auth.ts", "opx")).toEqual({
 			rawArgs: "opx fix src/auth.ts",
-			sanitizedArgs: "opx fix src/auth.ts",
-			opxEnabled: false,
+			sanitizedArgs: "fix src/auth.ts",
+			opxEnabled: true,
 		});
+	});
+
+	test("does not treat flag-style command markers as suffixes", () => {
 		expect(parseCommandTriggerArgs("fix src/auth.ts --opx", "opx")).toEqual({
 			rawArgs: "fix src/auth.ts --opx",
 			sanitizedArgs: "fix src/auth.ts --opx",
@@ -280,7 +291,7 @@ describe("reprompt core", () => {
 		expect(decision.reason).toBe("no-trigger-marker");
 	});
 
-	test("passes through structured incoming prompts", () => {
+	test("compiles structured incoming prompts when explicitly marked", () => {
 		const decision = classifyIncomingPrompt({
 			parts: [
 				{
@@ -290,8 +301,8 @@ describe("reprompt core", () => {
 			],
 		});
 
-		expect(decision.action).toBe("pass-through");
-		expect(decision.reason).toBe("already-structured");
+		expect(decision.action).toBe("compile");
+		expect(decision.promptText).toContain("update auth flow");
 	});
 
 	test("passes through casual incoming prompts", () => {
@@ -377,6 +388,66 @@ describe("reprompt core", () => {
 		expect(plan.omissionReasons).toContain(
 			"diagnostics-unavailable:no-line-aware-diagnostics-adapter",
 		);
+	});
+
+	test("prioritizes path matches from prompt hints in multi-repo workspaces", () => {
+		const trigger = createRetryTrigger({
+			source: "tool",
+			type: "narrow-context-miss",
+			failureMessage: "compiler grounded the wrong repo",
+			attempt: 1,
+			maxAttempts: 1,
+			dedupeKey: "k2",
+		});
+
+		const plan = buildCompilerContextPlan({
+			trigger,
+			taskClass: "debug",
+			promptText: "fix reprompt smoke in op1",
+			failureSummary: "retry with the right repo context",
+			snapshot: {
+				workspaceRoot: "/tmp/workspace",
+				branch: "main",
+				trackedFiles: [
+					"notion-cli-rs/src/client.rs",
+					"op1/packages/reprompt/src/plugin.ts",
+					"op1/packages/reprompt/src/orchestration/runtime.ts",
+				],
+				tree: [
+					{
+						path: "op1",
+						fileCount: 2,
+						samples: ["op1/packages/reprompt/src/plugin.ts"],
+					},
+				],
+				diff: [],
+				generatedAt: new Date().toISOString(),
+			},
+			codeMap: {
+				branch: "main",
+				usedCodeIntel: false,
+				generatedAt: new Date().toISOString(),
+				files: [
+					{
+						path: "notion-cli-rs/src/client.rs",
+						imports: [],
+						exports: ["Client"],
+						symbols: ["Client"],
+						importanceScore: 9,
+						provenance: "local",
+					},
+				],
+			},
+		});
+
+		expect(plan.candidatePaths[0]).toContain("op1/packages/reprompt");
+		expect(
+			plan.requests.some(
+				(request) =>
+					request.kind === "file" &&
+					request.path.includes("op1/packages/reprompt"),
+			),
+		).toBe(true);
 	});
 
 	test("builds compiler prompt with GPT-5.4 contracts and omissions", () => {

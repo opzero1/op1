@@ -15,7 +15,6 @@ const STOP_WORDS = new Set([
 	"into",
 	"need",
 	"prompt",
-	"reprompt",
 	"task",
 	"that",
 	"the",

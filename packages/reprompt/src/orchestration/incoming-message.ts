@@ -32,24 +32,9 @@ export function createIncomingPromptHook(input: {
 	guards: RetryGuardManager;
 	telemetry: TelemetryStore;
 }): (input: ChatMessageInput, output: ChatMessageOutput) => Promise<void> {
-	const seenSessions = new Set<string>();
-
 	return async (hookInput, output) => {
 		if (!input.config.enabled) return;
 		if (input.config.runtime.mode !== "hook-and-helper") return;
-
-		if (seenSessions.has(hookInput.sessionID)) {
-			await input.telemetry.record({
-				eventType: "incoming-processed",
-				triggerSource: "hook",
-				triggerType: "incoming-prompt",
-				failureClass: "selection",
-				outcome: "pass-through:non-first-message",
-				note: hookInput.sessionID,
-			});
-			return;
-		}
-		seenSessions.add(hookInput.sessionID);
 
 		const incoming = classifyIncomingPrompt({
 			parts: output.parts,
