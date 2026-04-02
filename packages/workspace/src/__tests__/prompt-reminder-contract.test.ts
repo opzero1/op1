@@ -138,7 +138,7 @@ describe("prompt reminder contracts", () => {
 
 		expect(output.output).toContain("COMPLETION CHECK");
 		expect(output.output).toContain("<done>COMPLETE</done>");
-		expect(output.output).toContain("intentional /autoloop run");
+		expect(output.output).toContain("intentional long-running loop");
 		expect(output.output).toContain(
 			'Do not switch into a wrap-up summary or "next steps" handoff',
 		);
@@ -181,7 +181,7 @@ describe("prompt reminder contracts", () => {
 		expect(output.output.length).toBeLessThan(2500);
 	});
 
-	test("stacked reminders keep autoloop momentum wording compact", async () => {
+	test("stacked reminders keep loop momentum wording compact", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-prompt-budget-"));
 		tempRoots.push(root);
 
@@ -189,7 +189,7 @@ describe("prompt reminder contracts", () => {
 		await Bun.write(
 			planPath,
 			[
-				"# Agent Harness Autoloop",
+				"# Agent Harness Loop",
 				"",
 				"- [x] done",
 				"- [ ] Continue verified harness iterations until explicitly stopped",
@@ -203,9 +203,9 @@ describe("prompt reminder contracts", () => {
 		const completion = createCompletionPromiseHook(1);
 		const output = { output: "loop is running" };
 
-		await momentum({ tool: "task", sessionID: "session-autoloop" }, output);
-		await autonomy({ tool: "task", sessionID: "session-autoloop" }, output);
-		await completion({ tool: "task", sessionID: "session-autoloop" }, output);
+		await momentum({ tool: "task", sessionID: "session-loop" }, output);
+		await autonomy({ tool: "task", sessionID: "session-loop" }, output);
+		await completion({ tool: "task", sessionID: "session-loop" }, output);
 
 		expect(output.output).toContain("**Loop focus:**");
 		expect(output.output).toContain(

@@ -1,10 +1,10 @@
 # Planning Question Quality Evaluation
 
-This benchmark compares planning behavior before and after the planning-mode pattern-scout change.
+This benchmark compares planning behavior before and after the interview-driven planning change.
 
 ## Goal
 
-Measure whether planning removes uncertainty earlier so implementation starts with fewer follow-up clarification questions.
+Measure whether planning removes uncertainty earlier, asks fewer broader questionnaires, and leaves `/work` with fewer follow-up clarification questions.
 
 ## Evaluation Inputs
 
@@ -18,8 +18,10 @@ For each case, capture two runs:
 
 For the planning run:
 - whether the planner ran a bounded repo scout before drafting
+- whether it asked one question at a time instead of front-loading a questionnaire
 - whether it surfaced a concrete pattern decision or a bounded best-practice fallback
 - whether the approval step included concrete file references and a minimal code example
+- whether it resolved the execution contract branches (`missing-context behavior`, `approval/readiness`, `state ownership`, `triggers`, `rules`, `tests`)
 - whether approved guidance was persisted in plan context with `source_type` and `code_example`
 
 For the implementation follow-through (`/work` or equivalent execution):
@@ -47,14 +49,20 @@ Score each case from 0-2 on each dimension:
    - `2`: approved guidance stored with `source_type` and `code_example`
 
 4. `execution_clarification_load`
-   - `0`: execution needs 3+ follow-up clarification questions
-   - `1`: execution needs 1-2 follow-up clarification questions
-   - `2`: execution starts coding with 0 follow-up clarification questions
+    - `0`: execution needs 3+ follow-up clarification questions
+    - `1`: execution needs 1-2 follow-up clarification questions
+    - `2`: execution starts coding with 0 follow-up clarification questions
+
+5. `interview_quality`
+   - `0`: dumps multiple questions or misses core execution branches
+   - `1`: mostly sequential, but still leaves major execution-setup gaps
+   - `2`: asks one question at a time and resolves the execution contract branches before save
 
 ## Success Threshold
 
 The change is a win when:
 - `after.execution_clarification_load` improves in most cases
+- `after.interview_quality` improves in most cases
 - repo-pattern cases reach `2` for `repo_pattern_grounding`
 - fallback cases reach `2` for `approval_quality` and `persistence_quality`
 - the median number of execution-time follow-up clarification questions drops versus `before`

@@ -48,7 +48,7 @@ describe("momentum hook", () => {
 		expect(output.output).toContain("keep iterating");
 	});
 
-	test("uses loop-focus phrasing for autoloop evergreen plans", async () => {
+	test("uses loop-focus phrasing for evergreen loop plans", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-momentum-test-"));
 		tempRoots.push(root);
 
@@ -56,7 +56,7 @@ describe("momentum hook", () => {
 		await Bun.write(
 			planPath,
 			[
-				"# Agent Harness Autoloop",
+				"# Agent Harness Loop",
 				"",
 				"- [x] establish state",
 				"- [ ] Continue verified harness iterations until explicitly stopped",
@@ -68,7 +68,7 @@ describe("momentum hook", () => {
 		});
 
 		const output = { output: "loop is running" };
-		await hook({ tool: "task", sessionID: "session-autoloop" }, output);
+		await hook({ tool: "task", sessionID: "session-loop" }, output);
 
 		expect(output.output).toContain("MOMENTUM");
 		expect(output.output).toContain(

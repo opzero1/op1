@@ -70,10 +70,8 @@ opencode debug config
 | Command | Description |
 |---------|-------------|
 | `/init` | Bootstrap project context and conventions |
-| `/autoloop` | Start an opt-in resumable long-running workflow |
-| `/plan` | Create implementation plan |
-| `/continue` | Resume unfinished work (uses continuation tools when enabled) |
-| `/work` | Start working on active plan (with ULW mode) |
+| `/plan` | Interview for an implementation-ready plan |
+| `/work` | Execute the active plan (with ULW mode) |
 | `/deslop` | Run a strict simplifier review/fix loop on current work |
 | `/review` | Run code review |
 | `/review-loop` | Iterate reviewer/oracle review and fixes until clean |

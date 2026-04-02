@@ -112,6 +112,11 @@
 			"type": "remote",
 			"url": "https://mcp.figma.com/mcp"
 		},
+		// shadcn/ui MCP - Registry browsing, search, and component install
+		"shadcn": {
+			"type": "local",
+			"command": ["npx", "-y", "shadcn@latest", "mcp"]
+		},
 
 		// Storybook MCP - Component library, props, design system
 		"storybook": {
@@ -150,6 +155,7 @@
 		"notion_*": false,
 		"newrelic_*": false,
 		"figma_*": false,
+		"shadcn_*": false,
 		"storybook_*": false,
 		"context7_*": false,
 		"grep_app_*": false
@@ -175,6 +181,7 @@
 				"notion_*": true,
 				"newrelic_*": true,
 				"figma_*": true,
+				"shadcn_*": true,
 				"context7_*": true,
 				"grep_app_*": true
 			}
@@ -182,6 +189,7 @@
 		"coder": {
 			"tools": {
 				"context7_*": true,
+				"shadcn_*": true,
 				"storybook_*": true,
 				"zai-vision_*": true
 			}
@@ -189,6 +197,7 @@
 		"frontend": {
 			"tools": {
 				"context7_*": true,
+				"shadcn_*": true,
 				"storybook_*": true,
 				"zai-vision_*": true,
 				"figma_*": true

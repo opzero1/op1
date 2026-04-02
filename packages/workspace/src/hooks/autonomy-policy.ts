@@ -99,7 +99,7 @@ function buildAutonomousRecoveryReminder(): string {
 
 This workflow is expected to continue without asking the user to choose from recovery options.
 If the available paths are safe and reversible, pick the safest recovery path yourself, record the choice, and keep going.
-For autoresearch-style loops, auto-recovery is the default. Continue until the user explicitly stops the loop.
+For explicit long-running loops, auto-recovery is the default. Continue until the user explicitly stops the loop.
 Only stop for an explicit user stop instruction, a real destructive or irreversible decision, a missing credential, or a deliberate pause sentinel.
 </system-reminder>`;
 }

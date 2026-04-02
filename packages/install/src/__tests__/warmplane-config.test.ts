@@ -210,6 +210,29 @@ describe("warmplane config helpers", () => {
 		expect(config.mcpServers.grep_app?.allowStateless).toBe(true);
 	});
 
+	test("builds local shadcn MCP config for warmplane downstream routing", () => {
+		const mcps: McpDefinition[] = [
+			{
+				id: "shadcn",
+				name: "shadcn/ui",
+				description: "Registry browsing, search, and component install",
+				config: {
+					type: "local",
+					command: ["npx", "-y", "shadcn@latest", "mcp"],
+				},
+				toolPattern: "shadcn_*",
+				agentAccess: ["researcher", "coder", "frontend"],
+			},
+		];
+
+		const config = buildWarmplaneConfig({ mcps });
+		expect(config.mcpServers.shadcn).toEqual({
+			command: "npx",
+			args: ["-y", "shadcn@latest", "mcp"],
+			env: {},
+		});
+	});
+
 	test("rewrites merged config into strict mcp0-only mode", () => {
 		const existing: OpenCodeConfig = {
 			mcp: {

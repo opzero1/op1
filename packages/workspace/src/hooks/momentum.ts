@@ -40,8 +40,10 @@ function findNextTask(content: string): string | null {
 	return match ? match[0].trim().replace(/^- \[ \] /, "") : null;
 }
 
-function isAutoloopPlan(content: string): boolean {
-	return /(?:^|\W)autoloop(?:\W|$)|\/autoloop/i.test(content);
+function isLongRunningLoopPlan(content: string): boolean {
+	return /(?:^|\W)autoloop(?:\W|$)|continue verified .*iterations until explicitly stopped|\.paused|max_iterations|long-running loop/i.test(
+		content,
+	);
 }
 
 /**
@@ -51,7 +53,7 @@ function buildContinuationPrompt(
 	done: number,
 	total: number,
 	nextTask: string | null,
-	isAutoloop: boolean,
+	isLongRunningLoop: boolean,
 ): string {
 	const remaining = total - done;
 	const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -65,11 +67,11 @@ Progress: ${done}/${total} tasks complete (${pct}%)
 Remaining: ${remaining} task${remaining !== 1 ? "s" : ""}`;
 
 	if (nextTask) {
-		const nextLabel = isAutoloop ? "Loop focus:" : "Next up:";
+		const nextLabel = isLongRunningLoop ? "Loop focus:" : "Next up:";
 		prompt += `\n\n**${nextLabel}** ${nextTask}`;
 	}
 
-	const continuationLine = isAutoloop
+	const continuationLine = isLongRunningLoop
 		? "Do NOT stop. Read the plan (plan_read), then keep the loop running from the current focus now."
 		: "Do NOT stop. Read the plan (plan_read), then continue with the next task now.";
 
@@ -116,18 +118,13 @@ export function createMomentumHook(deps: MomentumDeps) {
 
 			const content = await planFile.text();
 			const { done, total } = countPlanTasks(content);
-			const autoloopPlan = isAutoloopPlan(content);
+			const loopPlan = isLongRunningLoopPlan(content);
 
 			// No tasks or all done — nothing to push
 			if (total === 0 || done >= total) return;
 
 			const nextTask = findNextTask(content);
-			const prompt = buildContinuationPrompt(
-				done,
-				total,
-				nextTask,
-				autoloopPlan,
-			);
+			const prompt = buildContinuationPrompt(done, total, nextTask, loopPlan);
 
 			if (typeof output.output === "string") {
 				output.output = output.output + prompt;

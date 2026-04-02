@@ -33,6 +33,15 @@ skill("figma-design")
 
 Treat the loaded frontend skills as the source of truth for visual principles. Do not inline a second copy of those design laws in your answer.
 
+## shadcn/ui Routing
+
+When the task touches shadcn/ui, registries, blocks, or a repo with `components.json`:
+
+1. Prefer an installed official shadcn skill if one exists in `.agents/skills/` or `~/.config/opencode/skills/`. Load it before improvising component rules.
+2. Otherwise, if shadcn is exposed through Warmplane/mcp0 or direct `shadcn_*` tools, use MCP first for registry browsing, discovery, and install workflows.
+3. Otherwise, ground on the CLI with `npx -y shadcn@latest info --json`, read `components.json`, and use `search`, `docs`, or `view` before composing non-trivial UI.
+4. If `components.json` exists but no installed shadcn skill is present, still treat the repo as shadcn-aware and use the CLI-grounded path rather than inventing custom primitives.
+
 ## Execution Contract
 
 ```xml

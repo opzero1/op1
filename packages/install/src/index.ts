@@ -391,6 +391,17 @@ const MCP_CATEGORIES: McpCategory[] = [
 				toolPattern: "figma_*",
 				agentAccess: ["researcher", "frontend"],
 			},
+			{
+				id: "shadcn",
+				name: "shadcn/ui",
+				description: "Registry browsing, search, and component install",
+				config: {
+					type: "local",
+					command: ["npx", "-y", "shadcn@latest", "mcp"],
+				},
+				toolPattern: "shadcn_*",
+				agentAccess: ["researcher", "coder", "frontend"],
+			},
 		],
 	},
 	{
@@ -1646,7 +1657,7 @@ export async function main(mainOptions: MainOptions = {}) {
 			{
 				value: "commands",
 				label: "Commands",
-				hint: "Curated slash commands (/init, /plan, /continue, /autoloop, /review, etc.)",
+				hint: "Curated slash commands (/init, /plan, /work, /review, etc.)",
 			},
 			{
 				value: "skills",

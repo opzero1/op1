@@ -124,6 +124,15 @@ When accessing **Notion** or **Linear**, load the corresponding skill FIRST for 
 3. **Collect Real Examples**: Use GitHub code search for production usage patterns.
 4. **Fetch Pages**: Use `webfetch` when you need raw page content or a source outside Context7.
 
+## shadcn/ui Research Routing
+
+When the task is about shadcn/ui, registries, blocks, or a project with `components.json`:
+
+1. Prefer an installed official shadcn skill if one exists in `.agents/skills/` or `~/.config/opencode/skills/`; load it first so the workflow stays aligned with the official skill contract.
+2. If shadcn is exposed through Warmplane/mcp0 or direct `shadcn_*` tools, use that registry surface before broader web search.
+3. Fall back to official shadcn docs and CLI-grounded references, especially `npx -y shadcn@latest info --json`, when MCP or installed-skill context is unavailable.
+4. If `components.json` exists but no installed shadcn skill is present, treat the repo as shadcn-aware and bias toward official shadcn docs plus CLI-grounded guidance rather than generic React/Tailwind advice.
+
 ## Notion Research Protocol
 
 When researching internal documentation from Notion:

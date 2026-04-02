@@ -35,21 +35,12 @@ describe("prompt template contracts", () => {
 			expect(prompt).toContain(`<${tag}>`);
 		}
 
-		expect(prompt).toContain("If the request is `/autoloop`");
-		expect(prompt).toContain("recover the autoloop state first");
-		expect(prompt).toContain("autoloop_status");
+		expect(prompt).toContain("small, actionable, reversible work");
 		expect(prompt).toContain(
-			"does not replace the dedicated autoloop plan as the lifecycle source of truth",
+			"fail closed and tell the user to run `/plan` or provide a concrete task",
 		);
-		expect(prompt).toContain("do not adopt the current feature plan");
-		expect(prompt).toContain(
-			"do not drift into ordinary completion-report mode",
-		);
-		expect(prompt).toContain("make it a running-status note only");
-		expect(prompt).toContain("prefer `autoloop_checkpoint`");
-		expect(prompt).toContain("set `command` to `autoloop:<slug>`");
-		expect(prompt).toContain("one slug and one git worktree per loop");
-		expect(prompt).toContain("prefer `worktree_create`");
+		expect(prompt).not.toContain("/autoloop");
+		expect(prompt).not.toContain("/continue");
 		expect(prompt).toContain(
 			"compatibility shims, adapters, fallback branches",
 		);
@@ -62,11 +53,14 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("question");
 		expect(prompt).toContain("Oracle");
 		expect(prompt).toContain("plan_context_write");
-		expect(prompt).toContain("plan_promote");
+		expect(prompt).toContain('plan_save(mode="new", set_active=true)');
 		expect(prompt).toContain("bounded pattern-scout pass");
 		expect(prompt).toContain("follow existing pattern?");
 		expect(prompt).toContain("code_example");
+		expect(prompt).toContain("one question at a time");
+		expect(prompt).toContain("missing-context behavior");
 		expect(prompt).toContain("planning-question-quality evaluation artifact");
+		expect(prompt).not.toContain("plan_promote");
 		expect(prompt).not.toContain("Use this exact structure:");
 	});
 
@@ -93,59 +87,41 @@ describe("prompt template contracts", () => {
 		const planCommand = await readTemplate("commands", "plan.md");
 		const reviewCommand = await readTemplate("commands", "review.md");
 		const workCommand = await readTemplate("commands", "work.md");
-		const autoloopCommand = await readTemplate("commands", "autoloop.md");
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
 		expect(planCommand).toContain("plan_context_write");
-		expect(planCommand).toContain("plan_promote");
+		expect(planCommand).toContain('plan_save(mode="new", set_active=true)');
 		expect(planCommand).toContain("bounded internal pattern-scout pass");
 		expect(planCommand).toContain("follow existing pattern?");
 		expect(planCommand).toContain("source_type");
+		expect(planCommand).toContain("one question at a time");
+		expect(planCommand).toContain("state ownership");
+		expect(planCommand).toContain("Do not save any plan until");
 		expect(planCommand).toContain(
 			"planning-question-quality evaluation artifact",
 		);
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).toContain("plan_context_read");
 		expect(workCommand).toContain("approved implementation reference");
+		expect(workCommand).toContain("/work` is the sole execution path");
+		expect(workCommand).toContain("small actionable task");
+		expect(workCommand).toContain("run `/plan` or provide a concrete task");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
-		expect(autoloopCommand).toContain("plan-protocol");
-		expect(autoloopCommand).toContain("long-running-workflows");
-		expect(autoloopCommand).toContain(".opencode/workspace/autoloop/<slug>/");
-		expect(autoloopCommand).toContain("continuation_status");
-		expect(autoloopCommand).toContain("continuation_continue");
-		expect(autoloopCommand).toContain("continuation_stop");
-		expect(autoloopCommand).toContain("autoloop_status");
-		expect(autoloopCommand).toContain("autoloop_checkpoint");
-		expect(autoloopCommand).toContain("set `command` to `autoloop:<slug>`");
-		expect(autoloopCommand).toContain(
-			"Do not call `plan_list` just to adopt the currently active feature plan",
-		);
-		expect(autoloopCommand).toContain("dedicated workspace autoloop plan");
-		expect(autoloopCommand).toContain(
-			"keep the dedicated autoloop plan as the lifecycle source of truth",
-		);
-		expect(autoloopCommand).toContain(
-			"Continue verified iterations until explicitly stopped or .paused exists",
-		);
-		expect(autoloopCommand).toContain("max_iterations = 50");
-		expect(autoloopCommand).toContain(
-			'do not switch into a normal completion summary or "next steps" handoff',
-		);
-		expect(autoloopCommand).toContain(
-			"report only a concise running-status update",
-		);
-		expect(autoloopCommand).toContain(
-			"prefer `autoloop_checkpoint` for locked monotonic appends",
-		);
-		expect(autoloopCommand).toContain("one slug and one git worktree per loop");
-		expect(autoloopCommand).toContain("prefer `worktree_create`");
+		expect(workCommand).not.toContain("plan_promote");
+		expect(workCommand).not.toContain("/continue");
+		expect(workCommand).not.toContain("/autoloop");
 		expect(deslopCommand).toContain("analyze-mode");
 		expect(deslopCommand).toContain("simplify");
 		expect(deslopCommand).toContain("code-philosophy");
 		expect(deslopCommand).toContain("<output_contract>");
 		expect(deslopCommand).toContain("resolved base branch or fallback basis");
 		expect(deslopCommand).not.toContain("origin/main");
+	});
+
+	test("legacy continue and autoloop commands are removed from shipped templates", async () => {
+		expect(await pathExists("commands", "continue.md")).toBe(false);
+		expect(await pathExists("commands", "autoloop.md")).toBe(false);
 	});
 
 	test("simplify keeps reusable no-compat rules in a skill", async () => {
@@ -239,6 +215,7 @@ describe("prompt template contracts", () => {
 		expect(agentBrowser).toContain("name: agent-browser");
 		expect(agentBrowser).toContain("Bash(agent-browser:*)");
 		expect(agentBrowser).toContain("snapshot -i");
+		expect(agentBrowser).toContain("auth login");
 
 		const chromeDevtoolsExists = await pathExists(
 			"skills",
@@ -246,6 +223,47 @@ describe("prompt template contracts", () => {
 			"SKILL.md",
 		);
 		expect(chromeDevtoolsExists).toBe(false);
+	});
+
+	test("agent-browser skill ships all referenced support assets", async () => {
+		const prompt = await readTemplate("skills", "agent-browser", "SKILL.md");
+		const referencedAssets = [
+			...prompt.matchAll(/\((references\/[^)]+|templates\/[^)]+)\)/g),
+		].map((match) => match[1]);
+
+		expect(referencedAssets.length).toBeGreaterThan(0);
+
+		for (const relativePath of new Set(referencedAssets)) {
+			const exists = await pathExists(
+				"skills",
+				"agent-browser",
+				...relativePath.split("/"),
+			);
+			expect(exists).toBe(true);
+		}
+	});
+
+	test("shadcn guidance prefers installed official skill before MCP and CLI fallback", async () => {
+		const [coder, frontend, researcher] = await Promise.all([
+			readTemplate("agents", "coder.md"),
+			readTemplate("agents", "frontend.md"),
+			readTemplate("agents", "researcher.md"),
+		]);
+
+		for (const prompt of [coder, frontend, researcher]) {
+			expect(prompt).toContain(".agents/skills/");
+			expect(prompt).toContain("~/.config/opencode/skills/");
+			expect(prompt).toContain("components.json");
+			expect(prompt).toContain("mcp0");
+			expect(prompt).toContain("shadcn@latest info --json");
+		}
+
+		const vendoredShadcnSkillExists = await pathExists(
+			"skills",
+			"shadcn-ui",
+			"SKILL.md",
+		);
+		expect(vendoredShadcnSkillExists).toBe(false);
 	});
 
 	test("prompt taxonomy documents layer ownership and shared defaults", async () => {

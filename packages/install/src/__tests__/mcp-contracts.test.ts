@@ -47,6 +47,19 @@ describe("MCP requirement contract", () => {
 			}),
 		).toBe("optional");
 	});
+
+	test("includes shadcn in the design MCP catalog", () => {
+		const design = MCP_CATEGORIES.find((category) => category.id === "design");
+		const shadcn = design?.mcps.find((mcp) => mcp.id === "shadcn");
+
+		expect(shadcn?.name).toBe("shadcn/ui");
+		expect(shadcn?.toolPattern).toBe("shadcn_*");
+		expect(shadcn?.agentAccess).toEqual(["researcher", "coder", "frontend"]);
+		expect(shadcn?.config).toEqual({
+			type: "local",
+			command: ["npx", "-y", "shadcn@latest", "mcp"],
+		});
+	});
 });
 
 describe("MCP pointer compatibility contract", () => {

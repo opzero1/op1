@@ -3,6 +3,14 @@
 		"id": "repo-pattern-follow",
 		"prompt": "/plan add a new workspace planning tool that persists approval metadata for implementation handoff",
 		"expected_mode": "repo-pattern",
+		"must_capture_branches": [
+			"missing-context behavior",
+			"approval/readiness",
+			"state ownership",
+			"triggers",
+			"rules",
+			"tests"
+		],
 		"must_surface_files": [
 			"packages/workspace/src/index.ts",
 			"packages/workspace/src/plan/state.ts"
@@ -15,6 +23,14 @@
 		"id": "best-practice-fallback",
 		"prompt": "/plan add a planning-quality benchmark runner for question quality regressions",
 		"expected_mode": "best-practice",
+		"must_capture_branches": [
+			"missing-context behavior",
+			"approval/readiness",
+			"state ownership",
+			"triggers",
+			"rules",
+			"tests"
+		],
 		"must_do_bounded_research": true,
 		"must_ask": "Approve recommended fallback?",
 		"must_persist": ["source_type: best-practice", "code_example"],

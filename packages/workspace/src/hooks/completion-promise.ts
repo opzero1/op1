@@ -10,13 +10,14 @@
  */
 
 const DEFAULT_MAX_ITERATIONS = 10;
+const CONTINUATION_TOOLS = new Set(["task", "bash"]);
 
 /** Per-session iteration tracker */
 const sessionIterations = new Map<string, number>();
 
 /**
- * Check task output for completion tag and manage iteration count.
- * Attaches to `tool.execute.after` — only triggers on `task` tool.
+ * Check continuation output for completion tag and manage iteration count.
+ * Attaches to `tool.execute.after` — triggers on the same continuation tools as momentum.
  */
 export function createCompletionPromiseHook(
 	maxIterations: number = DEFAULT_MAX_ITERATIONS,
@@ -25,7 +26,7 @@ export function createCompletionPromiseHook(
 		input: { tool: string; sessionID: string; args?: unknown },
 		output: { output?: string },
 	): Promise<void> => {
-		if (input.tool.toLowerCase() !== "task") return;
+		if (!CONTINUATION_TOOLS.has(input.tool.toLowerCase())) return;
 		if (typeof output.output !== "string") return;
 
 		const key = input.sessionID;
@@ -45,8 +46,8 @@ export function createCompletionPromiseHook(
 
 You have completed ${current} task delegations without confirming plan completion.
 If the active plan or loop is truly complete, include <done>COMPLETE</done> in your next message.
-If this is an intentional /autoloop run, continue until the user stops you, a .paused sentinel exists, or a genuine blocker is reached.
-Do not switch into a wrap-up summary or "next steps" handoff while the autoloop evergreen task is still open.
+If this is an intentional long-running loop, continue until the user stops you, a .paused sentinel exists, or a genuine blocker is reached.
+Do not switch into a wrap-up summary or "next steps" handoff while the loop evergreen task is still open.
 If work remains, continue working — but be intentional, not looping.
 </system-reminder>`;
 		}

@@ -14,7 +14,7 @@ describe("completion promise hook", () => {
 		expect(output.output).toContain(
 			"If the active plan or loop is truly complete",
 		);
-		expect(output.output).toContain("intentional /autoloop run");
+		expect(output.output).toContain("intentional long-running loop");
 		expect(output.output).toContain(
 			'Do not switch into a wrap-up summary or "next steps" handoff',
 		);
@@ -30,5 +30,15 @@ describe("completion promise hook", () => {
 		const followUp = { output: "follow-up" };
 		await hook({ tool: "task", sessionID: "session-b" }, followUp);
 		expect(followUp.output).toContain("COMPLETION CHECK");
+	});
+
+	test("tracks bash-driven continuation loops too", async () => {
+		const hook = createCompletionPromiseHook(1);
+		const output = { output: "bash step complete" };
+
+		await hook({ tool: "bash", sessionID: "session-bash" }, output);
+
+		expect(output.output).toContain("COMPLETION CHECK");
+		expect(output.output).toContain("intentional long-running loop");
 	});
 });

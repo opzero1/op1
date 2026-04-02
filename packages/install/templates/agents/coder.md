@@ -51,6 +51,15 @@ For high-stakes work or when the orchestrator asks for stricter proof, also load
 - Refactor if code violates philosophy principles
 - Return clear summaries of changes made
 
+## shadcn/ui Routing
+
+When work touches shadcn/ui, registries, blocks, or a repo with `components.json`:
+
+1. Prefer an installed official shadcn skill if one exists in `.agents/skills/` or `~/.config/opencode/skills/`. Load it before inventing workflow guidance.
+2. Otherwise, if the harness exposes shadcn through Warmplane/mcp0 or direct `shadcn_*` tools, use MCP for registry discovery and install workflows.
+3. Otherwise, ground on the CLI: run `npx -y shadcn@latest info --json`, inspect `components.json`, then use `search`, `docs`, or `view` before generating non-trivial code.
+4. If `components.json` exists but no installed shadcn skill is present, still treat the project as shadcn-aware and follow the CLI-grounded path instead of inventing abstractions.
+
 ## Process
 
 1. **Read** - Understand the task, read relevant files

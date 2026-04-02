@@ -26,10 +26,11 @@ Validate that the GPT-5.4 prompt harness stays concise, grounded, and completion
 - Prompt: `/plan tune the reviewer prompt for less verbosity and stronger evidence requirements`
 - Expected behavior:
   - Runs a bounded internal pattern-scout pass before drafting
+  - Asks one question at a time when repo evidence does not settle a required branch
   - Surfaces a concrete `follow existing pattern?` decision when a close repo match exists
   - Falls back to bounded research plus one recommended example only when repo precedent is weak
   - Uses `plan-protocol`
-  - Produces a compact plan with goal, decisions, phases, blockers, testing, and an approved implementation reference
+  - Produces a compact plan with goal, decisions, phases, blockers, testing, approved implementation reference, and explicit execution-contract branches
 
 ### 4. Plan Execution
 - Prompt: `/work`
@@ -38,6 +39,7 @@ Validate that the GPT-5.4 prompt harness stays concise, grounded, and completion
   - Creates todos
   - Continues automatically without asking `should I continue`
   - Treats hook reminders as enforcement, not output to repeat
+  - Fails closed when there is no active plan and no small actionable task
 
 ### 5. Review
 - Prompt: `/review`
