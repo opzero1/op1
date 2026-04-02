@@ -1,3 +1,4 @@
+---
 description: Create an interview-driven implementation-ready workspace plan
 agent: plan
 skill:
