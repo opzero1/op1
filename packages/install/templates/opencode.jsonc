@@ -117,6 +117,14 @@
 			"type": "local",
 			"command": ["npx", "-y", "shadcn@latest", "mcp"]
 		},
+		// ui.sh MCP - Remote UI toolkit and design guidance for coding agents
+		"uidotsh": {
+			"type": "remote",
+			"url": "https://ui.sh/mcp?agent=opencode",
+			"headers": {
+				"Authorization": "Bearer {env:UIDOTSH_TOKEN}"
+			}
+		},
 
 		// Storybook MCP - Component library, props, design system
 		"storybook": {
@@ -156,6 +164,7 @@
 		"newrelic_*": false,
 		"figma_*": false,
 		"shadcn_*": false,
+		"uidotsh_*": false,
 		"storybook_*": false,
 		"context7_*": false,
 		"grep_app_*": false
@@ -165,6 +174,11 @@
 	// AGENT-SPECIFIC TOOL OVERRIDES
 	// =============================================
 	"agent": {
+		"build": {
+			"tools": {
+				"uidotsh_*": true
+			}
+		},
 		"explore": {
 			"tools": {
 				"lsp_*": true,
@@ -182,6 +196,7 @@
 				"newrelic_*": true,
 				"figma_*": true,
 				"shadcn_*": true,
+				"uidotsh_*": true,
 				"context7_*": true,
 				"grep_app_*": true
 			}
@@ -190,6 +205,7 @@
 			"tools": {
 				"context7_*": true,
 				"shadcn_*": true,
+				"uidotsh_*": true,
 				"storybook_*": true,
 				"zai-vision_*": true
 			}
@@ -198,6 +214,7 @@
 			"tools": {
 				"context7_*": true,
 				"shadcn_*": true,
+				"uidotsh_*": true,
 				"storybook_*": true,
 				"zai-vision_*": true,
 				"figma_*": true

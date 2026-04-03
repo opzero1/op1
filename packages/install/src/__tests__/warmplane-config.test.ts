@@ -233,6 +233,37 @@ describe("warmplane config helpers", () => {
 		});
 	});
 
+	test("builds ui.sh MCP config for warmplane downstream routing", () => {
+		const mcps: McpDefinition[] = [
+			{
+				id: "uidotsh",
+				name: "ui.sh",
+				description: "UI toolkit and design guidance for coding agents",
+				config: {
+					type: "remote",
+					url: "https://ui.sh/mcp?agent=opencode",
+					headers: {
+						Authorization: "Bearer {env:UIDOTSH_TOKEN}",
+					},
+				},
+				toolPattern: "uidotsh_*",
+				agentAccess: ["build", "researcher", "coder", "frontend"],
+			},
+		];
+
+		const config = buildWarmplaneConfig({ mcps });
+		expect(config.mcpServers.uidotsh).toEqual({
+			url: "https://ui.sh/mcp?agent=opencode",
+			protocolVersion: undefined,
+			allowStateless: undefined,
+			headers: {},
+			auth: {
+				type: "bearer",
+				tokenEnv: "UIDOTSH_TOKEN",
+			},
+		});
+	});
+
 	test("rewrites merged config into strict mcp0-only mode", () => {
 		const existing: OpenCodeConfig = {
 			mcp: {

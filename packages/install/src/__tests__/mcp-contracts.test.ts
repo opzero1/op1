@@ -60,6 +60,39 @@ describe("MCP requirement contract", () => {
 			command: ["npx", "-y", "shadcn@latest", "mcp"],
 		});
 	});
+
+	test("includes ui.sh in the design MCP catalog", () => {
+		const design = MCP_CATEGORIES.find((category) => category.id === "design");
+		const uidotsh = design?.mcps.find((mcp) => mcp.id === "uidotsh");
+
+		expect(uidotsh?.name).toBe("ui.sh");
+		expect(uidotsh?.toolPattern).toBe("uidotsh_*");
+		expect(uidotsh?.agentAccess).toEqual([
+			"build",
+			"researcher",
+			"coder",
+			"frontend",
+		]);
+		expect(uidotsh?.config).toEqual({
+			type: "remote",
+			url: "https://ui.sh/mcp?agent=opencode",
+			headers: {
+				Authorization: "Bearer {env:UIDOTSH_TOKEN}",
+			},
+		});
+	});
+
+	test("grants build agent access to the mcp0 facade", () => {
+		const facade = MCP_CATEGORIES.find((category) => category.id === "mcp0");
+		const mcp0 = facade?.mcps.find((mcp) => mcp.id === "mcp0");
+
+		expect(mcp0?.agentAccess).toEqual([
+			"build",
+			"researcher",
+			"coder",
+			"frontend",
+		]);
+	});
 });
 
 describe("MCP pointer compatibility contract", () => {

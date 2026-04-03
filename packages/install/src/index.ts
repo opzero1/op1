@@ -402,6 +402,20 @@ const MCP_CATEGORIES: McpCategory[] = [
 				toolPattern: "shadcn_*",
 				agentAccess: ["researcher", "coder", "frontend"],
 			},
+			{
+				id: "uidotsh",
+				name: "ui.sh",
+				description: "UI toolkit and design guidance for coding agents",
+				config: {
+					type: "remote",
+					url: "https://ui.sh/mcp?agent=opencode",
+					headers: {
+						Authorization: "Bearer {env:UIDOTSH_TOKEN}",
+					},
+				},
+				toolPattern: "uidotsh_*",
+				agentAccess: ["build", "researcher", "coder", "frontend"],
+			},
 		],
 	},
 	{
@@ -421,7 +435,7 @@ const MCP_CATEGORIES: McpCategory[] = [
 					command: ["warmplane", "mcp-server"],
 				},
 				toolPattern: "mcp0_*",
-				agentAccess: ["researcher", "coder", "frontend"],
+				agentAccess: ["build", "researcher", "coder", "frontend"],
 			},
 		],
 	},
