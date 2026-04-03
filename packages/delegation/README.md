@@ -28,7 +28,8 @@ Add plugin to OpenCode config:
 
 ## Task Identity
 
-- `task_id`: durable record id used for `background_output`, `background_cancel`, and plan citations
+- `task_id`: durable record id returned from `task`, used for `background_output`, `background_cancel`, and plan citations. Fresh launches should usually omit it and let the tool generate one. If an older wrapper still requires the field, pass an empty string rather than inventing a new id.
+- `continue_task_id`: explicit durable record id to resume/restart an existing task record
 - `session_id`: child OpenCode session id used for renderer navigation and session-level resume
 
 ## Data Layout
@@ -58,6 +59,12 @@ opencode debug config | jq '.plugin'
 
 Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace` and `@op1/delegation`, then smoke-test with `opencode run`.
 
+For a frontend-routing smoke test under the linked local setup, launch a routed task and confirm the returned task metadata shows `Agent: frontend`:
+
+```bash
+opencode run "Use task(description=\"UI smoke\", prompt=\"Polish the React settings page responsive behavior and accessibility states.\", auto_route=true, run_in_background=true) and report the task metadata."
+```
+
 ## Tooling Surface
 
 - `task`
@@ -65,6 +72,10 @@ Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace
 - `background_cancel`
 - `agent_status`
 - `task_graph_status`
+
+## Routing Note
+
+Fresh launches should default to generated task ids; use `continue_task_id` for explicit resume/restart flows. If a compatibility wrapper still requires `task_id`, pass `""` for fresh launches rather than inventing one. If frontend auto-routing becomes too broad, narrow the `FRONTEND_*` routing keywords in `packages/delegation/src/router.ts` and `packages/workspace/src/delegation/router.ts` together.
 
 ## License
 

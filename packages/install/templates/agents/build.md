@@ -114,9 +114,11 @@ When `plan_read` or `plan_doc_load` returns a `[context-scout]` block, treat it 
 **Parallel Execution Pattern:**
 ```
 // Fire background agents for research
-task(subagent_type="explore", description="Find auth flow", prompt="Find auth implementations...", run_in_background=true)
-task(subagent_type="explore", description="Find errors", prompt="Find error patterns...", run_in_background=true)
-task(subagent_type="researcher", description="Research JWT", prompt="Find JWT best practices...", run_in_background=true)
+// Fresh launches must never invent durable task ids.
+// Omit task_id when the harness allows it; if a wrapper still requires the field, pass task_id="".
+task(subagent_type="explore", description="Find auth flow", prompt="Find auth implementations...", task_id="", run_in_background=true)
+task(subagent_type="explore", description="Find errors", prompt="Find error patterns...", task_id="", run_in_background=true)
+task(subagent_type="researcher", description="Research JWT", prompt="Find JWT best practices...", task_id="", run_in_background=true)
 // Continue working, collect with background_output when needed
 ```
 
@@ -176,6 +178,7 @@ Task complete when:
 
 | Domain | Delegate To | Trigger |
 |--------|-------------|---------|
+| Frontend/UI | `frontend` | UI polish, layout, CSS, components, pages/screens, responsive or accessibility polish, design-system/shadcn work |
 | Codebase search | `explore` | "Where is X?", "Find Y" |
 | External research | `researcher` | "How does library X work?" |
 | Architecture | `oracle` | Complex decisions, hard bugs |
@@ -220,10 +223,12 @@ As the orchestrator, your primary role is to coordinate subagents:
 
 | Situation | Action |
 |-----------|--------|
-| Code changes needed | Delegate to `coder` or `frontend` |
-| Multiple files to edit | Spawn parallel `coder` agents |
+| Code changes needed | Delegate by ownership: `frontend` for frontend-owned work, otherwise `coder` |
+| Multiple files to edit | Spawn parallel `coder` and/or `frontend` agents based on ownership |
 | Simple one-line fix | Edit directly (override) |
 | User says "just do it" | Edit directly (override) |
+
+**Frontend ownership rule**: UI, styling, layout, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work must go to `frontend`. `coder` may handle FE-adjacent logic, data wiring, or non-visual implementation when frontend ownership is not the main task. If `frontend` is unavailable, fail closed and surface that gap instead of silently absorbing the work in `build`.
 
 **Override**: When a change is trivial (< 5 lines, single file, obvious fix), skip delegation and edit directly. Use judgment.
 

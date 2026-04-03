@@ -23,17 +23,20 @@ describe("compaction hook", () => {
 
 		await Bun.write(
 			planPath,
-			`---\nphase: 2\n---\n\n## Phase 2: Loop [IN PROGRESS]\n- [ ] **2.1 Continue iterating** ← CURRENT\n- [ ] 2.2 Follow-up\n`,
+			`---\nphase: 2\n---\n\n## Phase 2: Workflow [IN PROGRESS]\n- [ ] **2.1 Continue iterating** ← CURRENT\n- [ ] 2.2 Follow-up\n`,
 		);
-		await Bun.write(docPath, "# Brief\nAutoloop context doc preview.");
+		await Bun.write(
+			docPath,
+			"# Brief\nLong-running workflow context doc preview.",
+		);
 
 		const hook = createCompactionHook({
 			readActivePlanState: async () => ({
 				active_plan: planPath,
 				started_at: "2026-03-19T00:00:00Z",
 				session_ids: ["session-a"],
-				plan_name: "autoloop-plan",
-				title: "Autoloop Plan",
+				plan_name: "workflow-plan",
+				title: "Workflow Plan",
 			}),
 			getNotepadDir: async () => join(root, "notepad"),
 			readNotepadFile: async (file) => {
@@ -47,7 +50,7 @@ describe("compaction hook", () => {
 					id: "doc-1",
 					path: docPath,
 					type: "notes",
-					title: "Autoloop Brief",
+					title: "Workflow Brief",
 					phase: "2",
 					task: "2.1",
 					linked_at: "2026-03-19T00:00:00Z",
@@ -60,12 +63,12 @@ describe("compaction hook", () => {
 
 		expect(output.context).toHaveLength(1);
 		expect(output.context[0]).toContain("<workspace-context>");
-		expect(output.context[0]).toContain("Autoloop Plan");
+		expect(output.context[0]).toContain("Workflow Plan");
 		expect(output.context[0]).toContain(
 			"Current task: - [ ] **2.1 Continue iterating** ← CURRENT",
 		);
 		expect(output.context[0]).toContain("Decision: keep looping safely.");
-		expect(output.context[0]).toContain("Autoloop Brief");
+		expect(output.context[0]).toContain("Workflow Brief");
 		expect(output.context[0]).toContain("Doc ID: doc-1");
 	});
 

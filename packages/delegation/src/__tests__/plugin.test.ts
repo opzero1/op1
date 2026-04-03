@@ -1,8 +1,51 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join, mkdir, mkdtemp, rm, tmpdir } from "../bun-compat.js";
 import { DelegationPlugin } from "../index.js";
+import { createTaskStateManager } from "../state.js";
 
 let tempRoots: string[] = [];
+
+async function runCommand(command: string[], cwd: string): Promise<string> {
+	const proc = Bun.spawn(command, {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr, code] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	if (code !== 0) {
+		throw new Error(stderr.trim() || stdout.trim() || command.join(" "));
+	}
+	return stdout.trim();
+}
+
+async function initializeGitRepo(
+	root: string,
+	options?: { packageJson?: string },
+): Promise<void> {
+	await runCommand(["git", "init", "-b", "main"], root);
+	await Bun.write(join(root, "README.md"), "# test repo\n");
+	if (options?.packageJson) {
+		await Bun.write(join(root, "package.json"), options.packageJson);
+	}
+	await runCommand(["git", "add", "."], root);
+	await runCommand(
+		[
+			"git",
+			"-c",
+			"user.name=Op1 Test",
+			"-c",
+			"user.email=op1@example.com",
+			"commit",
+			"-m",
+			"init",
+		],
+		root,
+	);
+}
 
 afterEach(async () => {
 	for (const root of tempRoots) {
@@ -11,21 +54,43 @@ afterEach(async () => {
 	tempRoots = [];
 });
 
-function createMockClient(options?: { failPromptAsyncOnRepeat?: boolean }) {
+function createMockClient(options?: {
+	failPromptAsyncOnRepeat?: boolean;
+	availableAgents?: Array<{ name: string; mode: string }>;
+	createResponseShape?: "flat" | "nested-session" | "session-id";
+	statusResponseShape?: "indexed-type" | "direct-type" | "direct-status";
+	sessionParentKey?: "parentID" | "parentId" | "parent_id";
+}) {
 	const sessionParents: Record<string, string | undefined> = {
 		"parent-session": undefined,
 	};
 	const sessionStatuses: Record<string, string> = {};
 	const promptAsyncSessionCounts: Record<string, number> = {};
 	const promptedSessionIDs: string[] = [];
+	const availableAgents =
+		options?.availableAgents ??
+		([
+			{ name: "build", mode: "primary" },
+			{ name: "coder", mode: "subagent" },
+			{ name: "frontend", mode: "subagent" },
+			{ name: "oracle", mode: "subagent" },
+			{ name: "reviewer", mode: "subagent" },
+			{ name: "researcher", mode: "subagent" },
+			{ name: "explore", mode: "subagent" },
+		] satisfies Array<{ name: string; mode: string }>);
 	let defaultStatus = "running";
 	let childCount = 0;
 	let promptAsyncCalls = 0;
+	const createdSessionDirectories: Array<string | undefined> = [];
+
+	const sessionParentKey = options?.sessionParentKey ?? "parentID";
+	const createResponseShape = options?.createResponseShape ?? "flat";
+	const statusResponseShape = options?.statusResponseShape ?? "indexed-type";
 
 	return {
 		app: {
 			agents: async () => ({
-				data: [{ name: "explore", mode: "subagent" }],
+				data: availableAgents,
 			}),
 		},
 		session: {
@@ -33,15 +98,22 @@ function createMockClient(options?: { failPromptAsyncOnRepeat?: boolean }) {
 				data: {
 					id: input.path.id,
 					...(sessionParents[input.path.id]
-						? { parentID: sessionParents[input.path.id] }
+						? { [sessionParentKey]: sessionParents[input.path.id] }
 						: {}),
 				},
 			}),
-			create: async () => {
+			create: async (input?: { query?: { directory?: string } }) => {
 				childCount += 1;
 				const id = `child-session-${childCount}`;
+				createdSessionDirectories.push(input?.query?.directory);
 				sessionParents[id] = "parent-session";
 				sessionStatuses[id] = defaultStatus;
+				if (createResponseShape === "nested-session") {
+					return { data: { session: { id } } };
+				}
+				if (createResponseShape === "session-id") {
+					return { data: { sessionID: id } };
+				}
 				return { data: { id } };
 			},
 			prompt: async () => ({
@@ -72,18 +144,31 @@ function createMockClient(options?: { failPromptAsyncOnRepeat?: boolean }) {
 				],
 			}),
 			abort: async () => ({}),
-			status: async () => ({
-				data: {
-					...Object.fromEntries(
-						Object.keys(sessionParents)
-							.filter((id) => id.startsWith("child-session-"))
-							.map((id) => [
-								id,
-								{ type: sessionStatuses[id] ?? defaultStatus },
-							]),
-					),
-				},
-			}),
+			status: async (input: { path: { id: string } }) => {
+				if (statusResponseShape === "direct-type") {
+					return {
+						data: { type: sessionStatuses[input.path.id] ?? defaultStatus },
+					};
+				}
+				if (statusResponseShape === "direct-status") {
+					return {
+						data: { status: sessionStatuses[input.path.id] ?? defaultStatus },
+					};
+				}
+
+				return {
+					data: {
+						...Object.fromEntries(
+							Object.keys(sessionParents)
+								.filter((id) => id.startsWith("child-session-"))
+								.map((id) => [
+									id,
+									{ type: sessionStatuses[id] ?? defaultStatus },
+								]),
+						),
+					},
+				};
+			},
 		},
 		setStatus(next: string) {
 			defaultStatus = next;
@@ -99,6 +184,9 @@ function createMockClient(options?: { failPromptAsyncOnRepeat?: boolean }) {
 		},
 		getPromptedSessionIDs() {
 			return [...promptedSessionIDs];
+		},
+		getCreatedSessionDirectories() {
+			return [...createdSessionDirectories];
 		},
 	};
 }
@@ -249,6 +337,861 @@ describe("delegation plugin", () => {
 		expect(output).toContain("background result");
 	});
 
+	test("uses caller-provided task_id for a fresh task launch", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-custom-id-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Inspect runtime",
+				prompt: "Find contract drift in delegation.",
+				subagent_type: "explore",
+				task_id: "task-runtime-1",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(launch).toContain("Background task launched.");
+		expect(launch).toContain("Task ID: task-runtime-1");
+
+		const output = await backgroundOutputTool.execute(
+			{
+				task_id: "task-runtime-1",
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Task ID: task-runtime-1");
+		expect(output).toContain("Status: running");
+	});
+
+	test("uses continue_task_id to restart an existing completed task", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-continue-id-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient();
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client,
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Inspect runtime",
+				prompt: "Find contract drift in delegation.",
+				subagent_type: "explore",
+				task_id: "task-runtime-continue",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(launch).toContain("Task ID: task-runtime-continue");
+
+		client.setStatus("idle");
+		const firstTask = await backgroundOutputTool.execute(
+			{
+				task_id: "task-runtime-continue",
+				block: true,
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+		const firstSessionID = firstTask.match(/Session ID: ([^\n]+)/)?.[1];
+		expect(firstSessionID).toBeDefined();
+
+		const completed = await taskTool.execute(
+			{
+				description: "Inspect runtime again",
+				prompt: "Repeat the delegation inspection.",
+				subagent_type: "explore",
+				continue_task_id: "task-runtime-continue",
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(completed).toContain("Task completed.");
+		expect(completed).toContain("Task ID: task-runtime-continue");
+		const secondSessionID = completed.match(/Session ID: ([^\n]+)/)?.[1];
+		expect(secondSessionID).toBeDefined();
+		expect(secondSessionID).not.toBe(firstSessionID);
+	});
+
+	test("rejects mixing task_id and continue_task_id", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-mixed-id-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Inspect runtime",
+				prompt: "Find contract drift in delegation.",
+				subagent_type: "explore",
+				task_id: "task-runtime-1",
+				continue_task_id: "task-runtime-1",
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(output).toBe(
+			"❌ Provide either task_id for a new launch or continue_task_id to resume an existing task, not both.",
+		);
+	});
+
+	test("fails clearly when the requested agent is unavailable", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-missing-agent-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient({
+				availableAgents: [{ name: "explore", mode: "subagent" }],
+			}),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Frontend polish",
+				prompt: "Polish the React settings page responsive states.",
+				subagent_type: "frontend",
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(output).toContain("Agent 'frontend' is not available.");
+		expect(output).toContain("explore (subagent)");
+	});
+
+	test("auto-routes frontend-owned prompts to the frontend agent", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-auto-route-fe-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Settings page polish",
+				prompt:
+					"Polish the React settings page responsive behavior and accessibility states.",
+				auto_route: true,
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(output).toContain("Agent: frontend");
+		expect(output).toContain("Task ID:");
+	});
+
+	test("launches eligible coding tasks in isolated worktrees for git repos", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-worktree-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root);
+
+		const client = createMockClient();
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client,
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the requested helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const createdDirectory = client.getCreatedSessionDirectories()[0];
+		expect(output).toContain("Execution: worktree");
+		expect(output).toContain("Branch: op1/coder/");
+		expect(output).toContain("Worktree: ");
+		expect(createdDirectory).toBeDefined();
+		expect(createdDirectory).not.toBe(root);
+		if (!createdDirectory) {
+			throw new Error("Expected a created worktree directory");
+		}
+		expect(
+			await runCommand(
+				["git", "rev-parse", "--abbrev-ref", "HEAD"],
+				createdDirectory,
+			),
+		).toContain("op1/coder/");
+	});
+
+	test("keeps read-only explore tasks on the direct execution path", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-direct-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root);
+
+		const client = createMockClient();
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client,
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Inspect repo",
+				prompt: "Find the delegation entrypoints.",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(output).toContain("Execution: direct");
+		expect(client.getCreatedSessionDirectories()[0]).toBeUndefined();
+	});
+
+	test("verifies and merges worktree task changes on session idle", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-merge-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "merge-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		expect(worktreePath).toBeDefined();
+		if (!worktreePath) {
+			throw new Error("Expected worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(await runCommand(["git", "show", "HEAD:feature.txt"], root)).toBe(
+			"new feature",
+		);
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("Task completed.");
+		expect(output).toContain("Verified with `npm test` and merged branch");
+	});
+
+	test("fails worktree integration when verification fails", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-verify-fail-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "merge-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(1)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!worktreePath) {
+			throw new Error("Expected worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(await Bun.file(join(root, "feature.txt")).exists()).toBe(false);
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("Status: failed");
+		expect(output).toContain("Verification failed");
+	});
+
+	test("routes merge conflicts back to blocked task state for retry", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-conflict-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "merge-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+		await Bun.write(join(root, "conflict.txt"), "base\n");
+		await runCommand(["git", "add", "conflict.txt"], root);
+		await runCommand(
+			[
+				"git",
+				"-c",
+				"user.name=Op1 Test",
+				"-c",
+				"user.email=op1@example.com",
+				"commit",
+				"-m",
+				"add conflict file",
+			],
+			root,
+		);
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Update the conflict file.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!worktreePath) {
+			throw new Error("Expected worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "conflict.txt"), "worker change\n");
+		await Bun.write(join(root, "conflict.txt"), "root change\n");
+		await runCommand(["git", "add", "conflict.txt"], root);
+		await runCommand(
+			[
+				"git",
+				"-c",
+				"user.name=Op1 Test",
+				"-c",
+				"user.email=op1@example.com",
+				"commit",
+				"-m",
+				"root conflict change",
+			],
+			root,
+		);
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("Status: blocked");
+		expect(output).toContain("Merge conflict");
+	});
+
+	test("records targeted verification and review gating for manager-owned CAID tasks", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-caid-targeted-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "caid-targeted",
+				private: true,
+			}),
+		});
+		await mkdir(join(root, "packages", "delegation", "src"), {
+			recursive: true,
+		});
+		await Bun.write(
+			join(root, "packages", "delegation", "feature.test.ts"),
+			'import { expect, test } from "bun:test";\n\ntest("targeted verification", () => {\n\texpect(true).toBe(true);\n});\n',
+		);
+		await runCommand(["git", "add", "."], root);
+		await runCommand(
+			[
+				"git",
+				"-c",
+				"user.name=Op1 Test",
+				"-c",
+				"user.email=op1@example.com",
+				"commit",
+				"-m",
+				"add package tests",
+			],
+			root,
+		);
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await state.updateTask(taskID, {
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+		});
+		await Bun.write(
+			join(worktreePath, "packages", "delegation", "feature.test.ts"),
+			'import { expect, test } from "bun:test";\n\ntest("targeted verification", () => {\n\texpect(true).toBe(true);\n});\n// updated in worker\n',
+		);
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const updated = await state.getTask(taskID);
+		expect(updated?.status).toBe("blocked");
+		expect(updated?.execution?.verification_strategy).toBe("targeted");
+		expect(updated?.assignment?.verification?.selected_command).toContain(
+			"./packages/delegation",
+		);
+		expect(updated?.assignment?.review?.status).toBe("pending");
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("Status: blocked");
+		expect(output).toContain("Verification: targeted");
+		expect(output).toContain("Review: pending");
+	});
+
+	test("distinguishes dirty-root blocking for manager-owned CAID retries", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-caid-dirty-root-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "dirty-root-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await state.updateTask(taskID, {
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+		});
+		await Bun.write(join(worktreePath, "feature.txt"), "worker change\n");
+		await Bun.write(join(root, "dirty.txt"), "root dirty\n");
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const updated = await state.getTask(taskID);
+		expect(updated?.status).toBe("blocked");
+		expect(updated?.execution?.merge_status).toBe("dirty_root");
+		expect(updated?.assignment?.retry?.reason).toBe("dirty_root");
+		expect(updated?.assignment?.retry?.state).toBe("blocked");
+	});
+
+	test("requires a reviewer continuation to complete manager-owned CAID review", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-caid-review-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "review-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await state.updateTask(taskID, {
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+		});
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const blocked = await state.getTask(taskID);
+		expect(blocked?.status).toBe("blocked");
+		expect(blocked?.assignment?.review?.status).toBe("pending");
+
+		const completed = await taskTool.execute(
+			{
+				description: "Review integrated changes",
+				prompt: "Perform the formal final manager review.",
+				subagent_type: "reviewer",
+				continue_task_id: taskID,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(completed).toContain("Task completed.");
+		expect(completed).toContain("Manager review completed.");
+
+		const reviewed = await state.getTask(taskID);
+		expect(reviewed?.status).toBe("succeeded");
+		expect(reviewed?.assignment?.review?.status).toBe("complete");
+	});
+
+	test("records resync failure durably before retrying manager-owned merge conflicts", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-caid-resync-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "resync-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+		await Bun.write(join(root, "conflict.txt"), "base\n");
+		await runCommand(["git", "add", "conflict.txt"], root);
+		await runCommand(
+			[
+				"git",
+				"-c",
+				"user.name=Op1 Test",
+				"-c",
+				"user.email=op1@example.com",
+				"commit",
+				"-m",
+				"add conflict file",
+			],
+			root,
+		);
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Update the conflict file.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await state.updateTask(taskID, {
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+		});
+		await Bun.write(join(worktreePath, "conflict.txt"), "worker change\n");
+		await Bun.write(join(root, "conflict.txt"), "root change\n");
+		await runCommand(["git", "add", "conflict.txt"], root);
+		await runCommand(
+			[
+				"git",
+				"-c",
+				"user.name=Op1 Test",
+				"-c",
+				"user.email=op1@example.com",
+				"commit",
+				"-m",
+				"root conflict change",
+			],
+			root,
+		);
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const blocked = await state.getTask(taskID);
+		expect(blocked?.assignment?.retry?.reason).toBe("merge_conflict");
+		expect(blocked?.assignment?.retry?.state).toBe("resync_required");
+		const originalWorktree = blocked?.execution?.worktree_path;
+
+		const retry = await taskTool.execute(
+			{
+				description: "Retry conflict task",
+				prompt: "Retry the task after resync.",
+				subagent_type: "coder",
+				continue_task_id: taskID,
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(retry).toContain("❌");
+		const afterRetry = await state.getTask(taskID);
+		expect(afterRetry?.assignment?.retry?.last_resync_status).toBe("failed");
+		expect(afterRetry?.assignment?.retry?.state).toBe("blocked");
+		expect(afterRetry?.execution?.worktree_path).toBe(originalWorktree);
+	});
+
+	test("accepts current runtime create and status response shapes", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-runtime-shapes-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient({
+			createResponseShape: "nested-session",
+			statusResponseShape: "direct-status",
+			sessionParentKey: "parentId",
+		});
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client,
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Explore code",
+				prompt: "Inspect the repository.",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+
+		client.setStatus("idle");
+		const output = await backgroundOutputTool.execute(
+			{
+				task_id: taskID,
+				block: true,
+				timeout: 1000,
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Task completed.");
+		expect(output).toContain("background result");
+	});
+
 	test("keeps tasks queued once per-agent background concurrency is saturated", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-delegation-queue-"));
 		tempRoots.push(root);
@@ -371,769 +1314,5 @@ describe("delegation plugin", () => {
 		expect(result).toContain("Task completed.");
 		expect(result).toContain("sync result");
 		expect(result).toContain("<task_metadata>");
-	});
-
-	test("auto-restarts background autoloop tasks after success when stop conditions stay open", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-"));
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		const launched = await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		expect(launched).toContain("Background task launched.");
-		expect(client.getPromptAsyncCalls()).toBe(1);
-
-		client.setStatus("idle");
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(2);
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; result?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("running");
-		expect(task.command).toBe("autoloop:agent-harness@26");
-	});
-
-	test("restarts autoloop work on fresh child sessions across repeated iterations", async () => {
-		const root = await mkdtemp(
-			join(tmpdir(), "op1-delegation-autoloop-chain-"),
-		);
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-
-		const writeState = async (latestIteration: number, maxIterations = 28) => {
-			await Bun.write(
-				join(autoloopDir, "state.jsonl"),
-				[
-					JSON.stringify({
-						type: "config",
-						timestamp: "2026-03-19T00:00:00Z",
-						goal: "Improve the harness",
-						slug: "agent-harness",
-						max_iterations: maxIterations,
-					}),
-					JSON.stringify({
-						type: "iteration",
-						iteration: latestIteration,
-						timestamp: "2026-03-19T00:10:00Z",
-						action: "Made progress",
-						status: "passed",
-						outcome: "keep",
-						next_step: "Keep going",
-					}),
-				].join("\n"),
-			);
-		};
-
-		await writeState(26);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		await writeState(27);
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-2" },
-			},
-		});
-
-		await writeState(28);
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-3" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(3);
-		expect(client.getPromptedSessionIDs()).toEqual([
-			"child-session-1",
-			"child-session-2",
-			"child-session-3",
-		]);
-
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{
-					status: string;
-					command?: string;
-					result?: string;
-					child_session_id?: string;
-				}
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("succeeded");
-		expect(task.command).toBe("autoloop:agent-harness@27");
-		expect(task.child_session_id).toBe("child-session-3");
-		expect(task.result).toContain(
-			"Autoloop stop reason: reached max_iterations (28) at iteration 28.",
-		);
-	});
-
-	test("recovers autoloop restart without reusing the previous child session", async () => {
-		const root = await mkdtemp(
-			join(tmpdir(), "op1-delegation-autoloop-recover-"),
-		);
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient({ failPromptAsyncOnRepeat: true });
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptedSessionIDs()).toEqual([
-			"child-session-1",
-			"child-session-2",
-		]);
-
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; child_session_id?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("running");
-		expect(task.command).toBe("autoloop:agent-harness@26");
-		expect(task.child_session_id).toBe("child-session-2");
-	});
-
-	test("ignores duplicate idle events for an already-rotated autoloop child session", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-dup-"));
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-		expect(client.getPromptAsyncCalls()).toBe(2);
-
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-		expect(client.getPromptAsyncCalls()).toBe(2);
-
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; child_session_id?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("running");
-		expect(task.command).toBe("autoloop:agent-harness@26");
-		expect(task.child_session_id).toBe("child-session-2");
-	});
-
-	test("restarts autoloop work from background_output polling with a fresh child session", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-poll-"));
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient({ failPromptAsyncOnRepeat: true });
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		const backgroundOutputTool = plugin.tool?.background_output as {
-			execute: ToolExecute;
-		};
-
-		const launch = await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
-		expect(taskID).toBeDefined();
-
-		client.setSessionStatus("child-session-1", "idle");
-		const output = await backgroundOutputTool.execute(
-			{
-				task_id: taskID,
-				block: true,
-				timeout: 1000,
-				full_session: false,
-			},
-			{ sessionID: "parent-session" },
-		);
-
-		expect(output).toContain("Status: running");
-		expect(client.getPromptedSessionIDs()).toEqual([
-			"child-session-1",
-			"child-session-2",
-		]);
-
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; child_session_id?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("running");
-		expect(task.command).toBe("autoloop:agent-harness@26");
-		expect(task.child_session_id).toBe("child-session-2");
-	});
-
-	test("does not auto-restart autoloop tasks when paused or continuation is stopped", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-stop-"));
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(join(autoloopDir, ".paused"), "");
-		await Bun.write(
-			join(workspaceDir, "continuation.json"),
-			JSON.stringify(
-				{
-					sessions: {
-						"parent-session": {
-							session_id: "parent-session",
-							mode: "stopped",
-							updated_at: "2026-03-19T00:00:00Z",
-						},
-					},
-				},
-				null,
-				2,
-			),
-		);
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		client.setStatus("idle");
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(1);
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; result?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("succeeded");
-		expect(task.command).toBe("autoloop:agent-harness@25");
-		expect(task.result).toContain("Autoloop stop reason: .paused is present");
-	});
-
-	test("does not auto-restart autoloop tasks when continuation is in handoff mode", async () => {
-		const root = await mkdtemp(
-			join(tmpdir(), "op1-delegation-autoloop-handoff-"),
-		);
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(workspaceDir, "continuation.json"),
-			JSON.stringify(
-				{
-					sessions: {
-						"parent-session": {
-							session_id: "parent-session",
-							mode: "handoff",
-							updated_at: "2026-03-19T00:00:00Z",
-							handoff_to: "reviewer",
-							handoff_summary: "done",
-						},
-					},
-				},
-				null,
-				2,
-			),
-		);
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Keep going",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(1);
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; result?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("succeeded");
-		expect(task.command).toBe("autoloop:agent-harness@25");
-		expect(task.result).toContain(
-			"Autoloop stop reason: continuation mode is handoff",
-		);
-	});
-
-	test("annotates durable result when autoloop stops at max_iterations", async () => {
-		const root = await mkdtemp(join(tmpdir(), "op1-delegation-autoloop-max-"));
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 26,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 26,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "Made progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Stop here",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		client.setStatus("idle");
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(1);
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; result?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("succeeded");
-		expect(task.command).toBe("autoloop:agent-harness@25");
-		expect(task.result).toContain(
-			"Autoloop stop reason: reached max_iterations (26) at iteration 26.",
-		);
-	});
-
-	test("annotates durable result when autoloop stops without new checkpoint progress", async () => {
-		const root = await mkdtemp(
-			join(tmpdir(), "op1-delegation-autoloop-stall-"),
-		);
-		tempRoots.push(root);
-		const workspaceDir = join(root, ".opencode", "workspace");
-		await mkdir(workspaceDir, { recursive: true });
-		const autoloopDir = join(workspaceDir, "autoloop", "agent-harness");
-		await mkdir(autoloopDir, { recursive: true });
-		await Bun.write(
-			join(autoloopDir, "state.jsonl"),
-			[
-				JSON.stringify({
-					type: "config",
-					timestamp: "2026-03-19T00:00:00Z",
-					goal: "Improve the harness",
-					slug: "agent-harness",
-					max_iterations: 50,
-				}),
-				JSON.stringify({
-					type: "iteration",
-					iteration: 25,
-					timestamp: "2026-03-19T00:10:00Z",
-					action: "No new progress",
-					status: "passed",
-					outcome: "keep",
-					next_step: "Still waiting",
-				}),
-			].join("\n"),
-		);
-
-		const client = createMockClient();
-		const plugin = (await DelegationPlugin({
-			directory: root,
-			client,
-		} as never)) as unknown as {
-			tool?: Record<string, { execute: ToolExecute }>;
-			event?: (input: { event: unknown }) => Promise<void>;
-		};
-		const taskTool = plugin.tool?.task as { execute: ToolExecute };
-		await taskTool.execute(
-			{
-				description: "Autoloop worker",
-				prompt:
-					"Recover .opencode/workspace/autoloop/agent-harness/ and continue the loop.",
-				subagent_type: "build",
-				command: "autoloop:agent-harness@25",
-				run_in_background: true,
-			},
-			{ sessionID: "parent-session", ask: async () => {} },
-		);
-
-		client.setStatus("idle");
-		await plugin.event?.({
-			event: {
-				type: "session.idle",
-				properties: { sessionID: "child-session-1" },
-			},
-		});
-
-		expect(client.getPromptAsyncCalls()).toBe(1);
-		const taskRecords = JSON.parse(
-			await Bun.file(join(workspaceDir, "task-records.json")).text(),
-		) as {
-			delegations: Record<
-				string,
-				{ status: string; command?: string; result?: string }
-			>;
-		};
-		const task = Object.values(taskRecords.delegations)[0];
-		expect(task.status).toBe("succeeded");
-		expect(task.command).toBe("autoloop:agent-harness@25");
-		expect(task.result).toContain(
-			"Autoloop stop reason: no new checkpoint progress beyond iteration 25.",
-		);
 	});
 });

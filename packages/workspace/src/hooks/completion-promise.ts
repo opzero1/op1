@@ -46,7 +46,7 @@ export function createCompletionPromiseHook(
 
 You have completed ${current} task delegations without confirming plan completion.
 If the active plan or loop is truly complete, include <done>COMPLETE</done> in your next message.
-If this is an intentional long-running loop, continue until the user stops you, a .paused sentinel exists, or a genuine blocker is reached.
+If this is an intentional long-running workflow, continue until the user stops you, continuation is deliberately stopped or handed off, or a genuine blocker is reached.
 Do not switch into a wrap-up summary or "next steps" handoff while the loop evergreen task is still open.
 If work remains, continue working — but be intentional, not looping.
 </system-reminder>`;

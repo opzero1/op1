@@ -153,7 +153,11 @@ describe("workspace notification event hook", () => {
 		expect(beforeHook).toBeDefined();
 
 		await beforeHook?.(
-			{ tool: "question", sessionID: "foreground-session", callID: "call-question" },
+			{
+				tool: "question",
+				sessionID: "foreground-session",
+				callID: "call-question",
+			},
 			{
 				args: {
 					questions: [

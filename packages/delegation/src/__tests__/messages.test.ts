@@ -8,9 +8,9 @@ function createTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
 		root_session_id: "root-session",
 		parent_session_id: "parent-session",
 		child_session_id: "child-session-1",
-		description: "Autoloop worker",
+		description: "Implement helper",
 		agent: "build",
-		prompt: "Continue the loop.",
+		prompt: "Finish the helper.",
 		run_in_background: true,
 		status: "succeeded",
 		created_at: "2026-03-19T00:00:00.000Z",
@@ -35,14 +35,14 @@ test("formatFullSession includes persisted result when it differs from the lates
 		{
 			task: createTask({
 				result:
-					"background result\n\nAutoloop stop reason: .paused is present for slug 'agent-harness'.",
+					"background result\n\nVerified with `npm test` and merged branch op1/coder/task-1 into main.",
 			}),
 		},
 	);
 
 	expect(output).toContain("Latest result:");
 	expect(output).toContain(
-		"Autoloop stop reason: .paused is present for slug 'agent-harness'.",
+		"Verified with `npm test` and merged branch op1/coder/task-1 into main.",
 	);
 	expect(output).toContain("### assistant @ 2026-03-19T00:01:00.000Z");
 });

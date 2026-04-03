@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-	createNotificationChannelsHook,
 	createInputNeededNotificationHook,
+	createNotificationChannelsHook,
 	createSessionReadyNotificationHook,
 	type DesktopNotifier,
 	type NotificationClient,

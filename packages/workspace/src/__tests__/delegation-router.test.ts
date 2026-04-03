@@ -55,6 +55,36 @@ describe("delegation router", () => {
 		expect(result.telemetry.confidence).toBeGreaterThan(0.6);
 	});
 
+	test("routes realistic frontend ownership prompts to the frontend agent", () => {
+		for (const prompt of [
+			{
+				description: "Settings page polish",
+				prompt:
+					"Polish the React settings page responsive behavior and accessibility states.",
+			},
+			{
+				description: "Design system dialog",
+				prompt:
+					"Implement a shadcn dialog component with Tailwind styling and animation polish.",
+			},
+			{
+				description: "Dashboard screen cleanup",
+				prompt:
+					"Refine the dashboard screen layout, spacing, and interaction states for mobile.",
+			},
+		]) {
+			const result = resolveDelegationRouting({
+				description: prompt.description,
+				prompt: prompt.prompt,
+				autoRoute: true,
+			});
+
+			expect(result.agent).toBe("frontend");
+			expect(result.telemetry.detected_category).toBe("visual");
+			expect(result.telemetry.fallback_path).toBe("none");
+		}
+	});
+
 	test("falls back to general category when prompt is ambiguous", () => {
 		const classification = classifyDelegationCategory("run thing");
 		expect(classification.category).toBe("general");
@@ -194,6 +224,17 @@ describe("delegation router", () => {
 				description: "Architecture review",
 				prompt: "architecture strategy for complex service",
 				expectedCategory: "deep",
+			},
+			{
+				description: "React settings polish",
+				prompt:
+					"polish the react settings page responsive accessibility states",
+				expectedCategory: "visual",
+			},
+			{
+				description: "shadcn dialog",
+				prompt: "implement shadcn dialog component with tailwind styling",
+				expectedCategory: "visual",
 			},
 		];
 

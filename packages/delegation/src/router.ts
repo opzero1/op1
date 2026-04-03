@@ -32,6 +32,60 @@ interface CategoryClassification {
 	fallbackPath: DelegationFallbackPath;
 }
 
+const FRONTEND_DIRECT_KEYWORDS = [
+	"ui",
+	"ux",
+	"design",
+	"css",
+	"layout",
+	"frontend",
+	"tailwind",
+	"style",
+	"styling",
+	"responsive",
+	"accessibility",
+	"a11y",
+	"animation",
+	"interaction",
+	"visual",
+	"shadcn",
+	"design system",
+	"design-system",
+	"storybook",
+] as const;
+
+const FRONTEND_SURFACE_KEYWORDS = [
+	"react",
+	"next.js",
+	"nextjs",
+	"component",
+	"page",
+	"screen",
+	"view",
+	"dialog",
+	"modal",
+	"form",
+] as const;
+
+const FRONTEND_REFINEMENT_KEYWORDS = [
+	"polish",
+	"responsive",
+	"accessibility",
+	"a11y",
+	"style",
+	"styling",
+	"layout",
+	"design",
+	"visual",
+	"css",
+	"ux",
+	"ui",
+	"interaction",
+	"animation",
+	"shadcn",
+	"tailwind",
+] as const;
+
 const CATEGORY_AGENT_DEFAULTS: Record<DelegationCategory, string> = {
 	quick: "coder",
 	deep: "oracle",
@@ -105,6 +159,17 @@ function scoreCategory(text: string, keywords: string[]): number {
 	return score;
 }
 
+function isFrontendOwnedTask(text: string): boolean {
+	if (scoreCategory(text, [...FRONTEND_DIRECT_KEYWORDS]) > 0) {
+		return true;
+	}
+
+	return (
+		scoreCategory(text, [...FRONTEND_SURFACE_KEYWORDS]) > 0 &&
+		scoreCategory(text, [...FRONTEND_REFINEMENT_KEYWORDS]) > 0
+	);
+}
+
 export function parseDelegationCategory(
 	value: string | undefined,
 ): DelegationCategory | null {
@@ -130,6 +195,14 @@ export function classifyDelegationCategory(
 			category: "general",
 			confidence: 0.45,
 			fallbackPath: "keyword-fallback",
+		};
+	}
+
+	if (isFrontendOwnedTask(text)) {
+		return {
+			category: "visual",
+			confidence: 0.9,
+			fallbackPath: "none",
 		};
 	}
 

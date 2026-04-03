@@ -1,12 +1,28 @@
 import type { TaskRecord, TaskStatus } from "./state.js";
 
 type TerminalTaskStatus = "succeeded" | "failed" | "cancelled";
+type TaskExecution = NonNullable<TaskRecord["execution"]>;
+type TaskAssignment = NonNullable<TaskRecord["assignment"]>;
+type TaskRetry = NonNullable<TaskAssignment["retry"]>;
+type TaskReview = NonNullable<TaskAssignment["review"]>;
 
 export interface TaskGraphNode {
 	id: string;
 	status: TaskStatus;
 	agent: string;
 	category?: TaskRecord["category"];
+	manager_owned?: boolean;
+	workflow?: TaskAssignment["workflow"];
+	execution_mode?: TaskExecution["mode"];
+	branch?: string;
+	worktree_path?: string;
+	merge_status?: TaskExecution["merge_status"];
+	verification_status?: TaskExecution["verification_status"];
+	verification_strategy?: TaskExecution["verification_strategy"];
+	retry_reason?: TaskRetry["reason"];
+	retry_state?: TaskRetry["state"];
+	last_resync_status?: TaskRetry["last_resync_status"];
+	review_status?: TaskReview["status"];
 	root_session_id: string;
 	parent_session_id: string;
 	child_session_id: string;
@@ -77,6 +93,20 @@ export function buildTaskGraph(
 			status: record.status,
 			agent: record.agent,
 			category: record.category,
+			manager_owned:
+				record.assignment?.owner === "manager" &&
+				record.assignment.workflow === "caid",
+			workflow: record.assignment?.workflow,
+			execution_mode: record.execution?.mode,
+			branch: record.execution?.branch,
+			worktree_path: record.execution?.worktree_path,
+			merge_status: record.execution?.merge_status,
+			verification_status: record.execution?.verification_status,
+			verification_strategy: record.execution?.verification_strategy,
+			retry_reason: record.assignment?.retry?.reason,
+			retry_state: record.assignment?.retry?.state,
+			last_resync_status: record.assignment?.retry?.last_resync_status,
+			review_status: record.assignment?.review?.status,
 			root_session_id: record.root_session_id,
 			parent_session_id: record.parent_session_id,
 			child_session_id: record.child_session_id,

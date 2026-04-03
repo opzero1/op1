@@ -88,6 +88,7 @@ export interface TaskToolArgs {
 	prompt: string;
 	subagent_type?: string;
 	task_id?: string;
+	continue_task_id?: string;
 	command?: string;
 	run_in_background?: boolean;
 	category?: string;

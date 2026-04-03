@@ -22,39 +22,31 @@ Keep progress durable and recoverable without turning every task into a runaway 
 
 ## Durable State Layout
 
-Create a scoped state directory under:
+Use existing workspace durability primitives instead of a dedicated loop directory:
 
-```text
-.opencode/workspace/autoloop/<slug>/
-```
-
-Use these files:
-
-- `context.md` - cold-start brief for any future agent
-- `state.jsonl` - append-only machine log of iterations and outcomes
-- `worklog.md` - human-readable progress log
-- `ideas.md` - queued follow-up ideas or next experiments
-- `.paused` - sentinel file; if present, stop after the current safe checkpoint
+- active plan (`plan_read`, `plan_save`) for checklist state and execution scope
+- structured plan context (`plan_context_read`) for confirmed patterns and blast radius
+- notepads (`notepad_read`, `notepad_write`) for durable learnings, issues, and decisions
+- continuation tools (`continuation_status`, `continuation_continue`, `continuation_stop`, `continuation_handoff`) for run-state control
+- optional linked docs (`plan_doc_list`, `plan_doc_load`) for larger supporting context
 
 ## Setup Checklist
 
-1. Create the state directory and initialize the files.
-2. Write `context.md` with the goal, scope, constraints, success metric, files in scope, and stop conditions.
-3. Start `state.jsonl` with a config/header entry describing the objective.
-4. If workspace momentum/completion hooks depend on an active plan, create or recover a dedicated autoloop plan and keep one evergreen unchecked task for the running loop.
-5. Record each iteration in both `state.jsonl` and `worklog.md`.
-6. Refresh `context.md` whenever the strategy changes meaningfully.
+1. Create or recover an active plan that defines the goal, scope, constraints, success metric, and stop conditions.
+2. Read plan context and notepads before resuming execution.
+3. Keep one explicit unchecked task in the plan when the workflow is intentionally ongoing.
+4. Record each verified checkpoint in notepads and update the plan as strategy changes.
+5. Use continuation tools to mark running, stopped, or handoff state explicitly.
 
 ## Resume Protocol
 
 When resuming long-running work:
 
-1. Read `context.md` first.
-2. Read the latest entries from `state.jsonl` and `worklog.md`.
-3. Check for `.paused`; if present, do not continue the loop.
-4. Best-effort: if workspace continuation tools are available, check `continuation_status` and move the session back to `running` with `continuation_continue` before resuming.
-5. Rebuild the next-step queue from `ideas.md` and unfinished work.
-6. Continue from the last verified checkpoint instead of replaying the full history.
+1. Read the active plan, structured plan context, and relevant notepads first.
+2. Check `continuation_status`; if the workflow is stopped or handed off, do not resume blindly.
+3. If appropriate, move the session back to `running` with `continuation_continue` before resuming.
+4. Rebuild the next-step queue from the plan, linked docs, and unfinished work.
+5. Continue from the last verified checkpoint instead of replaying the full history.
 
 ## Autonomous Recovery
 
@@ -63,27 +55,25 @@ When the workflow is intended to run autonomously and a recoverable problem appe
 1. Prefer automatic recovery over user choice menus.
 2. Restore from the safest recent checkpoint if one exists.
 3. If no checkpoint exists, record the gap, start a new safe segment, and continue.
-4. For autoresearch-style loops, keep going until the user explicitly stops the loop or a pause sentinel exists.
+4. For autoresearch-style loops, keep going until the user explicitly stops the workflow or continuation is deliberately stopped or handed off.
 5. Only stop early when the choice is destructive, irreversible, or credential-bound.
 
 ## Logging Rules
 
-Each `state.jsonl` entry should capture:
+Record durable checkpoints in notepads and plan updates. Each checkpoint should capture:
 
-- iteration number
 - timestamp
 - action summary
-- files changed
-- verification status
+- verification evidence
 - outcome (`keep`, `discard`, `blocked`, `done`)
-- next step
+- explicit next step
 
-Keep the log append-only. If direction changes, start a new entry or segment; do not rewrite history.
+Keep the history append-only in notepads. If direction changes, add a new entry; do not rewrite prior decisions.
 
 ## Safety Rails
 
 - Stop on explicit user instruction.
-- Stop when `.paused` exists.
+- Stop when continuation is explicitly stopped or handed off.
 - Stop when a destructive or irreversible decision requires user approval.
 - Stop when a required credential or external dependency is missing.
 - Stop when verification fails repeatedly and the issue is no longer localized.
@@ -91,9 +81,9 @@ Keep the log append-only. If direction changes, start a new entry or segment; do
 
 ## Best Practices
 
-- Use `todowrite` for active execution steps and the state directory for durable recovery.
+- Use `todowrite` for active execution steps and plan/notepad state for durable recovery.
 - Update `notepad_write` with durable learnings and decisions when working against a plan.
-- Prefer a dedicated autoloop plan over reusing a feature plan when harness momentum depends on unfinished plan tasks.
+- Prefer one active execution plan over parallel shadow plans.
 - Prefer small verified checkpoints over giant batches.
 - If a run can be resumed later, leave the next step written down explicitly.
 

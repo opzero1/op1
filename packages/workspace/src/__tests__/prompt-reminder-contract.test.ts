@@ -138,7 +138,7 @@ describe("prompt reminder contracts", () => {
 
 		expect(output.output).toContain("COMPLETION CHECK");
 		expect(output.output).toContain("<done>COMPLETE</done>");
-		expect(output.output).toContain("intentional long-running loop");
+		expect(output.output).toContain("intentional long-running workflow");
 		expect(output.output).toContain(
 			'Do not switch into a wrap-up summary or "next steps" handoff',
 		);

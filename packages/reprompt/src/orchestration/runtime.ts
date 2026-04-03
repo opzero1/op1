@@ -121,7 +121,9 @@ export function parseCommandTriggerArgs(
 	}
 
 	const escaped = normalizedMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const prefix = rawArgs.match(new RegExp(`^${escaped}(?::|\\s+)([\\s\\S]*)$`, "i"));
+	const prefix = rawArgs.match(
+		new RegExp(`^${escaped}(?::|\\s+)([\\s\\S]*)$`, "i"),
+	);
 	if (prefix) {
 		return {
 			rawArgs,

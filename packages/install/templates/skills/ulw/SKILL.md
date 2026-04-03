@@ -22,9 +22,11 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 | Documentation & References | `researcher` | BACKGROUND TASKS, parallel |
 | Planning & Strategy | `plan` agent | Dedicated work breakdown |
 | High-IQ Reasoning | `oracle` | Architecture, debugging |
-| Frontend/UI | `coder` with `frontend-philosophy` | Delegate visual work |
+| Frontend/UI | `frontend` | Frontend-owned visual work |
 | Code Implementation | `coder` | Atomic coding tasks |
 | Code Review | `reviewer` | Before completion |
+
+Use `frontend` for UI polish, layout, styling, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work. Use `coder` for FE-adjacent logic or data wiring when the task is not frontend-owned.
 
 ---
 
@@ -92,21 +94,24 @@ The `@op1/workspace` plugin provides automatic momentum:
 ## Quick Reference: Agent Routing
 
 ```
+// Fresh launches must never invent durable task ids.
+// Omit task_id when the harness allows it; if a wrapper still requires the field, pass task_id="".
+
 // Codebase search
-task(subagent_type="explore", description="Search code", prompt="...", run_in_background=true)
+task(subagent_type="explore", description="Search code", prompt="...", task_id="", run_in_background=true)
 
 // External docs/GitHub
-task(subagent_type="researcher", description="Research docs", prompt="...", run_in_background=true)
+task(subagent_type="researcher", description="Research docs", prompt="...", task_id="", run_in_background=true)
 
 // Strategic planning
-task(subagent_type="plan", description="Plan work", prompt="...")
+task(subagent_type="plan", description="Plan work", prompt="...", task_id="")
 
 // Architecture consultation
-task(subagent_type="oracle", description="Review architecture", prompt="...")
+task(subagent_type="oracle", description="Review architecture", prompt="...", task_id="")
 
 // Implementation
-task(subagent_type="coder", description="Implement change", prompt="...")
+task(subagent_type="coder", description="Implement change", prompt="...", task_id="")
 
 // Code review
-task(subagent_type="reviewer", description="Review changes", prompt="Review changes in [files]")
+task(subagent_type="reviewer", description="Review changes", prompt="Review changes in [files]", task_id="")
 ```

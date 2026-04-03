@@ -54,6 +54,44 @@ describe("task state manager", () => {
 		expect(persisted?.description).toBe("Explore code");
 	});
 
+	test("persists worktree execution metadata", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "sunny-worktree-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-1",
+			description: "Implement helper",
+			agent: "coder",
+			prompt: "Add the helper",
+			execution: {
+				mode: "worktree",
+				branch: "op1/coder/sunny-worktree-task",
+				base_branch: "main",
+				worktree_path: "/tmp/op1-worktree",
+				merge_status: "pending",
+				verification_status: "pending",
+			},
+			run_in_background: true,
+		});
+
+		const persisted = await createTaskStateManager(env.workspaceDir).getTask(
+			"sunny-worktree-task",
+		);
+
+		expect(persisted?.execution).toMatchObject({
+			mode: "worktree",
+			branch: "op1/coder/sunny-worktree-task",
+			base_branch: "main",
+			worktree_path: "/tmp/op1-worktree",
+			merge_status: "pending",
+			verification_status: "pending",
+		});
+	});
+
 	test("restarts a completed task on the same session", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);
@@ -87,6 +125,207 @@ describe("task state manager", () => {
 		expect(restarted.description).toBe("Follow-up task");
 		expect(restarted.result).toBeUndefined();
 		expect(restarted.error).toBeUndefined();
+	});
+
+	test("persists manager-owned assignment schema", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "dep-1",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-dep",
+			description: "Dependency",
+			agent: "explore",
+			prompt: "Dependency task",
+			run_in_background: true,
+		});
+		await state.transitionTask("dep-1", "running");
+		await state.transitionTask("dep-1", "succeeded");
+
+		await state.createTask({
+			id: "caid-task-1",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-1",
+			description: "Manager owned task",
+			agent: "coder",
+			prompt: "Implement the feature",
+			depends_on: ["dep-1"],
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+				dependency_ids: ["dep-1"],
+				retry: {
+					reason: "merge_conflict",
+					state: "resync_required",
+					last_resync_status: "failed",
+					last_resync_at: "2026-04-03T00:00:00.000Z",
+					last_resync_summary: "conflict summary",
+				},
+				verification: {
+					strategy: "targeted",
+					candidate_commands: ["bun test ./packages/delegation"],
+					selected_command: "bun test ./packages/delegation",
+					fallback_command: "bun test",
+					selection_reason: "single package touched",
+				},
+				review: {
+					status: "pending",
+					summary: "Manager review pending",
+				},
+			},
+			run_in_background: true,
+		});
+
+		const persisted = await createTaskStateManager(env.workspaceDir).getTask(
+			"caid-task-1",
+		);
+
+		expect(persisted?.assignment).toMatchObject({
+			owner: "manager",
+			workflow: "caid",
+			dependency_ids: ["dep-1"],
+			retry: {
+				reason: "merge_conflict",
+				state: "resync_required",
+				last_resync_status: "failed",
+			},
+			verification: {
+				strategy: "targeted",
+				selected_command: "bun test ./packages/delegation",
+			},
+			review: {
+				status: "pending",
+			},
+		});
+	});
+
+	test("orders manager-owned promotable tasks by dependency depth", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "dep-root",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-root",
+			description: "Dependency root",
+			agent: "coder",
+			prompt: "Root task",
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+			run_in_background: true,
+		});
+		await state.transitionTask("dep-root", "running");
+		await state.transitionTask("dep-root", "succeeded");
+		await state.createTask({
+			id: "manager-ready",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-ready",
+			description: "Manager ready",
+			agent: "coder",
+			prompt: "Ready task",
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+			},
+			run_in_background: true,
+		});
+		await state.createTask({
+			id: "manager-dependent",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-2",
+			description: "Dependency child",
+			agent: "coder",
+			prompt: "Child task",
+			depends_on: ["dep-root"],
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+				dependency_ids: ["dep-root"],
+			},
+			run_in_background: true,
+		});
+		await state.createTask({
+			id: "ordinary-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-3",
+			description: "Ordinary task",
+			agent: "explore",
+			prompt: "Inspect repo",
+			run_in_background: true,
+		});
+
+		const promotable = await state.listPromotableTasks({
+			root_session_id: "root-1",
+		});
+
+		expect(promotable.map((task) => task.id)).toEqual([
+			"manager-ready",
+			"manager-dependent",
+			"ordinary-task",
+		]);
+	});
+
+	test("keeps manager review-pending and resync-required tasks out of promotion", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "review-pending-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-1",
+			description: "Await review",
+			agent: "coder",
+			prompt: "Await review",
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+				review: { status: "pending" },
+			},
+			run_in_background: true,
+			initial_status: "blocked",
+		});
+		await state.createTask({
+			id: "resync-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-2",
+			description: "Await resync",
+			agent: "coder",
+			prompt: "Retry after resync",
+			assignment: {
+				owner: "manager",
+				workflow: "caid",
+				retry: {
+					reason: "merge_conflict",
+					state: "resync_required",
+				},
+			},
+			execution: {
+				mode: "worktree",
+				merge_status: "conflicted",
+			},
+			run_in_background: true,
+			initial_status: "blocked",
+		});
+
+		const promotable = await state.listPromotableTasks({
+			root_session_id: "root-1",
+		});
+
+		expect(promotable).toHaveLength(0);
 	});
 
 	test("reads legacy version-3 task records from delegations.json", async () => {

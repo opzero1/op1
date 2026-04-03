@@ -41,7 +41,7 @@ function findNextTask(content: string): string | null {
 }
 
 function isLongRunningLoopPlan(content: string): boolean {
-	return /(?:^|\W)autoloop(?:\W|$)|continue verified .*iterations until explicitly stopped|\.paused|max_iterations|long-running loop/i.test(
+	return /continue verified .*iterations until explicitly stopped|long-running loop|multi-day execution|resumable workflow/i.test(
 		content,
 	);
 }

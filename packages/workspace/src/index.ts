@@ -11,21 +11,7 @@
  */
 
 import { type Plugin, tool } from "@opencode-ai/plugin";
-import {
-	buildAutoloopStatusSnapshot,
-	createAutoloopIterationEntry,
-	parseAutoloopStateFile,
-	serializeAutoloopStateEntry,
-} from "./autoloop/state.js";
-import {
-	homedir,
-	join,
-	mkdir,
-	relative,
-	resolve,
-	rm,
-	writeFile,
-} from "./bun-compat.js";
+import { homedir, join, mkdir, relative, resolve } from "./bun-compat.js";
 import { createContextScoutStateManager } from "./context-scout/state.js";
 import { createContinuationStateManager } from "./continuation/state.js";
 import {
@@ -97,40 +83,10 @@ import {
 	executeSessionRead,
 	executeSessionSearch,
 } from "./session-history.js";
-import { getProjectId, isSystemError, runCommand } from "./utils.js";
+import { getProjectId, isSystemError } from "./utils.js";
 import { createWorktreeTools } from "./worktree/index.js";
 
 // ── Plugin ─────────────────────────────────────────────────
-
-async function acquireAutoloopCheckpointLock(
-	directory: string,
-	lockPath: string,
-	timeoutMs: number = 5000,
-): Promise<() => Promise<void>> {
-	const start = Date.now();
-
-	while (Date.now() - start < timeoutMs) {
-		try {
-			await runCommand(["mkdir", lockPath], directory);
-			return async () => {
-				await rm(lockPath, { recursive: true, force: true });
-			};
-		} catch (error) {
-			if (
-				error instanceof Error &&
-				/(File exists|EEXIST)/.test(error.message)
-			) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
-				continue;
-			}
-			throw error;
-		}
-	}
-
-	throw new Error(
-		`Autoloop checkpoint lock timeout after ${timeoutMs}ms: ${lockPath}`,
-	);
-}
 
 export const WorkspacePlugin: Plugin = async (ctx) => {
 	const { directory } = ctx;
@@ -1868,160 +1824,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						null,
 						2,
 					);
-				},
-			}),
-
-			autoloop_status: tool({
-				description:
-					"Read a derived autoloop status snapshot from state.jsonl, .paused, and continuation mode.",
-				args: {
-					slug: tool.schema
-						.string()
-						.describe(
-							"Autoloop state slug under .opencode/workspace/autoloop/.",
-						),
-					session_id: tool.schema
-						.string()
-						.optional()
-						.describe(
-							"Optional target session ID for continuation status. Defaults to current session.",
-						),
-				},
-				async execute(args, toolCtx) {
-					const slug = args.slug.trim();
-					if (!slug) {
-						return "❌ autoloop_status requires a non-empty slug.";
-					}
-
-					const autoloopDir = join(workspaceDir, "autoloop", slug);
-					const statePath = join(autoloopDir, "state.jsonl");
-					const stateFile = Bun.file(statePath);
-					if (!(await stateFile.exists())) {
-						return `❌ Autoloop state file not found: ${statePath}`;
-					}
-
-					const [stateContent, paused] = await Promise.all([
-						stateFile.text(),
-						Bun.file(join(autoloopDir, ".paused")).exists(),
-					]);
-					const parsed = parseAutoloopStateFile(stateContent);
-
-					const sessionID = args.session_id ?? toolCtx?.sessionID;
-					const continuation =
-						hookConfig.features.continuationCommands && sessionID
-							? await continuationState.getSession(sessionID)
-							: null;
-
-					return JSON.stringify(
-						{
-							...buildAutoloopStatusSnapshot(parsed.entries, {
-								paused,
-								continuation,
-							}),
-							parse_issues: parsed.issues,
-						},
-						null,
-						2,
-					);
-				},
-			}),
-
-			autoloop_checkpoint: tool({
-				description:
-					"Append a locked autoloop checkpoint with monotonic iteration numbering.",
-				args: {
-					slug: tool.schema
-						.string()
-						.describe(
-							"Autoloop state slug under .opencode/workspace/autoloop/.",
-						),
-					action: tool.schema
-						.string()
-						.describe("Short checkpoint summary for this iteration."),
-					files_changed: tool.schema
-						.array(tool.schema.string())
-						.optional()
-						.describe("Files touched during this iteration."),
-					verification: tool.schema
-						.array(tool.schema.string())
-						.optional()
-						.describe("Verification evidence for this iteration."),
-					status: tool.schema
-						.string()
-						.optional()
-						.describe("Verification status string. Defaults to 'passed'."),
-					outcome: tool.schema
-						.enum(["keep", "discard", "blocked", "done"])
-						.optional()
-						.describe("Checkpoint outcome. Defaults to 'keep'."),
-					next_step: tool.schema
-						.string()
-						.describe("Explicit next step to leave in the checkpoint."),
-					timestamp: tool.schema
-						.string()
-						.optional()
-						.describe("Optional checkpoint timestamp override."),
-				},
-				async execute(args) {
-					const slug = args.slug.trim();
-					if (!slug) {
-						return "❌ autoloop_checkpoint requires a non-empty slug.";
-					}
-
-					const autoloopDir = join(workspaceDir, "autoloop", slug);
-					const statePath = join(autoloopDir, "state.jsonl");
-					if (!(await Bun.file(statePath).exists())) {
-						return `❌ Autoloop state file not found: ${statePath}`;
-					}
-
-					const lockPath = join(
-						autoloopDir,
-						`.checkpoint-lock-${slug.replace(/[^A-Za-z0-9._-]+/g, "-")}`,
-					);
-					const release = await acquireAutoloopCheckpointLock(
-						directory,
-						lockPath,
-					);
-
-					try {
-						const stateFile = Bun.file(statePath);
-						if (!(await stateFile.exists())) {
-							return `❌ Autoloop state file not found: ${statePath}`;
-						}
-						const stateContent = await stateFile.text();
-						const parsed = parseAutoloopStateFile(stateContent);
-						if (parsed.issues.length > 0) {
-							return `❌ Cannot append autoloop checkpoint because state.jsonl has parse issues at lines: ${parsed.issues.map((issue) => issue.line).join(", ")}`;
-						}
-
-						const entry = createAutoloopIterationEntry(parsed.entries, {
-							timestamp: args.timestamp,
-							action: args.action,
-							files_changed: args.files_changed,
-							verification: args.verification,
-							status: args.status?.trim() || "passed",
-							outcome: args.outcome ?? "keep",
-							next_step: args.next_step,
-						});
-
-						const previous = stateContent.trimEnd();
-						const nextContent = previous
-							? `${previous}\n${serializeAutoloopStateEntry(entry)}\n`
-							: `${serializeAutoloopStateEntry(entry)}\n`;
-						await writeFile(statePath, nextContent);
-
-						return JSON.stringify(
-							{
-								slug,
-								state_path: statePath,
-								entry,
-							},
-							null,
-							2,
-						);
-					} finally {
-						await release();
-					}
 				},
 			}),
 

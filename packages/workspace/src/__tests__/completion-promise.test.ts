@@ -14,7 +14,7 @@ describe("completion promise hook", () => {
 		expect(output.output).toContain(
 			"If the active plan or loop is truly complete",
 		);
-		expect(output.output).toContain("intentional long-running loop");
+		expect(output.output).toContain("intentional long-running workflow");
 		expect(output.output).toContain(
 			'Do not switch into a wrap-up summary or "next steps" handoff',
 		);
@@ -39,6 +39,6 @@ describe("completion promise hook", () => {
 		await hook({ tool: "bash", sessionID: "session-bash" }, output);
 
 		expect(output.output).toContain("COMPLETION CHECK");
-		expect(output.output).toContain("intentional long-running loop");
+		expect(output.output).toContain("intentional long-running workflow");
 	});
 });

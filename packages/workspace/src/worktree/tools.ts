@@ -200,6 +200,16 @@ export function createWorktreeTools(
 				const worktreeBase = getWorktreeBase();
 				await mkdir(worktreeBase, { recursive: true });
 
+				const stateDB = await getDB();
+				const existingSession = stateDB.getSession(toolCtx.sessionID);
+				if (existingSession) {
+					const relExistingPath = relative(
+						directory,
+						existingSession.worktree_path,
+					);
+					return `❌ Session already has a tracked worktree at ${relExistingPath}. Leave or delete it before creating another.`;
+				}
+
 				const worktreePath = join(worktreeBase, sanitized.replace(/\//g, "-"));
 
 				// Check if worktree already exists
@@ -240,8 +250,15 @@ export function createWorktreeTools(
 					);
 
 					// Track in database
-					const stateDB = await getDB();
-					stateDB.addSession(toolCtx.sessionID, worktreePath, sanitized);
+					try {
+						stateDB.addSession(toolCtx.sessionID, worktreePath, sanitized);
+					} catch (error) {
+						await runCommand(
+							["git", "worktree", "remove", "--force", worktreePath],
+							directory,
+						).catch(() => undefined);
+						throw error;
+					}
 
 					// Open terminal if requested
 					const openTerminal = args.open_terminal !== false;

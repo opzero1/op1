@@ -69,7 +69,11 @@ function scoreHintPath(input: {
 	for (const term of input.searchTerms) {
 		if (!lower.includes(term)) continue;
 		score += Math.min(8, Math.max(3, term.length));
-		if (segments.includes(term) || base === term || base.startsWith(`${term}.`)) {
+		if (
+			segments.includes(term) ||
+			base === term ||
+			base.startsWith(`${term}.`)
+		) {
 			score += 6;
 		}
 	}

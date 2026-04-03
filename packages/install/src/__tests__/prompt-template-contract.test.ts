@@ -153,6 +153,24 @@ describe("prompt template contracts", () => {
 		expect(verification).toContain("## Evidence Format");
 	});
 
+	test("frontend ownership guidance stays consistent across build, coder, and ULW prompts", async () => {
+		const [build, coder, frontend, ulw] = await Promise.all([
+			readTemplate("agents", "build.md"),
+			readTemplate("agents", "coder.md"),
+			readTemplate("agents", "frontend.md"),
+			readTemplate("skills", "ulw", "SKILL.md"),
+		]);
+
+		expect(build).toContain("Frontend ownership rule");
+		expect(build).toContain("must go to `frontend`");
+		expect(build).toContain("fail closed");
+		expect(coder).toContain("belongs to `frontend`");
+		expect(coder).toContain("FE-adjacent logic or mixed tasks");
+		expect(frontend).toContain("You ARE the frontend specialist");
+		expect(ulw).toContain("| Frontend/UI | `frontend` |");
+		expect(ulw).toContain("Use `frontend` for UI polish");
+	});
+
 	test("long-running workflows skill defines durable state and pause controls", async () => {
 		const prompt = await readTemplate(
 			"skills",
@@ -161,12 +179,15 @@ describe("prompt template contracts", () => {
 		);
 
 		expect(prompt).toContain("name: long-running-workflows");
-		expect(prompt).toContain(".opencode/workspace/autoloop/<slug>/");
-		expect(prompt).toContain("state.jsonl");
-		expect(prompt).toContain(".paused");
-		expect(prompt).toContain("dedicated autoloop plan");
+		expect(prompt).toContain("active plan (`plan_read`, `plan_save`)");
+		expect(prompt).toContain("structured plan context (`plan_context_read`)");
+		expect(prompt).toContain("notepads (`notepad_read`, `notepad_write`)");
 		expect(prompt).toContain("continuation_status");
 		expect(prompt).toContain("continuation_stop");
+		expect(prompt).not.toContain(".opencode/workspace/autoloop/<slug>/");
+		expect(prompt).not.toContain("state.jsonl");
+		expect(prompt).not.toContain(".paused");
+		expect(prompt).not.toContain("dedicated autoloop plan");
 		expect(prompt).toContain(
 			"Do not create git commits unless the user explicitly asks for them.",
 		);
