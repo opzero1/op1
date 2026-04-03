@@ -25,7 +25,7 @@ Keep progress durable and recoverable without turning every task into a runaway 
 Use existing workspace durability primitives instead of a dedicated loop directory:
 
 - active plan (`plan_read`, `plan_save`) for checklist state and execution scope
-- structured plan context (`plan_context_read`) for confirmed patterns and blast radius
+- structured plan context (`plan_context_read`, when available) for confirmed patterns and blast radius
 - notepads (`notepad_read`, `notepad_write`) for durable learnings, issues, and decisions
 - continuation tools (`continuation_status`, `continuation_continue`, `continuation_stop`, `continuation_handoff`) for run-state control
 - optional linked docs (`plan_doc_list`, `plan_doc_load`) for larger supporting context
@@ -33,7 +33,7 @@ Use existing workspace durability primitives instead of a dedicated loop directo
 ## Setup Checklist
 
 1. Create or recover an active plan that defines the goal, scope, constraints, success metric, and stop conditions.
-2. Read plan context and notepads before resuming execution.
+2. Read plan context when available and notepads before resuming execution.
 3. Keep one explicit unchecked task in the plan when the workflow is intentionally ongoing.
 4. Record each verified checkpoint in notepads and update the plan as strategy changes.
 5. Use continuation tools to mark running, stopped, or handoff state explicitly.
@@ -42,7 +42,7 @@ Use existing workspace durability primitives instead of a dedicated loop directo
 
 When resuming long-running work:
 
-1. Read the active plan, structured plan context, and relevant notepads first.
+1. Read the active plan, structured plan context when available, and relevant notepads first.
 2. Check `continuation_status`; if the workflow is stopped or handed off, do not resume blindly.
 3. If appropriate, move the session back to `running` with `continuation_continue` before resuming.
 4. Rebuild the next-step queue from the plan, linked docs, and unfinished work.

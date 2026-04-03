@@ -143,6 +143,9 @@ describe("P0 feature smoke", () => {
 			directory: root,
 			client: createMockClient(),
 		} as never);
+		const planPromoteTool = plugin.tool?.plan_promote;
+		const planContextReadTool = plugin.tool?.plan_context_read;
+		const planContextWriteTool = plugin.tool?.plan_context_write;
 		const planReadTool = plugin.tool?.plan_read as
 			| {
 					execute: (
@@ -151,6 +154,9 @@ describe("P0 feature smoke", () => {
 					) => Promise<string>;
 			  }
 			| undefined;
+		expect(planPromoteTool).toBeDefined();
+		expect(planContextReadTool).toBeDefined();
+		expect(planContextWriteTool).toBeDefined();
 		expect(planReadTool).toBeDefined();
 		if (!planReadTool) {
 			throw new Error("plan_read tool is missing in smoke scenario");
@@ -160,6 +166,6 @@ describe("P0 feature smoke", () => {
 			{ reason: "smoke test" },
 			{ sessionID: "smoke-session" },
 		);
-		expect(planReadResult).toContain("No plan found");
+		expect(planReadResult).toMatch(/No plan/);
 	});
 });

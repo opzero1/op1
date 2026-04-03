@@ -26,7 +26,7 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 | Code Implementation | `coder` | Atomic coding tasks |
 | Code Review | `reviewer` | Before completion |
 
-Use `frontend` for UI polish, layout, styling, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work. Use `coder` for FE-adjacent logic or data wiring when the task is not frontend-owned.
+Use `frontend` for UI polish, layout, styling, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work. Use `coder` for FE-adjacent logic or data wiring when the task is not frontend-owned. If a request explicitly names the wrong subagent for clearly frontend-owned implementation work, reroute to `frontend` instead of executing directly in `build`/`coder`.
 
 ---
 
@@ -109,7 +109,10 @@ task(subagent_type="plan", description="Plan work", prompt="...", task_id="")
 // Architecture consultation
 task(subagent_type="oracle", description="Review architecture", prompt="...", task_id="")
 
-// Implementation
+// Frontend-owned implementation
+task(subagent_type="frontend", description="Implement UI change", prompt="...", task_id="")
+
+// Non-frontend implementation
 task(subagent_type="coder", description="Implement change", prompt="...", task_id="")
 
 // Code review

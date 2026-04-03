@@ -42,6 +42,14 @@ When the task touches shadcn/ui, registries, blocks, or a repo with `components.
 3. Otherwise, ground on the CLI with `npx -y shadcn@latest info --json`, read `components.json`, and use `search`, `docs`, or `view` before composing non-trivial UI.
 4. If `components.json` exists but no installed shadcn skill is present, still treat the repo as shadcn-aware and use the CLI-grounded path rather than inventing custom primitives.
 
+## React Doctor Routing
+
+When the task touches React UI, hooks, component trees, or framework code built on React:
+
+1. Prefer an installed official react-doctor skill if one exists in `.agents/skills/` or `~/.config/opencode/skills/`; load it before improvising a custom React health pass.
+2. Run React Doctor after meaningful React changes to catch architecture, correctness, security, performance, accessibility, and dead-code issues.
+3. Treat React Doctor as additive verification, not a substitute for visual checks, accessibility checks, lint, type-check, build, or tests.
+
 ## Execution Contract
 
 ```xml

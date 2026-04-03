@@ -261,6 +261,12 @@ describe("delegation plugin", () => {
 				truncated: boolean;
 				sessionId?: string;
 				taskId?: string;
+				reference?: string;
+				task?: {
+					task_id: string;
+					session_id: string;
+					status: string;
+				};
 			};
 		} = {
 			title: "",
@@ -275,6 +281,11 @@ describe("delegation plugin", () => {
 		expect(output.title).toBe("Explore code");
 		expect(output.metadata.sessionId).toBe("child-session-1");
 		expect(output.metadata.taskId).toBeDefined();
+		expect(output.metadata.reference).toBe(`ref:${output.metadata.taskId}`);
+		expect(output.metadata.task?.task_id).toBe(output.metadata.taskId);
+		expect(output.metadata.task?.session_id).toBe(output.metadata.sessionId);
+		expect(output.metadata.task?.status).toBe("succeeded");
+		expect(output.output).toContain("Task completed.");
 		expect(output.metadata.truncated).toBe(false);
 	});
 
@@ -284,15 +295,19 @@ describe("delegation plugin", () => {
 		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
 
 		const client = createMockClient();
-		const plugin = await DelegationPlugin({
+		const plugin = (await DelegationPlugin({
 			directory: root,
 			client,
-		} as never);
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			"tool.execute.after"?: ToolExecuteAfter;
+		};
 
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
+		const afterHook = plugin["tool.execute.after"] as ToolExecuteAfter;
 
 		const metadataCalls: Array<{ metadata?: Record<string, unknown> }> = [];
 		const result = await taskTool.execute(
@@ -304,12 +319,33 @@ describe("delegation plugin", () => {
 			},
 			{
 				sessionID: "parent-session",
-				callID: "call-1",
+				callID: "launch-call",
 				metadata: (input: { metadata?: Record<string, unknown> }) => {
 					metadataCalls.push(input);
 				},
 				ask: async () => {},
 			},
+		);
+
+		const launchOutput: {
+			title: string;
+			output: string;
+			metadata: {
+				truncated: boolean;
+				taskId?: string;
+				task?: {
+					status: string;
+					run_in_background: boolean;
+				};
+			};
+		} = {
+			title: "",
+			output: result,
+			metadata: { truncated: false },
+		};
+		await afterHook(
+			{ tool: "task", sessionID: "parent-session", callID: "launch-call" },
+			launchOutput,
 		);
 
 		expect(result).toContain("Background task launched.");
@@ -319,6 +355,8 @@ describe("delegation plugin", () => {
 				(call) => call.metadata?.sessionId === "child-session-1",
 			),
 		).toBe(true);
+		expect(launchOutput.metadata.task?.status).toBe("running");
+		expect(launchOutput.metadata.task?.run_in_background).toBe(true);
 
 		const taskID = result.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
 		expect(taskID).toBeDefined();
@@ -330,11 +368,38 @@ describe("delegation plugin", () => {
 				block: true,
 				full_session: false,
 			},
-			{ sessionID: "parent-session" },
+			{ sessionID: "parent-session", callID: "status-call" },
+		);
+		const completedOutput: {
+			title: string;
+			output: string;
+			metadata: {
+				truncated: boolean;
+				taskId?: string;
+				task?: {
+					task_id: string;
+					status: string;
+				};
+			};
+		} = {
+			title: "",
+			output,
+			metadata: { truncated: false },
+		};
+		await afterHook(
+			{
+				tool: "background_output",
+				sessionID: "parent-session",
+				callID: "status-call",
+			},
+			completedOutput,
 		);
 
 		expect(output).toContain("Task completed.");
+		expect(output).toContain("Status: succeeded");
 		expect(output).toContain("background result");
+		expect(completedOutput.metadata.task?.task_id).toBe(taskID);
+		expect(completedOutput.metadata.task?.status).toBe("succeeded");
 	});
 
 	test("uses caller-provided task_id for a fresh task launch", async () => {
@@ -505,6 +570,33 @@ describe("delegation plugin", () => {
 				description: "Settings page polish",
 				prompt:
 					"Polish the React settings page responsive behavior and accessibility states.",
+				auto_route: true,
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		expect(output).toContain("Agent: frontend");
+		expect(output).toContain("Task ID:");
+	});
+
+	test("reroutes explicit wrong-agent frontend requests to the frontend agent", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-reroute-fe-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const output = await taskTool.execute(
+			{
+				description: "Settings page polish",
+				prompt:
+					"Polish the React settings page responsive behavior and accessibility states.",
+				subagent_type: "coder",
 				auto_route: true,
 				run_in_background: true,
 			},
@@ -1246,10 +1338,13 @@ describe("delegation plugin", () => {
 		tempRoots.push(root);
 		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
 
-		const plugin = await DelegationPlugin({
+		const plugin = (await DelegationPlugin({
 			directory: root,
 			client: createMockClient(),
-		} as never);
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			"tool.execute.after"?: ToolExecuteAfter;
+		};
 
 		const taskTool = plugin.tool?.task as {
 			execute: (args: unknown, toolCtx: unknown) => Promise<string>;
@@ -1257,6 +1352,7 @@ describe("delegation plugin", () => {
 		const cancelTool = plugin.tool?.background_cancel as {
 			execute: (args: unknown, toolCtx: unknown) => Promise<string>;
 		};
+		const afterHook = plugin["tool.execute.after"] as ToolExecuteAfter;
 
 		const launched = await taskTool.execute(
 			{
@@ -1277,12 +1373,116 @@ describe("delegation plugin", () => {
 				task_id: taskID,
 				reason: "No longer needed",
 			},
-			{ sessionID: "parent-session" },
+			{ sessionID: "parent-session", callID: "cancel-call" },
+		);
+		const cancelOutput: {
+			title: string;
+			output: string;
+			metadata: {
+				truncated: boolean;
+				task?: {
+					task_id: string;
+					status: string;
+				};
+			};
+		} = {
+			title: "",
+			output: cancelled,
+			metadata: { truncated: false },
+		};
+		await afterHook(
+			{
+				tool: "background_cancel",
+				sessionID: "parent-session",
+				callID: "cancel-call",
+			},
+			cancelOutput,
 		);
 
 		expect(taskID).toBeDefined();
 		expect(cancelled).toContain("Status: cancelled");
 		expect(cancelled).toContain("Cancelled: No longer needed");
+		expect(cancelOutput.metadata.task?.task_id).toBe(taskID);
+		expect(cancelOutput.metadata.task?.status).toBe("cancelled");
+	});
+
+	test("emits collection metadata when cancelling all background tasks", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-cancel-all-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			"tool.execute.after"?: ToolExecuteAfter;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const cancelTool = plugin.tool?.background_cancel as {
+			execute: ToolExecute;
+		};
+		const afterHook = plugin["tool.execute.after"] as ToolExecuteAfter;
+
+		await taskTool.execute(
+			{
+				description: "Explore code",
+				prompt: "Inspect the repository",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		await taskTool.execute(
+			{
+				description: "Review docs",
+				prompt: "Inspect the docs",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const cancelled = await cancelTool.execute(
+			{ all: true, reason: "Clean slate" },
+			{ sessionID: "parent-session", callID: "cancel-all-call" },
+		);
+		const cancelOutput: {
+			title: string;
+			output: string;
+			metadata: {
+				truncated: boolean;
+				count?: number;
+				taskId?: string;
+				task?: { task_id: string };
+				taskIds?: string[];
+				tasks?: Array<{ task_id: string; status: string }>;
+			};
+		} = {
+			title: "",
+			output: cancelled,
+			metadata: { truncated: false },
+		};
+		await afterHook(
+			{
+				tool: "background_cancel",
+				sessionID: "parent-session",
+				callID: "cancel-all-call",
+			},
+			cancelOutput,
+		);
+
+		expect(cancelled).toContain("Cancelled 2 background task(s):");
+		expect(cancelOutput.title).toBe("Cancelled background tasks");
+		expect(cancelOutput.metadata.count).toBe(2);
+		expect(cancelOutput.metadata.taskId).toBeUndefined();
+		expect(cancelOutput.metadata.task).toBeUndefined();
+		expect(cancelOutput.metadata.taskIds).toHaveLength(2);
+		expect(cancelOutput.metadata.tasks).toHaveLength(2);
+		expect(
+			cancelOutput.metadata.tasks?.every((task) => task.status === "cancelled"),
+		).toBe(true);
 	});
 
 	test("runs sync task and returns durable task metadata", async () => {

@@ -11,6 +11,7 @@ export type DelegationCategory =
 export type DelegationFallbackPath =
 	| "none"
 	| "category-default"
+	| "frontend-reroute"
 	| "user-subagent"
 	| "keyword-fallback";
 
@@ -32,13 +33,11 @@ interface CategoryClassification {
 	fallbackPath: DelegationFallbackPath;
 }
 
-const FRONTEND_DIRECT_KEYWORDS = [
+const FRONTEND_OWNERSHIP_KEYWORDS = [
 	"ui",
 	"ux",
-	"design",
 	"css",
 	"layout",
-	"frontend",
 	"tailwind",
 	"style",
 	"styling",
@@ -114,7 +113,24 @@ const CATEGORY_KEYWORDS: Array<{
 }> = [
 	{
 		category: "visual",
-		keywords: ["ui", "ux", "design", "css", "layout", "frontend"],
+		keywords: [
+			"ui",
+			"ux",
+			"css",
+			"layout",
+			"style",
+			"styling",
+			"responsive",
+			"accessibility",
+			"a11y",
+			"visual",
+			"animation",
+			"shadcn",
+			"tailwind",
+			"design system",
+			"design-system",
+			"storybook",
+		],
 	},
 	{
 		category: "research",
@@ -160,13 +176,29 @@ function scoreCategory(text: string, keywords: string[]): number {
 }
 
 function isFrontendOwnedTask(text: string): boolean {
-	if (scoreCategory(text, [...FRONTEND_DIRECT_KEYWORDS]) > 0) {
+	if (scoreCategory(text, [...FRONTEND_OWNERSHIP_KEYWORDS]) > 0) {
 		return true;
 	}
 
 	return (
 		scoreCategory(text, [...FRONTEND_SURFACE_KEYWORDS]) > 0 &&
 		scoreCategory(text, [...FRONTEND_REFINEMENT_KEYWORDS]) > 0
+	);
+}
+
+function shouldRerouteToFrontend(input: {
+	autoRoute: boolean;
+	requestedAgent: string;
+	requestedCategory: DelegationCategory | null;
+	classification: CategoryClassification;
+}): boolean {
+	if (!input.autoRoute) return false;
+	if (!input.requestedAgent) return false;
+	if (input.requestedAgent === "frontend") return false;
+	if (input.requestedCategory === "visual") return true;
+	return (
+		input.classification.category === "visual" &&
+		input.classification.fallbackPath === "none"
 	);
 }
 
@@ -257,10 +289,33 @@ export function resolveDelegationRouting(input: {
 	const requestedCategory = parseDelegationCategory(input.category);
 	const requestedAgent = input.subagentType?.trim() ?? "";
 	const autoRoute = input.autoRoute ?? false;
+	const routingText = [
+		input.description,
+		input.prompt,
+		input.command ?? "",
+	].join("\n");
 
-	const classification = classifyDelegationCategory(
-		[input.description, input.prompt, input.command ?? ""].join("\n"),
-	);
+	const classification = classifyDelegationCategory(routingText);
+
+	if (
+		shouldRerouteToFrontend({
+			autoRoute,
+			requestedAgent,
+			requestedCategory,
+			classification,
+		})
+	) {
+		return {
+			agent: "frontend",
+			telemetry: {
+				detected_category: "visual",
+				chosen_agent: "frontend",
+				confidence:
+					requestedCategory === "visual" ? 1 : classification.confidence,
+				fallback_path: "frontend-reroute",
+			},
+		};
+	}
 
 	if (requestedAgent.length > 0) {
 		const category = requestedCategory ?? classification.category;

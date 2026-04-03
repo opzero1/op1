@@ -88,10 +88,12 @@ skill("brainstorming")
 5. **Save only when the interview is complete enough for execution**
    - Do not create drafts by default
    - Once the required branches are resolved, save the plan with `plan_save(mode="new", set_active=true)` or update the active plan when refining an existing one
-   - Immediately persist structured context with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)`
+   - Immediately persist structured context with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)` when that tool is available
+   - If `plan_context_write` is unavailable in the live harness, make the saved plan the canonical durable record and mirror the confirmations into `notepad_write`
    - Store confirmed goal, pattern, affected areas, blast radius, success/failure criteria, test plan, open risks, and captured question answers
    - Store confirmed repo examples or best-practice fallback examples in `pattern_examples_json` so `/work` can follow them
    - Include `source_type` and `code_example` in stored pattern examples whenever you have an approved implementation reference
+   - If `plan_context_write` is unavailable, embed the same confirmations directly in the saved plan and mirror them into `notepad_write` so `/work` does not need to re-interview
    - Then tell the user: "Plan saved. Run `/work` to start implementation."
 
 6. **Keep planning-quality evaluation current when planning changes**
@@ -124,7 +126,7 @@ Use freeform questions only when the answer truly requires nuance that options w
 
 ## Structured Context Requirements
 
-Before promotion, make sure `plan_context_write` has captured:
+Before promotion, make sure `plan_context_write` has captured these fields when available. If it is unavailable, make sure the saved plan plus `notepad_write` capture the same facts:
 - `goal`
 - `chosen_pattern`
 - `affected_areas`
@@ -145,7 +147,7 @@ Use Oracle as a pre-promotion review checkpoint when:
 - the plan depends on architectural tradeoffs
 - the risk of a weak plan is high enough that `/work` would likely thrash
 
-Persist the result with `plan_context_write(oracle_summary=...)`.
+Persist the result with `plan_context_write(oracle_summary=...)` when available; otherwise append it to the plan notes and mirror it into `notepad_write`.
 
 ## When User Asks You to Implement
 
@@ -177,6 +179,6 @@ Your deliverable is a refined plan that:
 
 Use the tools in this order when the interview is complete enough for execution:
 1. `plan_save(mode="new", set_active=true)` for a new plan, or `plan_save(mode="active")` when refining the current active plan
-2. `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)`
+2. `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)` when available; otherwise mirror the confirmed context into the saved plan and `notepad_write`
 
 Do not save partial interview state as the default path. Treat `plan_save` plus explicit `/work` guidance as the transition to implementation mode.

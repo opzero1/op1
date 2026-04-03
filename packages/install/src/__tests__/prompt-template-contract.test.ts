@@ -53,6 +53,8 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("question");
 		expect(prompt).toContain("Oracle");
 		expect(prompt).toContain("plan_context_write");
+		expect(prompt).toContain("when that tool is available");
+		expect(prompt).toContain("mirror the confirmations into `notepad_write`");
 		expect(prompt).toContain('plan_save(mode="new", set_active=true)');
 		expect(prompt).toContain("bounded pattern-scout pass");
 		expect(prompt).toContain("follow existing pattern?");
@@ -91,6 +93,8 @@ describe("prompt template contracts", () => {
 
 		expect(planCommand).toContain("plan-protocol");
 		expect(planCommand).toContain("plan_context_write");
+		expect(planCommand).toContain("when available");
+		expect(planCommand).toContain("saved plan + `notepad_write`");
 		expect(planCommand).toContain('plan_save(mode="new", set_active=true)');
 		expect(planCommand).toContain("bounded internal pattern-scout pass");
 		expect(planCommand).toContain("follow existing pattern?");
@@ -103,10 +107,19 @@ describe("prompt template contracts", () => {
 		);
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).toContain("plan_context_read");
+		expect(workCommand).toContain("If `plan_context_read` is unavailable");
 		expect(workCommand).toContain("approved implementation reference");
 		expect(workCommand).toContain("/work` is the sole execution path");
-		expect(workCommand).toContain("small actionable task");
-		expect(workCommand).toContain("run `/plan` or provide a concrete task");
+		expect(workCommand).toContain(
+			"switch out of `/work` for a direct small task",
+		);
+		expect(workCommand).toContain("run `/plan` first");
+		expect(workCommand).toContain(
+			"delegate/reroute implementation to `frontend`",
+		);
+		expect(workCommand).toContain(
+			"do not execute that frontend implementation directly in `build`",
+		);
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
 		expect(workCommand).not.toContain("plan_promote");
 		expect(workCommand).not.toContain("/continue");
@@ -164,11 +177,28 @@ describe("prompt template contracts", () => {
 		expect(build).toContain("Frontend ownership rule");
 		expect(build).toContain("must go to `frontend`");
 		expect(build).toContain("fail closed");
+		expect(build).toContain("must be rerouted to `frontend`");
+		expect(build).toContain("Only for non-frontend-owned changes");
+		expect(build).toContain(
+			"Never use this override for clearly frontend-owned work",
+		);
 		expect(coder).toContain("belongs to `frontend`");
 		expect(coder).toContain("FE-adjacent logic or mixed tasks");
 		expect(frontend).toContain("You ARE the frontend specialist");
 		expect(ulw).toContain("| Frontend/UI | `frontend` |");
 		expect(ulw).toContain("Use `frontend` for UI polish");
+		expect(ulw).toContain("reroute to `frontend`");
+		expect(ulw).toContain("Frontend-owned implementation");
+	});
+
+	test("/work execution guidance enforces frontend delegation over build direct handling", async () => {
+		const work = await readTemplate("commands", "work.md");
+
+		expect(work).toContain("clearly frontend-owned");
+		expect(work).toContain("delegate/reroute implementation to `frontend`");
+		expect(work).toContain(
+			"do not execute that frontend implementation directly in `build`",
+		);
 	});
 
 	test("long-running workflows skill defines durable state and pause controls", async () => {
@@ -180,7 +210,9 @@ describe("prompt template contracts", () => {
 
 		expect(prompt).toContain("name: long-running-workflows");
 		expect(prompt).toContain("active plan (`plan_read`, `plan_save`)");
-		expect(prompt).toContain("structured plan context (`plan_context_read`)");
+		expect(prompt).toContain(
+			"structured plan context (`plan_context_read`, when available)",
+		);
 		expect(prompt).toContain("notepads (`notepad_read`, `notepad_write`)");
 		expect(prompt).toContain("continuation_status");
 		expect(prompt).toContain("continuation_stop");
@@ -285,6 +317,47 @@ describe("prompt template contracts", () => {
 			"SKILL.md",
 		);
 		expect(vendoredShadcnSkillExists).toBe(false);
+	});
+
+	test("react-doctor guidance is vendored and referenced by React-focused prompts", async () => {
+		const [build, coder, frontend, reviewer, review] = await Promise.all([
+			readTemplate("agents", "build.md"),
+			readTemplate("agents", "coder.md"),
+			readTemplate("agents", "frontend.md"),
+			readTemplate("agents", "reviewer.md"),
+			readTemplate("commands", "review.md"),
+		]);
+
+		const reactDoctorSkill = await readTemplate(
+			"skills",
+			"react-doctor",
+			"SKILL.md",
+		);
+
+		expect(reactDoctorSkill).toContain("name: react-doctor");
+		expect(reactDoctorSkill).toContain(
+			"npx -y react-doctor@latest . --verbose --diff",
+		);
+		expect(reactDoctorSkill).toContain(
+			"uses `--diff` to focus on changed files",
+		);
+
+		for (const prompt of [build, coder, frontend]) {
+			expect(prompt).toContain("react-doctor");
+			expect(prompt).toContain("~/.config/opencode/skills/");
+		}
+
+		expect(build).toContain("prefer an installed official react-doctor skill");
+		expect(build).toContain("replacement for lint, typecheck, build, or tests");
+		expect(coder).toContain("Prefer an installed official react-doctor skill");
+		expect(coder).toContain("additive verification");
+		expect(frontend).toContain(
+			"Prefer an installed official react-doctor skill",
+		);
+		expect(frontend).toContain("additive verification");
+
+		expect(reviewer).not.toContain("react-doctor");
+		expect(review).not.toContain("react-doctor");
 	});
 
 	test("prompt taxonomy documents layer ownership and shared defaults", async () => {

@@ -29,7 +29,7 @@ Workflow requirements:
 7. Prefer the `question` tool with constrained options whenever the answer can be structured cleanly; use freeform only when nuance matters
 8. Do not save any plan until the required interview branches are resolved enough that `/work` can execute without re-interviewing the user
 9. Once the branches are resolved, save the approved plan with `plan_save(mode="new", set_active=true)` or update the active plan when refining an existing plan
-10. Immediately persist the resolved interview answers with `plan_context_write`, including `question_answers_json` and approved `pattern_examples_json`
+10. Immediately persist the resolved interview answers with `plan_context_write` when available, including `question_answers_json` and approved `pattern_examples_json`; otherwise make the saved plan + `notepad_write` the durable fallback record
 11. Store approved pattern guidance in `pattern_examples_json`, including `source_type` and `code_example` when available
 12. Answered required branches count as approval for `/work` readiness; do not ask for a redundant final approval pass unless the user explicitly wants draft-only review
 13. If the task changes planning behavior itself, add or update a planning-question-quality evaluation artifact that compares before vs. after execution clarification needs
@@ -45,5 +45,5 @@ The saved plan must be implementation-ready. It must contain:
 
 After the required interview branches are resolved:
 1. Save or update the active-ready plan
-2. Persist the latest confirmations with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)`
+2. Persist the latest confirmations with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)` when available; otherwise mirror the same confirmations into the saved plan and `notepad_write`
 3. Inform the user: "Plan saved. Run `/work` to start implementation."

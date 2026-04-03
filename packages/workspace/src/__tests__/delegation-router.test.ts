@@ -18,7 +18,20 @@ describe("delegation router", () => {
 		expect(result.telemetry.fallback_path).toBe("user-subagent");
 	});
 
-	test("keeps explicit subagent override when auto-route is enabled", () => {
+	test("keeps explicit wrong-agent frontend override when auto-route is disabled", () => {
+		const result = resolveDelegationRouting({
+			description: "Settings page visual polish",
+			prompt:
+				"Polish the React settings page layout, Tailwind styling, and accessibility states.",
+			subagentType: "reviewer",
+			autoRoute: false,
+		});
+
+		expect(result.agent).toBe("reviewer");
+		expect(result.telemetry.fallback_path).toBe("user-subagent");
+	});
+
+	test("preserves explicit non-frontend subagent override when auto-route is enabled", () => {
 		const result = resolveDelegationRouting({
 			description: "Research and implement",
 			prompt: "Investigate docs and then implement a fix",
@@ -28,6 +41,20 @@ describe("delegation router", () => {
 
 		expect(result.agent).toBe("reviewer");
 		expect(result.telemetry.fallback_path).toBe("user-subagent");
+	});
+
+	test("reroutes explicit wrong-agent frontend requests when auto-route is enabled", () => {
+		const result = resolveDelegationRouting({
+			description: "Settings page visual polish",
+			prompt:
+				"Polish the React settings page layout, Tailwind styling, and accessibility states.",
+			subagentType: "reviewer",
+			autoRoute: true,
+		});
+
+		expect(result.agent).toBe("frontend");
+		expect(result.telemetry.detected_category).toBe("visual");
+		expect(result.telemetry.fallback_path).toBe("frontend-reroute");
 	});
 
 	test("routes by explicit category with category-default fallback path", () => {
@@ -83,6 +110,18 @@ describe("delegation router", () => {
 			expect(result.telemetry.detected_category).toBe("visual");
 			expect(result.telemetry.fallback_path).toBe("none");
 		}
+	});
+
+	test("keeps FE-adjacent non-visual logic tasks routed to coder", () => {
+		const result = resolveDelegationRouting({
+			description: "Dashboard data wiring",
+			prompt:
+				"Implement React dashboard data wiring: map API response fields into view-model selectors and hook state transitions.",
+			autoRoute: true,
+		});
+
+		expect(result.agent).toBe("coder");
+		expect(result.telemetry.detected_category).not.toBe("visual");
 	});
 
 	test("falls back to general category when prompt is ambiguous", () => {

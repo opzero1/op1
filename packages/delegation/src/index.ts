@@ -26,6 +26,12 @@ import {
 	type TaskStatus,
 } from "./state.js";
 import { buildTaskGraph } from "./task-graph.js";
+import {
+	buildTaskCollectionMetadata,
+	buildTaskPayload,
+	buildTaskToolMetadata,
+	type CanonicalTaskPayload,
+} from "./task-payload.js";
 import { createToolMetadataStore } from "./tool-metadata.js";
 import type {
 	BackgroundCancelArgs,
@@ -1063,129 +1069,124 @@ function mergeToolMetadata(
 	};
 }
 
-function formatTaskMetadata(task: TaskRecord): string {
+async function emitTaskMetadata(
+	toolCtx: DelegationToolContext,
+	toolMetadata: ReturnType<typeof createToolMetadataStore>,
+	task: TaskRecord,
+	title?: string,
+): Promise<void> {
+	await emitToolMetadata(toolCtx, toolMetadata, {
+		title: title ?? task.description,
+		metadata: buildTaskToolMetadata(task),
+	});
+}
+
+function formatTaskMetadata(payload: CanonicalTaskPayload): string {
 	const lines = [
 		"<task_metadata>",
-		`task_id: ${task.id}`,
-		`reference: ref:${task.id}`,
-		`session_id: ${task.child_session_id}`,
+		`task_id: ${payload.task_id}`,
+		`reference: ${payload.reference}`,
+		`session_id: ${payload.session_id}`,
 	];
 
-	if (task.execution?.mode) {
-		lines.push(`execution_mode: ${task.execution.mode}`);
+	if (payload.execution.mode) {
+		lines.push(`execution_mode: ${payload.execution.mode}`);
 	}
-	if (task.execution?.branch) {
-		lines.push(`branch: ${task.execution.branch}`);
+	if (payload.execution.branch) {
+		lines.push(`branch: ${payload.execution.branch}`);
 	}
-	if (task.execution?.worktree_path) {
-		lines.push(`worktree_path: ${task.execution.worktree_path}`);
+	if (payload.execution.worktree_path) {
+		lines.push(`worktree_path: ${payload.execution.worktree_path}`);
 	}
-	if (task.execution?.verification_strategy) {
+	if (payload.execution.verification_strategy) {
 		lines.push(
-			`verification_strategy: ${task.execution.verification_strategy}`,
+			`verification_strategy: ${payload.execution.verification_strategy}`,
 		);
 	}
-	if (task.assignment?.review?.status) {
-		lines.push(`review_status: ${task.assignment.review.status}`);
+	if (payload.assignment?.review?.status) {
+		lines.push(`review_status: ${payload.assignment.review.status}`);
 	}
-	if (task.assignment?.retry?.state) {
-		lines.push(`retry_state: ${task.assignment.retry.state}`);
+	if (payload.assignment?.retry?.state) {
+		lines.push(`retry_state: ${payload.assignment.retry.state}`);
 	}
 
 	lines.push("</task_metadata>");
 	return lines.join("\n");
 }
 
-function formatTaskStatus(task: TaskRecord): string {
+function formatTaskSummaryLines(payload: CanonicalTaskPayload): string[] {
 	const lines = [
-		`Task ID: ${task.id}`,
-		`Reference: ref:${task.id}`,
-		`Session ID: ${task.child_session_id}`,
-		`Description: ${task.description}`,
-		`Agent: ${task.agent}`,
-		`Execution: ${task.execution?.mode ?? "direct"}`,
-		`Status: ${task.status}`,
+		`Task ID: ${payload.task_id}`,
+		`Reference: ${payload.reference}`,
+		`Session ID: ${payload.session_id}`,
+		`Description: ${payload.description}`,
+		`Agent: ${payload.agent}`,
+		`Execution: ${payload.execution.mode}`,
+		`Status: ${payload.status}`,
 	];
 
-	if (task.execution?.branch) {
-		lines.push(`Branch: ${task.execution.branch}`);
+	if (payload.execution.branch) {
+		lines.push(`Branch: ${payload.execution.branch}`);
 	}
-	if (task.execution?.worktree_path) {
-		lines.push(`Worktree: ${task.execution.worktree_path}`);
+	if (payload.execution.worktree_path) {
+		lines.push(`Worktree: ${payload.execution.worktree_path}`);
 	}
-	if (isManagerOwnedCAIDTask(task)) {
-		lines.push(`Workflow: ${task.assignment?.workflow}`);
+	if (payload.assignment?.workflow) {
+		lines.push(`Workflow: ${payload.assignment.workflow}`);
 	}
-	if (task.execution?.verification_strategy) {
-		lines.push(`Verification: ${task.execution.verification_strategy}`);
+	if (payload.execution.verification_strategy) {
+		lines.push(`Verification: ${payload.execution.verification_strategy}`);
 	}
-	if (task.assignment?.retry?.state) {
+	if (payload.assignment?.retry?.state) {
 		lines.push(
-			`Retry: ${task.assignment.retry.state}${task.assignment.retry.reason ? ` (${task.assignment.retry.reason})` : ""}`,
+			`Retry: ${payload.assignment.retry.state}${payload.assignment.retry.reason ? ` (${payload.assignment.retry.reason})` : ""}`,
 		);
 	}
-	if (task.assignment?.review?.status) {
-		lines.push(`Review: ${task.assignment.review.status}`);
+	if (payload.assignment?.review?.status) {
+		lines.push(`Review: ${payload.assignment.review.status}`);
+	}
+	if (payload.error) {
+		lines.push(`Error: ${payload.error}`);
 	}
 
-	if (task.error) {
-		lines.push(`Error: ${task.error}`);
-	}
+	return lines;
+}
 
-	return `${lines.join("\n")}\n\n${formatTaskMetadata(task)}`;
+function formatTaskStatus(task: TaskRecord): string {
+	const payload = buildTaskPayload(task);
+	return `${formatTaskSummaryLines(payload).join("\n")}\n\n${formatTaskMetadata(payload)}`;
 }
 
 function formatBackgroundLaunch(task: TaskRecord): string {
+	const payload = buildTaskPayload(task);
 	const lines = [
 		"Background task launched.",
 		"",
-		`Task ID: ${task.id}`,
-		`Reference: ref:${task.id}`,
-		`Session ID: ${task.child_session_id}`,
-		`Description: ${task.description}`,
-		`Agent: ${task.agent}`,
-		`Execution: ${task.execution?.mode ?? "direct"}`,
-		`Status: ${task.status}`,
+		...formatTaskSummaryLines(payload),
 	];
-
-	if (task.execution?.branch) {
-		lines.push(`Branch: ${task.execution.branch}`);
-	}
-	if (task.execution?.worktree_path) {
-		lines.push(`Worktree: ${task.execution.worktree_path}`);
-	}
-	if (isManagerOwnedCAIDTask(task)) {
-		lines.push(`Workflow: ${task.assignment?.workflow}`);
-	}
-	if (task.assignment?.review?.status) {
-		lines.push(`Review: ${task.assignment.review.status}`);
-	}
 
 	lines.push(
 		"",
-		`Use \`background_output(task_id="${task.id}")\` to inspect the task.`,
+		`Use \`background_output(task_id="${payload.task_id}")\` to inspect the task.`,
 		"",
-		formatTaskMetadata(task),
+		formatTaskMetadata(payload),
 	);
 
 	return lines.join("\n");
 }
 
 function formatSyncCompletion(task: TaskRecord, result: string): string {
+	const payload = buildTaskPayload(task);
 	return [
 		"Task completed.",
 		"",
-		`Task ID: ${task.id}`,
-		`Reference: ref:${task.id}`,
-		`Session ID: ${task.child_session_id}`,
-		`Description: ${task.description}`,
-		`Agent: ${task.agent}`,
+		...formatTaskSummaryLines(payload),
 		"",
 		"---",
 		"",
 		result || "(No text output)",
 		"",
-		formatTaskMetadata(task),
+		formatTaskMetadata(payload),
 	].join("\n");
 }
 
@@ -1440,6 +1441,15 @@ export const DelegationPlugin: Plugin = async (ctx: {
 		string,
 		{ mode?: string }
 	> | null> | null = null;
+	let promotionQueue: Promise<void> = Promise.resolve();
+
+	const queuePromotionPass = async (): Promise<void> => {
+		const nextPass = promotionQueue
+			.catch(() => undefined)
+			.then(() => promoteRunnableTasks(client, state, logger));
+		promotionQueue = nextPass.catch(() => undefined);
+		return nextPass;
+	};
 
 	const getAvailableAgents = async (): Promise<Map<
 		string,
@@ -1528,7 +1538,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					result ?? undefined,
 					logger,
 				);
-				await promoteRunnableTasks(client, state, logger);
+				await queuePromotionPass();
 				return;
 			}
 
@@ -1536,7 +1546,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 				await state.transitionTask(task.id, "failed", {
 					error: getEventError(runtimeEvent),
 				});
-				await promoteRunnableTasks(client, state, logger);
+				await queuePromotionPass();
 				return;
 			}
 
@@ -1546,7 +1556,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						? "Task session interrupted."
 						: "Task session deleted.",
 			});
-			await promoteRunnableTasks(client, state, logger);
+			await queuePromotionPass();
 		} catch (error) {
 			if (taskID) {
 				const current = await state.getTask(taskID).catch(() => null);
@@ -1661,29 +1671,22 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					let category: DelegationCategory | undefined;
 					let routing: DelegationRoutingTelemetry | undefined;
 
-					if (!agent) {
-						if (!requestedCategory && !autoRoute) {
-							return "❌ Provide subagent_type, or set category/auto_route for routed execution.";
-						}
+					if (!agent && !requestedCategory && !autoRoute) {
+						return "❌ Provide subagent_type, or set category/auto_route for routed execution.";
+					}
 
+					if (!agent || requestedCategory || autoRoute) {
 						const decision = resolveDelegationRouting({
 							description,
 							prompt,
 							command: args.command?.trim(),
 							category: requestedCategory ?? undefined,
+							subagentType: agent || undefined,
 							autoRoute,
 						});
 						agent = decision.agent;
 						category = decision.telemetry.detected_category;
 						routing = decision.telemetry;
-					} else if (requestedCategory) {
-						category = requestedCategory;
-						routing = {
-							detected_category: requestedCategory,
-							chosen_agent: agent,
-							confidence: 1,
-							fallback_path: "user-subagent",
-						};
 					}
 
 					try {
@@ -1871,28 +1874,10 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						});
 					}
 
-					await emitToolMetadata(toolCtx, toolMetadata, {
-						title: description,
-						metadata: {
-							taskId: task.id,
-							reference: `ref:${task.id}`,
-							sessionId: task.child_session_id,
-							agent,
-							runInBackground,
-							executionMode: task.execution?.mode ?? "direct",
-							...(task.execution?.branch
-								? { branch: task.execution.branch }
-								: {}),
-							...(task.execution?.worktree_path
-								? { worktreePath: task.execution.worktree_path }
-								: {}),
-							...(category ? { category } : {}),
-						},
-					});
-
 					if (runInBackground) {
-						await promoteRunnableTasks(client, state, logger);
+						await queuePromotionPass();
 						const latest = (await state.getTask(task.id)) ?? task;
+						await emitTaskMetadata(toolCtx, toolMetadata, latest, description);
 						return formatBackgroundLaunch(latest);
 					}
 
@@ -1919,6 +1904,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							const failed = await state.transitionTask(task.id, "failed", {
 								error: String(response.error),
 							});
+							await emitTaskMetadata(
+								toolCtx,
+								toolMetadata,
+								failed,
+								description,
+							);
 							return `❌ Task failed.\n\n${formatTaskStatus(failed)}`;
 						}
 
@@ -1938,6 +1929,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							agent: task.agent,
 							child_session_id: task.child_session_id,
 						});
+						await emitTaskMetadata(
+							toolCtx,
+							toolMetadata,
+							succeeded,
+							description,
+						);
 						return formatSyncCompletion(
 							succeeded,
 							succeeded.result ?? resultText,
@@ -1952,6 +1949,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						const failed = await state.transitionTask(task.id, "failed", {
 							error: error instanceof Error ? error.message : String(error),
 						});
+						await emitTaskMetadata(toolCtx, toolMetadata, failed, description);
 						return `❌ Task failed.\n\n${formatTaskStatus(failed)}`;
 					}
 				},
@@ -2007,16 +2005,6 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					if (typeof task === "string") return task;
 					if (!task) return `❌ Task not found: ${args.task_id}`;
 
-					await emitToolMetadata(toolCtx, toolMetadata, {
-						title: task.description,
-						metadata: {
-							taskId: task.id,
-							reference: `ref:${task.id}`,
-							sessionId: task.child_session_id,
-							agent: task.agent,
-						},
-					});
-
 					let current = task;
 					if (args.block === true) {
 						const timeoutMs = Math.min(
@@ -2041,6 +2029,8 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							if (latest) current = latest;
 						}
 					}
+
+					await emitTaskMetadata(toolCtx, toolMetadata, current);
 
 					if (args.full_session !== false) {
 						const response = await client.session.messages({
@@ -2124,7 +2114,11 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							);
 						}
 
-						await promoteRunnableTasks(client, state, logger);
+						await queuePromotionPass();
+						await emitToolMetadata(toolCtx, toolMetadata, {
+							title: "Cancelled background tasks",
+							metadata: buildTaskCollectionMetadata(cancelled),
+						});
 						return [
 							`Cancelled ${cancelled.length} background task(s):`,
 							...cancelled.map(
@@ -2141,7 +2135,10 @@ export const DelegationPlugin: Plugin = async (ctx: {
 
 					const task = await resolveScopedTask(client, state, handle, toolCtx);
 					if (!task) return `❌ Task not found: ${handle}`;
-					if (!isActiveTask(task.status)) return formatTaskStatus(task);
+					if (!isActiveTask(task.status)) {
+						await emitTaskMetadata(toolCtx, toolMetadata, task);
+						return formatTaskStatus(task);
+					}
 
 					if (task.status === "running") {
 						await client.session
@@ -2156,7 +2153,8 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							? `Cancelled: ${reasonText}`
 							: "Task cancelled by user request.",
 					});
-					await promoteRunnableTasks(client, state, logger);
+					await queuePromotionPass();
+					await emitTaskMetadata(toolCtx, toolMetadata, cancelled);
 					return formatTaskStatus(cancelled);
 				},
 			}),

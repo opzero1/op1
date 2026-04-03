@@ -58,6 +58,9 @@ bun link --cwd packages/lsp
 # Link them into the global OpenCode config directory
 bun link @op1/workspace @op1/delegation @op1/ast-grep @op1/lsp --cwd ~/.config/opencode
 
+# Link changed local plugins into the OpenCode cache too
+bun link @op1/workspace @op1/delegation @op1/ast-grep @op1/lsp --cwd ~/.cache/opencode
+
 # Keep plugin entries as package names in ~/.config/opencode/opencode.json
 opencode debug config | jq '.plugin'
 ```
@@ -72,11 +75,13 @@ The reliable local-dev path is **package-name plugins + `bun link`**, not direct
 2. Run `bun link` inside each local package you want OpenCode to load.
 3. Run `bun link <package...> --cwd ~/.config/opencode` so the global config resolves those package names to the local repo.
 4. Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace` and `@op1/delegation`.
-5. Use `opencode debug config` to verify the resolved plugin list before smoke testing.
-6. Use `opencode run` for deterministic smoke checks of tool behavior.
+5. Link changed local plugins into `~/.cache/opencode` too, or clear the cached package before smoke testing.
+6. Use `opencode debug config` to verify the resolved plugin list before smoke testing.
+7. Use `opencode run` for deterministic smoke checks of tool behavior.
 
 ### Notes
 
 - Official docs do not fully spell out this local plugin workflow; treat `opencode debug config` plus the live CLI behavior as the contract.
 - `opencode debug config` may resolve linked package names to `file://` URLs internally. That is expected after linking; the config should still *declare* package names.
+- OpenCode may still load same-version package-name plugins from `~/.cache/opencode/node_modules`. If a newly added tool is mysteriously missing at runtime even though source/dist contain it, relink that package into `~/.cache/opencode` (or remove the cached copy) and rerun the smoke check.
 - If a plugin reads workspace config, also verify `~/.config/opencode/workspace.json` is updated for renamed tools like `background_cancel`.

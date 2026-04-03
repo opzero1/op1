@@ -110,6 +110,7 @@ export interface TaskRecord {
 	execution?: TaskExecutionRecord;
 	run_in_background: boolean;
 	status: TaskStatus;
+	created_order?: number;
 	created_at: string;
 	updated_at: string;
 	started_at?: string;
@@ -137,6 +138,41 @@ const VALID_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
 
 function nowIso(): string {
 	return new Date().toISOString();
+}
+
+function parseCreatedOrder(value: unknown): number | undefined {
+	return Number.isInteger(value) && (value as number) > 0
+		? (value as number)
+		: undefined;
+}
+
+function compareTaskCreationAscending(a: TaskRecord, b: TaskRecord): number {
+	if (
+		typeof a.created_order === "number" &&
+		typeof b.created_order === "number" &&
+		a.created_order !== b.created_order
+	) {
+		return a.created_order - b.created_order;
+	}
+
+	if (a.created_at === b.created_at) {
+		return a.id.localeCompare(b.id);
+	}
+
+	return a.created_at.localeCompare(b.created_at);
+}
+
+function compareTaskCreationDescending(a: TaskRecord, b: TaskRecord): number {
+	return compareTaskCreationAscending(b, a);
+}
+
+function getNextCreatedOrder(store: TaskStore): number {
+	let maxOrder = 0;
+	for (const record of Object.values(store.delegations)) {
+		maxOrder = Math.max(maxOrder, record.created_order ?? 0);
+	}
+
+	return maxOrder + 1;
 }
 
 function createEmptyStore(): TaskStore {
@@ -545,6 +581,7 @@ function normalizeTaskRecord(value: unknown): TaskRecord | null {
 		execution: normalizeTaskExecution(raw.execution),
 		run_in_background: raw.run_in_background,
 		status,
+		created_order: parseCreatedOrder(raw.created_order),
 		created_at: typeof raw.created_at === "string" ? raw.created_at : nowIso(),
 		updated_at: typeof raw.updated_at === "string" ? raw.updated_at : nowIso(),
 		started_at: typeof raw.started_at === "string" ? raw.started_at : undefined,
@@ -714,11 +751,7 @@ function comparePromotableTasks(
 		return aManager ? -1 : 1;
 	}
 
-	if (a.created_at === b.created_at) {
-		return a.id.localeCompare(b.id);
-	}
-
-	return a.created_at.localeCompare(b.created_at);
+	return compareTaskCreationAscending(a, b);
 }
 
 export function createTaskStateManager(
@@ -853,6 +886,7 @@ export function createTaskStateManager(
 			const initialStatus =
 				input.initial_status ?? (blockers.length > 0 ? "blocked" : "queued");
 			const createdAt = nowIso();
+			const createdOrder = getNextCreatedOrder(store);
 			const startedAt = initialStatus === "running" ? createdAt : undefined;
 			const assignment = normalizeTaskAssignmentInput(
 				input.assignment,
@@ -875,6 +909,7 @@ export function createTaskStateManager(
 				execution: input.execution,
 				run_in_background: input.run_in_background,
 				status: initialStatus,
+				created_order: createdOrder,
 				created_at: createdAt,
 				updated_at: createdAt,
 				started_at: startedAt,
@@ -1088,7 +1123,7 @@ export function createTaskStateManager(
 
 				return true;
 			})
-			.sort((a, b) => b.created_at.localeCompare(a.created_at))
+			.sort(compareTaskCreationDescending)
 			.slice(0, limit);
 	}
 
@@ -1114,7 +1149,7 @@ export function createTaskStateManager(
 
 				return collectBlockingDependencies(store, record).length === 0;
 			})
-			.sort((a, b) => a.created_at.localeCompare(b.created_at))
+			.sort(compareTaskCreationAscending)
 			.slice(0, limit);
 	}
 
@@ -1129,7 +1164,7 @@ export function createTaskStateManager(
 
 		return Object.values(store.delegations)
 			.filter((record) => record.status === "queued")
-			.sort((a, b) => a.created_at.localeCompare(b.created_at))
+			.sort(compareTaskCreationAscending)
 			.slice(0, max);
 	}
 

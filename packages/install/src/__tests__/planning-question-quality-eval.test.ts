@@ -42,11 +42,11 @@ describe("planning question quality evaluation", () => {
 		expect(content).toContain("after");
 	});
 
-	test("covers both repo-pattern and best-practice fallback cases", async () => {
+	test("covers repo-pattern, frontend-routing, and best-practice fallback cases", async () => {
 		const raw = await Bun.file(evalCasesPath).text();
 		const cases = JSON.parse(raw) as PlanningQuestionQualityEvalCase[];
 
-		expect(cases).toHaveLength(2);
+		expect(cases).toHaveLength(3);
 
 		const repoPattern = cases.find((item) => item.id === "repo-pattern-follow");
 		expect(repoPattern).toBeDefined();
@@ -80,5 +80,30 @@ describe("planning question quality evaluation", () => {
 		expect(fallback?.must_persist).toContain("source_type: best-practice");
 		expect(fallback?.must_persist).toContain("code_example");
 		expect(fallback?.max_execution_follow_up_questions).toBe(1);
+
+		const frontendOwnership = cases.find(
+			(item) => item.id === "frontend-ownership-reroute",
+		);
+		expect(frontendOwnership).toBeDefined();
+		expect(frontendOwnership?.expected_mode).toBe("repo-pattern");
+		expect(frontendOwnership?.must_ask).toBe("Follow existing pattern?");
+		expect(frontendOwnership?.must_surface_files).toContain(
+			"packages/install/templates/agents/build.md",
+		);
+		expect(frontendOwnership?.must_surface_files).toContain(
+			"packages/workspace/src/delegation/router.ts",
+		);
+		expect(frontendOwnership?.must_capture_branches).toContain(
+			"state ownership",
+		);
+		expect(frontendOwnership?.must_capture_branches).toContain("triggers");
+		expect(frontendOwnership?.must_capture_branches).toContain("rules");
+		expect(frontendOwnership?.must_capture_branches).toContain("tests");
+		expect(frontendOwnership?.must_persist).toContain("source_type: repo");
+		expect(frontendOwnership?.must_persist).toContain("code_example");
+		expect(frontendOwnership?.must_persist).toContain(
+			"frontend ownership routing",
+		);
+		expect(frontendOwnership?.max_execution_follow_up_questions).toBe(0);
 	});
 });

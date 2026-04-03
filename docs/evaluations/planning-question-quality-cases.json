@@ -35,5 +35,29 @@
 		"must_ask": "Approve recommended fallback?",
 		"must_persist": ["source_type: best-practice", "code_example"],
 		"max_execution_follow_up_questions": 1
+	},
+	{
+		"id": "frontend-ownership-reroute",
+		"prompt": "/plan tighten frontend ownership routing so wrong-agent /work requests reroute to frontend",
+		"expected_mode": "repo-pattern",
+		"must_capture_branches": [
+			"missing-context behavior",
+			"approval/readiness",
+			"state ownership",
+			"triggers",
+			"rules",
+			"tests"
+		],
+		"must_surface_files": [
+			"packages/install/templates/agents/build.md",
+			"packages/workspace/src/delegation/router.ts"
+		],
+		"must_ask": "Follow existing pattern?",
+		"must_persist": [
+			"source_type: repo",
+			"code_example",
+			"frontend ownership routing"
+		],
+		"max_execution_follow_up_questions": 0
 	}
 ]

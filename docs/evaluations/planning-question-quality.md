@@ -28,6 +28,7 @@ For the implementation follow-through (`/work` or equivalent execution):
 - number of follow-up clarification questions asked before coding starts
 - whether the agent reused the approved implementation reference instead of rediscovering patterns
 - whether execution stayed inside the planned blast radius
+- for frontend-ownership cases, whether clearly frontend-owned work is delegated/rerouted to `frontend` instead of being implemented directly by `build`/`coder`
 
 ## Scoring Rubric
 
