@@ -7,7 +7,7 @@ Search the codebase for the specified pattern, file, or implementation.
 
 **Search Query:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, infer the most recent concrete search target from context. If no search target exists, ask one focused clarification question.
+If no arguments were provided, infer the most recent concrete search target from context. If no search target exists, ask one focused clarification question.
 
 Use the `explore` agent's tool hierarchy:
 - Natural language queries: scope first, then text, structural, and symbol-aware tools

@@ -132,6 +132,26 @@ describe("prompt template contracts", () => {
 		expect(deslopCommand).not.toContain("origin/main");
 	});
 
+	test("command templates avoid echoing raw $ARGUMENTS in prose", async () => {
+		const commands = await Promise.all([
+			readTemplate("commands", "plan.md"),
+			readTemplate("commands", "deslop.md"),
+			readTemplate("commands", "oracle.md"),
+			readTemplate("commands", "understand.md"),
+			readTemplate("commands", "research.md"),
+			readTemplate("commands", "find.md"),
+			readTemplate("commands", "init.md"),
+			readTemplate("commands", "review-loop.md"),
+		]);
+
+		for (const command of commands) {
+			expect(command).not.toContain("If `$ARGUMENTS` is empty");
+			expect(command).not.toContain("from `$ARGUMENTS`");
+			expect(command).not.toContain("If `$ARGUMENTS` contains");
+			expect(command).not.toContain("If `$ARGUMENTS` names");
+		}
+	});
+
 	test("legacy continue and autoloop commands are removed from shipped templates", async () => {
 		expect(await pathExists("commands", "continue.md")).toBe(false);
 		expect(await pathExists("commands", "autoloop.md")).toBe(false);

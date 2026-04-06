@@ -7,7 +7,7 @@ Consult the Oracle for strategic guidance on a complex decision or debugging cha
 
 **Consultation:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, infer the active decision or debugging topic from context. If no concrete consultation target exists, ask one focused clarification question.
+If no arguments were provided, infer the active decision or debugging topic from context. If no concrete consultation target exists, ask one focused clarification question.
 
 Return exactly:
 1. Problem analysis

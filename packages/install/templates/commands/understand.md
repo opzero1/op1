@@ -9,7 +9,7 @@ Provide a comprehensive explanation of the specified codebase component, file, o
 
 **Topic:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, infer the most recent concrete component or concept from context. If no target exists, ask one focused clarification question.
+If no arguments were provided, infer the most recent concrete component or concept from context. If no target exists, ask one focused clarification question.
 
 ## Workflow
 

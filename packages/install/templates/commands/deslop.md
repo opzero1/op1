@@ -12,13 +12,13 @@ Run a strict de-slop review and fix loop on the current worktree.
 
 **Scope:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, default to the current branch diff against the resolved base branch.
+If no arguments were provided, default to the current branch diff against the resolved base branch.
 If that diff is unavailable or empty, fall back to the current uncommitted worktree scope and state which scope you used.
 
 ## Scope Resolution
 
 1. Resolve the review scope before making changes.
-2. If `$ARGUMENTS` names files, directories, commits, or a branch, use that exact scope first.
+2. If the provided arguments name files, directories, commits, or a branch, use that exact scope first.
 3. Otherwise resolve the base branch in this order: explicit user mention, PR/base-branch context, upstream tracking metadata, remote default branch, then a clearly stated last-resort repo heuristic.
 4. Prefer `git diff --name-only <resolved-base>...HEAD` for branch-owned work.
 5. Ignore unrelated dirty files outside scope unless the user explicitly includes them.

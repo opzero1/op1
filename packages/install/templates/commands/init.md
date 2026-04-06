@@ -12,8 +12,8 @@ Goal: keep the root `AGENTS.md` minimal, high-signal, and easy to maintain.
 ## Workflow
 
 0. Resolve scope
-   - If `$ARGUMENTS` is empty, use repository-wide scope.
-   - If `$ARGUMENTS` contains a subpath or constraint, apply it and state what scope you used.
+   - If no arguments were provided, use repository-wide scope.
+   - If the provided arguments contain a subpath or constraint, apply it and state what scope you used.
 
 1. Audit existing instruction sources
    - Read `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, `CODEX.md` if present.

@@ -11,7 +11,7 @@ Run an iterative review-and-fix loop using reviewer as primary gate and oracle f
 
 ## Review Scope
 
-1. Determine the review scope from `$ARGUMENTS`.
+1. Determine the review scope from the provided arguments.
 2. If no arguments are provided, default to all uncommitted changes:
    - `git diff`
    - `git diff --cached`

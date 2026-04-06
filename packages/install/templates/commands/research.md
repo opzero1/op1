@@ -7,7 +7,7 @@ Conduct comprehensive research on the specified topic using external resources.
 
 **Research Query:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, infer the research target from recent context. If no concrete target exists, ask one focused clarification question.
+If no arguments were provided, infer the research target from recent context. If no concrete target exists, ask one focused clarification question.
 
 Use all available research tools:
 1. Context7 for official library documentation when available

@@ -9,7 +9,7 @@ Create an interview-driven, implementation-ready workspace plan for the specifie
 
 **Task:** $ARGUMENTS
 
-If `$ARGUMENTS` is empty, infer the task from the surrounding conversation. If no meaningful planning target exists, ask one focused clarification question.
+If no arguments were provided, infer the task from the surrounding conversation. If no meaningful planning target exists, ask one focused clarification question.
 
 Workflow requirements:
 1. Treat `/plan` as an interview-driven planner, not a one-shot draft writer
