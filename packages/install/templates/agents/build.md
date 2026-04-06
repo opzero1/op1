@@ -136,6 +136,17 @@ task(subagent_type="researcher", description="Research JWT", prompt="Find JWT be
 10. **Manage plan lifecycle** - Use `plan_archive` for completed/superseded plans; `plan_unarchive` to restore archived plans
 11. Match existing codebase patterns and approved implementation references from `plan_context_read` when available, including stored code examples when present
 12. When delegating child implementation tasks, pass a compact `authoritative_context` working set so children can treat parent context as canonical instead of rediscovering the repo
+13. Do not rewrite `authoritative_context` into `prompt`; send it as the dedicated task-tool field
+14. Preferred delegation shape:
+```ts
+task({
+	description: "...",
+	prompt: "...",
+	authoritative_context: "Target files: ...\nApproved pattern: ...",
+	subagent_type: "coder",
+	run_in_background: true,
+})
+```
 
 Treat runtime `<system-reminder>` blocks from momentum, autonomy, verification, rules, and context-scout hooks as authoritative corrections. Do not repeat them verbatim in user-facing output.
 

@@ -203,6 +203,10 @@ describe("prompt template contracts", () => {
 			"Never use this override for clearly frontend-owned work",
 		);
 		expect(build).toContain("authoritative_context");
+		expect(build).toContain(
+			"Do not rewrite `authoritative_context` into `prompt`",
+		);
+		expect(build).toContain("Preferred delegation shape");
 		expect(coder).toContain("belongs to `frontend`");
 		expect(coder).toContain("FE-adjacent logic or mixed tasks");
 		expect(coder).toContain("<authoritative_context>");

@@ -250,6 +250,57 @@ function buildChildPrompt(task: TaskRecord): string {
 	].join("\n");
 }
 
+function extractInlineAuthoritativeContext(input: {
+	prompt: string;
+	authoritativeContext?: string;
+}): {
+	prompt: string;
+	authoritativeContext?: string;
+} {
+	const explicitContext = input.authoritativeContext?.trim();
+	if (explicitContext) {
+		return {
+			prompt: input.prompt.trim(),
+			authoritativeContext: explicitContext,
+		};
+	}
+
+	const taggedMatch = input.prompt.match(
+		/<authoritative_context>\s*([\s\S]*?)\s*<\/authoritative_context>/i,
+	);
+	if (taggedMatch) {
+		const extracted = taggedMatch[1]?.trim();
+		const strippedPrompt = input.prompt
+			.replace(taggedMatch[0], "")
+			.replace(/\n{3,}/g, "\n\n")
+			.trim();
+		return {
+			prompt: strippedPrompt,
+			authoritativeContext: extracted || undefined,
+		};
+	}
+
+	const labeledMatch = input.prompt.match(
+		/(?:^|\n{2,})(?:authoritative[_ ]context)\s*:\s*\n([\s\S]+)$/i,
+	);
+	if (labeledMatch) {
+		const extracted = labeledMatch[1]?.trim();
+		const strippedPrompt = input.prompt
+			.slice(0, labeledMatch.index)
+			.replace(/\n{3,}/g, "\n\n")
+			.trim();
+		return {
+			prompt: strippedPrompt,
+			authoritativeContext: extracted || undefined,
+		};
+	}
+
+	return {
+		prompt: input.prompt.trim(),
+		authoritativeContext: undefined,
+	};
+}
+
 function withInitialRootFollowThrough(
 	execution: TaskExecutionRecord,
 	runInBackground: boolean,
@@ -2237,8 +2288,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					}
 
 					const description = args.description.trim();
-					const prompt = args.prompt.trim();
-					const authoritativeContext = args.authoritative_context?.trim();
+					const normalizedTaskInput = extractInlineAuthoritativeContext({
+						prompt: args.prompt,
+						authoritativeContext: args.authoritative_context,
+					});
+					const prompt = normalizedTaskInput.prompt;
+					const authoritativeContext = normalizedTaskInput.authoritativeContext;
 					if (!description) return "❌ description is required.";
 					if (!prompt) return "❌ prompt is required.";
 					if (args.task_id?.trim() && args.continue_task_id?.trim()) {

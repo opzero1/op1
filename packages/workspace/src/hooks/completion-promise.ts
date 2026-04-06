@@ -26,6 +26,11 @@ interface CompletionPromiseConfig {
 	} | null>;
 }
 
+export interface CompletionJoinBlockerSnapshot {
+	rootSessionID: string;
+	blockers: CompletionJoinBlocker[];
+}
+
 /** Per-session iteration tracker */
 const sessionIterations = new Map<string, number>();
 
@@ -33,10 +38,9 @@ const sessionIterations = new Map<string, number>();
  * Check continuation output for completion tag and manage iteration count.
  * Attaches to `tool.execute.after` — triggers on the same continuation tools as momentum.
  */
-function buildJoinGuardReminder(input: {
-	rootSessionID: string;
-	blockers: CompletionJoinBlocker[];
-}): string {
+export function buildJoinGuardReminder(
+	input: CompletionJoinBlockerSnapshot,
+): string {
 	const visibleBlockers = input.blockers.slice(0, 5);
 	const hiddenCount = input.blockers.length - visibleBlockers.length;
 	const lines = [
@@ -60,6 +64,16 @@ function buildJoinGuardReminder(input: {
 	);
 
 	return lines.join("\n");
+}
+
+export function applyCompletionJoinGuard(
+	output: string,
+	joinBlockers: CompletionJoinBlockerSnapshot | null,
+): string | null {
+	if (!output.includes("<done>COMPLETE</done>")) return null;
+	if (!joinBlockers || joinBlockers.blockers.length === 0) return null;
+
+	return `${output.replace(/\s*<done>COMPLETE<\/done>/g, "").trimEnd()}\n${buildJoinGuardReminder(joinBlockers)}`.trim();
 }
 
 export function createCompletionPromiseHook(
@@ -87,13 +101,9 @@ export function createCompletionPromiseHook(
 			? await getJoinBlockers(input.sessionID)
 			: null;
 
-		if (
-			output.output.includes("<done>COMPLETE</done>") &&
-			joinBlockers &&
-			joinBlockers.blockers.length > 0
-		) {
-			output.output =
-				`${output.output.replace(/\s*<done>COMPLETE<\/done>/g, "").trimEnd()}\n${buildJoinGuardReminder(joinBlockers)}`.trim();
+		const guardedOutput = applyCompletionJoinGuard(output.output, joinBlockers);
+		if (guardedOutput) {
+			output.output = guardedOutput;
 			return;
 		}
 

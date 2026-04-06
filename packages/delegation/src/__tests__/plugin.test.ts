@@ -475,6 +475,41 @@ describe("delegation plugin", () => {
 		expect(output).toContain("Status: running");
 	});
 
+	test("extracts inline authoritative context into durable task state", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-inline-authctx-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+
+		const launch = await taskTool.execute(
+			{
+				description: "Inspect runtime",
+				prompt:
+					"Inspect README.md and stop\n\nAuthoritative context:\nTarget file: README.md",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+		if (!taskID) throw new Error("Expected task id");
+
+		const persisted = await state.getTask(taskID);
+		expect(persisted?.authoritative_context).toBe("Target file: README.md");
+		expect(persisted?.prompt).toBe("Inspect README.md and stop");
+	});
+
 	test("uses continue_task_id to restart an existing completed task", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-delegation-continue-id-"));
 		tempRoots.push(root);

@@ -26,7 +26,11 @@ import {
 	type CompactionDeps,
 	createCompactionHook,
 } from "./hooks/compaction.js";
-import { createCompletionPromiseHook } from "./hooks/completion-promise.js";
+import {
+	applyCompletionJoinGuard,
+	buildJoinGuardReminder,
+	createCompletionPromiseHook,
+} from "./hooks/completion-promise.js";
 import {
 	createContextScoutHook,
 	isPathWithinRoot,
@@ -160,6 +164,52 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		throw new Error(
 			"Failed to resolve root session: maximum traversal depth exceeded",
 		);
+	}
+
+	async function getCompletionJoinBlockers(sessionID: string): Promise<{
+		rootSessionID: string;
+		blockers: Array<{ task_id: string; status: string; reason?: string }>;
+	}> {
+		const rootSessionID = await getRootSessionID(sessionID);
+		const continuationRecord =
+			await continuationState.getSession(rootSessionID);
+		if (continuationRecord?.mode === "handoff") {
+			return { rootSessionID, blockers: [] };
+		}
+
+		const blockers = await readRootJoinBlockers(workspaceDir, rootSessionID);
+		return { rootSessionID, blockers };
+	}
+
+	async function enforceIdleCompletionJoinGuard(
+		sessionID: string,
+	): Promise<void> {
+		const joinBlockers = await getCompletionJoinBlockers(sessionID);
+		if (joinBlockers.blockers.length === 0) return;
+
+		const latestAssistantText = await getLatestAssistantMessageText(
+			ctx.client as {
+				session: {
+					messages: (input: {
+						path: { id: string };
+						query: { limit: number };
+					}) => Promise<{ data: unknown }>;
+				};
+			},
+			sessionID,
+		);
+		const guardedOutput = applyCompletionJoinGuard(
+			latestAssistantText ?? "",
+			joinBlockers,
+		);
+		if (!guardedOutput) return;
+
+		await ctx.client.session.promptAsync({
+			path: { id: sessionID },
+			body: {
+				parts: [{ type: "text", text: buildJoinGuardReminder(joinBlockers) }],
+			},
+		});
 	}
 
 	function parsePlanFrontmatter(content: string): {
@@ -477,19 +527,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		"completionPromise",
 		() =>
 			createCompletionPromiseHook({
-				getJoinBlockers: async (sessionID: string) => {
-					const rootSessionID = await getRootSessionID(sessionID);
-					const continuationRecord =
-						await continuationState.getSession(rootSessionID);
-					if (continuationRecord?.mode === "handoff") {
-						return { rootSessionID, blockers: [] };
-					}
-					const blockers = await readRootJoinBlockers(
-						workspaceDir,
-						rootSessionID,
-					);
-					return { rootSessionID, blockers };
-				},
+				getJoinBlockers: getCompletionJoinBlockers,
 			}),
 		hookConfig,
 	);
@@ -713,6 +751,8 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				});
 				return;
 			}
+
+			await enforceIdleCompletionJoinGuard(sessionID);
 
 			await sessionReadyNotificationHook({
 				sessionID,
@@ -2378,6 +2418,56 @@ async function readRootJoinBlockers(
 			status: task.status,
 			reason: task.execution?.root_follow_through?.reason,
 		}));
+}
+
+async function getLatestAssistantMessageText(
+	client: {
+		session: {
+			messages: (input: {
+				path: { id: string };
+				query: { limit: number };
+			}) => Promise<{ data: unknown }>;
+		};
+	},
+	sessionID: string,
+): Promise<string | null> {
+	try {
+		const response = await client.session.messages({
+			path: { id: sessionID },
+			query: { limit: 20 },
+		});
+		const messages = Array.isArray(response.data) ? response.data : [];
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const message = messages[index];
+			if (!message || typeof message !== "object") continue;
+			const info =
+				typeof (message as { info?: unknown }).info === "object" &&
+				(message as { info?: unknown }).info !== null
+					? ((message as { info: Record<string, unknown> }).info ?? null)
+					: null;
+			if (info?.role !== "assistant") continue;
+
+			const parts = Array.isArray((message as { parts?: unknown }).parts)
+				? ((message as { parts: unknown[] }).parts ?? [])
+				: [];
+			const text = parts
+				.map((part) => {
+					if (!part || typeof part !== "object") return null;
+					const record = part as Record<string, unknown>;
+					return record.type === "text" && typeof record.text === "string"
+						? record.text
+						: null;
+				})
+				.filter((value): value is string => Boolean(value))
+				.join("\n")
+				.trim();
+			if (text) return text;
+		}
+	} catch {
+		return null;
+	}
+
+	return null;
 }
 
 // ── Test Exports (backward compatibility) ──────────────────
