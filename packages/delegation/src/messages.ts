@@ -1,5 +1,54 @@
 import type { FullSessionFormatOptions, SessionMessage } from "./types.js";
 
+export interface SessionActivitySummary {
+	read_count: number;
+	search_count: number;
+	planning_count: number;
+	edit_count: number;
+	other_count: number;
+}
+
+const READ_TOOLS = new Set([
+	"read",
+	"session_read",
+	"session_info",
+	"plan_read",
+	"plan_context_read",
+	"plan_doc_load",
+	"notepad_read",
+	"webfetch",
+]);
+
+const SEARCH_TOOLS = new Set([
+	"glob",
+	"grep",
+	"session_list",
+	"session_search",
+	"lsp_symbols",
+	"lsp_find_references",
+	"lsp_goto_definition",
+	"ast_grep_search",
+]);
+
+const PLANNING_TOOLS = new Set([
+	"todowrite",
+	"plan_list",
+	"plan_read",
+	"plan_context_read",
+	"plan_doc_list",
+	"plan_doc_load",
+	"notepad_read",
+	"question",
+]);
+
+const EDIT_TOOLS = new Set([
+	"edit",
+	"write",
+	"hash_anchored_edit",
+	"apply_patch",
+	"ast_grep_replace",
+]);
+
 function parseIso(input: unknown): string | undefined {
 	return typeof input === "string" && input.trim().length > 0
 		? input
@@ -38,6 +87,67 @@ function normalizeMessages(data: unknown): SessionMessage[] {
 					: [],
 			};
 		});
+}
+
+function normalizeToolName(part: Record<string, unknown>): string | null {
+	const direct = part.tool;
+	if (typeof direct === "string" && direct.trim().length > 0) {
+		return direct.trim().toLowerCase();
+	}
+
+	const name = part.name;
+	if (typeof name === "string" && name.trim().length > 0) {
+		return name.trim().toLowerCase();
+	}
+
+	return null;
+}
+
+export function summarizeSessionActivity(
+	data: unknown,
+): SessionActivitySummary {
+	const summary: SessionActivitySummary = {
+		read_count: 0,
+		search_count: 0,
+		planning_count: 0,
+		edit_count: 0,
+		other_count: 0,
+	};
+
+	for (const message of normalizeMessages(data)) {
+		for (const part of message.parts) {
+			if (part.type !== "tool") continue;
+			const toolName = normalizeToolName(part);
+			if (!toolName) {
+				summary.other_count += 1;
+				continue;
+			}
+
+			if (EDIT_TOOLS.has(toolName)) {
+				summary.edit_count += 1;
+				continue;
+			}
+
+			if (SEARCH_TOOLS.has(toolName)) {
+				summary.search_count += 1;
+				continue;
+			}
+
+			if (PLANNING_TOOLS.has(toolName)) {
+				summary.planning_count += 1;
+				continue;
+			}
+
+			if (READ_TOOLS.has(toolName)) {
+				summary.read_count += 1;
+				continue;
+			}
+
+			summary.other_count += 1;
+		}
+	}
+
+	return summary;
 }
 
 function formatToolState(part: Record<string, unknown>): string | null {

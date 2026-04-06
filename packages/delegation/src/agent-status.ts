@@ -28,6 +28,8 @@ export interface AgentStatusEvidence {
 		stale_blocked_count: number;
 		recent_failure_count: number;
 		running_age_unknown_count: number;
+		frontend_no_edit_running_count: number;
+		frontend_no_edit_blocked_count: number;
 	};
 	thresholds: {
 		stuck_after_ms: number;
@@ -72,12 +74,24 @@ export function summarizeAgentStatus(
 	let staleBlockedCount = 0;
 	let recentFailureCount = 0;
 	let runningAgeUnknownCount = 0;
+	let frontendNoEditRunningCount = 0;
+	let frontendNoEditBlockedCount = 0;
 	let oldestRunningAgeMs: number | null = null;
 
 	for (const task of tasks) {
 		counts[task.status] += 1;
 
 		if (task.status === "running") {
+			const noEditYet = (task.execution?.edit_count ?? 0) === 0;
+			const hasReadPass =
+				(task.execution?.read_count ?? 0) +
+					(task.execution?.search_count ?? 0) +
+					(task.execution?.planning_count ?? 0) >
+				0;
+			if (task.agent === "frontend" && noEditYet && hasReadPass) {
+				frontendNoEditRunningCount += 1;
+			}
+
 			const runningAgeMs =
 				parseIsoAgeMs(task.started_at, nowMs) ??
 				parseIsoAgeMs(task.updated_at, nowMs) ??
@@ -101,6 +115,16 @@ export function summarizeAgentStatus(
 		}
 
 		if (task.status === "blocked") {
+			const noEditYet = (task.execution?.edit_count ?? 0) === 0;
+			const hasReadPass =
+				(task.execution?.read_count ?? 0) +
+					(task.execution?.search_count ?? 0) +
+					(task.execution?.planning_count ?? 0) >
+				0;
+			if (task.agent === "frontend" && noEditYet && hasReadPass) {
+				frontendNoEditBlockedCount += 1;
+			}
+
 			const blockedAgeMs = parseIsoAgeMs(task.updated_at, nowMs);
 			if (blockedAgeMs !== null && blockedAgeMs >= queueDegradedAfterMs) {
 				staleBlockedCount += 1;
@@ -141,6 +165,8 @@ export function summarizeAgentStatus(
 			stale_blocked_count: staleBlockedCount,
 			recent_failure_count: recentFailureCount,
 			running_age_unknown_count: runningAgeUnknownCount,
+			frontend_no_edit_running_count: frontendNoEditRunningCount,
+			frontend_no_edit_blocked_count: frontendNoEditBlockedCount,
 		},
 		thresholds: {
 			stuck_after_ms: stuckAfterMs,

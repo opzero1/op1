@@ -74,7 +74,14 @@ describe("task state manager", () => {
 				worktree_path: "/tmp/op1-worktree",
 				merge_status: "pending",
 				verification_status: "pending",
+				root_follow_through: {
+					status: "pending",
+					updated_at: "2026-04-06T00:00:00.000Z",
+					reason: "Awaiting root follow-through",
+					source: "launch",
+				},
 			},
+			authoritative_context: "Target files: packages/delegation/src/index.ts",
 			run_in_background: true,
 		});
 
@@ -89,7 +96,13 @@ describe("task state manager", () => {
 			worktree_path: "/tmp/op1-worktree",
 			merge_status: "pending",
 			verification_status: "pending",
+			root_follow_through: {
+				status: "pending",
+				reason: "Awaiting root follow-through",
+				source: "launch",
+			},
 		});
+		expect(persisted?.authoritative_context).toContain("Target files");
 	});
 
 	test("restarts a completed task on the same session", async () => {

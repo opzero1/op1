@@ -60,6 +60,7 @@ function createMockClient(options?: {
 	createResponseShape?: "flat" | "nested-session" | "session-id";
 	statusResponseShape?: "indexed-type" | "direct-type" | "direct-status";
 	sessionParentKey?: "parentID" | "parentId" | "parent_id";
+	sessionMessages?: Record<string, unknown[]>;
 }) {
 	const sessionParents: Record<string, string | undefined> = {
 		"parent-session": undefined,
@@ -81,7 +82,15 @@ function createMockClient(options?: {
 	let defaultStatus = "running";
 	let childCount = 0;
 	let promptAsyncCalls = 0;
+	const promptAsyncRequests: Array<{
+		sessionID: string;
+		agent?: string;
+		text?: string;
+	}> = [];
 	const createdSessionDirectories: Array<string | undefined> = [];
+	const sessionMessages: Record<string, unknown[]> = {
+		...(options?.sessionMessages ?? {}),
+	};
 
 	const sessionParentKey = options?.sessionParentKey ?? "parentID";
 	const createResponseShape = options?.createResponseShape ?? "flat";
@@ -108,6 +117,16 @@ function createMockClient(options?: {
 				createdSessionDirectories.push(input?.query?.directory);
 				sessionParents[id] = "parent-session";
 				sessionStatuses[id] = defaultStatus;
+				sessionMessages[id] ??= [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-03-06T00:00:00.000Z" },
+						},
+						parts: [{ type: "text", text: "background result" }],
+					},
+				];
 				if (createResponseShape === "nested-session") {
 					return { data: { session: { id } } };
 				}
@@ -119,7 +138,13 @@ function createMockClient(options?: {
 			prompt: async () => ({
 				data: { parts: [{ type: "text", text: "sync result" }] },
 			}),
-			promptAsync: async (input: { path: { id: string } }) => {
+			promptAsync: async (input: {
+				path: { id: string };
+				body?: {
+					agent?: string;
+					parts?: Array<{ type?: string; text?: string }>;
+				};
+			}) => {
 				const sessionID = input.path.id;
 				const seenCount = promptAsyncSessionCounts[sessionID] ?? 0;
 				if (options?.failPromptAsyncOnRepeat === true && seenCount > 0) {
@@ -128,20 +153,20 @@ function createMockClient(options?: {
 
 				promptAsyncSessionCounts[sessionID] = seenCount + 1;
 				promptedSessionIDs.push(sessionID);
+				const firstPart = input.body?.parts?.[0];
+				promptAsyncRequests.push({
+					sessionID,
+					agent: input.body?.agent,
+					text:
+						firstPart?.type === "text" && typeof firstPart.text === "string"
+							? firstPart.text
+							: undefined,
+				});
 				promptAsyncCalls += 1;
 				return { data: {} };
 			},
-			messages: async () => ({
-				data: [
-					{
-						id: "msg-1",
-						info: {
-							role: "assistant",
-							time: { created: "2026-03-06T00:00:00.000Z" },
-						},
-						parts: [{ type: "text", text: "background result" }],
-					},
-				],
+			messages: async (input: { path: { id: string } }) => ({
+				data: sessionMessages[input.path.id] ?? [],
 			}),
 			abort: async () => ({}),
 			status: async (input: { path: { id: string } }) => {
@@ -185,8 +210,14 @@ function createMockClient(options?: {
 		getPromptedSessionIDs() {
 			return [...promptedSessionIDs];
 		},
+		getPromptAsyncRequests() {
+			return [...promptAsyncRequests];
+		},
 		getCreatedSessionDirectories() {
 			return [...createdSessionDirectories];
+		},
+		setMessages(sessionID: string, messages: unknown[]) {
+			sessionMessages[sessionID] = messages;
 		},
 	};
 }
@@ -416,6 +447,7 @@ describe("delegation plugin", () => {
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const launch = await taskTool.execute(
 			{
@@ -458,6 +490,7 @@ describe("delegation plugin", () => {
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const launch = await taskTool.execute(
 			{
@@ -672,6 +705,151 @@ describe("delegation plugin", () => {
 
 		expect(output).toContain("Execution: direct");
 		expect(client.getCreatedSessionDirectories()[0]).toBeUndefined();
+	});
+
+	test("blocks tiny delegated frontend tasks after six non-edit read/search/planning calls", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-frontend-stale-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root);
+
+		const client = createMockClient() as ReturnType<typeof createMockClient> & {
+			setMessages: (sessionID: string, messages: unknown[]) => void;
+		};
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Small /team page fix",
+				prompt:
+					"Update the /team page button spacing in packages/app/src/team/page.tsx.",
+				subagent_type: "frontend",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+		client.setMessages("child-session-1", [
+			{
+				id: "msg-1",
+				info: {
+					role: "assistant",
+					time: { created: "2026-03-06T00:00:00.000Z" },
+				},
+				parts: [
+					{ type: "tool", tool: "read", state: { output: "read" } },
+					{ type: "tool", tool: "glob", state: { output: "glob" } },
+					{ type: "tool", tool: "todowrite", state: { output: "todo" } },
+					{ type: "tool", tool: "read", state: { output: "read" } },
+					{ type: "tool", tool: "grep", state: { output: "grep" } },
+					{ type: "tool", tool: "plan_read", state: { output: "plan" } },
+				],
+			},
+		]);
+
+		const output = await backgroundOutputTool.execute(
+			{
+				task_id: taskID,
+				block: true,
+				timeout: 1000,
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Status: blocked");
+		expect(output).toContain("Agent: frontend");
+		expect(output).toContain("Activity: read=2, search=2, planning=2, edit=0");
+		expect(output).toContain("Files changed: no");
+		expect(output).toContain("Tiny frontend implementation task exceeded");
+		expect(output).toContain("Root: ");
+	});
+
+	test("surfaces root, edit, and file-change telemetry for running frontend worktrees", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-frontend-telemetry-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root);
+
+		const client = createMockClient() as ReturnType<typeof createMockClient> & {
+			setMessages: (sessionID: string, messages: unknown[]) => void;
+		};
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Small /team page fix",
+				prompt:
+					"Update the /team page button spacing in packages/app/src/team/page.tsx.",
+				subagent_type: "frontend",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		expect(taskID).toBeDefined();
+		if (!worktreePath) {
+			throw new Error("Expected worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "frontend change\n");
+		client.setMessages("child-session-1", [
+			{
+				id: "msg-1",
+				info: {
+					role: "assistant",
+					time: { created: "2026-03-06T00:00:00.000Z" },
+				},
+				parts: [
+					{ type: "tool", tool: "read", state: { output: "read" } },
+					{ type: "tool", tool: "edit", state: { output: "edit" } },
+				],
+			},
+		]);
+
+		const output = await backgroundOutputTool.execute(
+			{
+				task_id: taskID,
+				block: true,
+				timeout: 1000,
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Status: running");
+		expect(output).toContain("Agent: frontend");
+		expect(output).toContain("Activity: read=1, search=0, planning=0, edit=1");
+		expect(output).toContain("Files changed: yes");
+		expect(output).toContain(`Root: ${worktreePath}`);
 	});
 
 	test("verifies and merges worktree task changes on session idle", async () => {
@@ -1282,6 +1460,191 @@ describe("delegation plugin", () => {
 
 		expect(output).toContain("Task completed.");
 		expect(output).toContain("background result");
+	});
+
+	test("auto-resumes the root session once after background child completion", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-root-follow-through-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "follow-through-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(client.getPromptedSessionIDs()).toContain("parent-session");
+		expect(
+			client.getPromptedSessionIDs().filter((id) => id === "parent-session"),
+		).toHaveLength(1);
+
+		const status = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(status).toContain("Root follow-through: delivered");
+		expect(status).toContain("Diff:");
+		expect(status).toContain("Verification summary:");
+	});
+
+	test("keeps root follow-through pending when continuation is stopped", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-root-stopped-"));
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		await mkdir(workspaceDir, { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "follow-through-stopped-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+		await Bun.write(
+			join(workspaceDir, "continuation.json"),
+			JSON.stringify(
+				{
+					version: 1,
+					sessions: {
+						"parent-session": {
+							session_id: "parent-session",
+							mode: "stopped",
+							updated_at: "2026-04-06T00:00:00.000Z",
+							reason: "manual stop",
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		expect(client.getPromptedSessionIDs()).not.toContain("parent-session");
+		const pending = await createTaskStateManager(workspaceDir).getTask(taskID);
+		expect(pending?.execution?.root_follow_through?.status).toBe("pending");
+
+		const status = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(status).toContain("Root follow-through: delivered");
+		expect(status).toContain("Verification summary:");
+	});
+
+	test("waives root follow-through when background work is explicitly cancelled", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-root-waived-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const cancelTool = plugin.tool?.background_cancel as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Explore code",
+				prompt: "Inspect the repository",
+				subagent_type: "explore",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		if (!taskID) throw new Error("Expected task id");
+
+		const cancelled = await cancelTool.execute(
+			{ task_id: taskID, reason: "No longer needed" },
+			{ sessionID: "parent-session" },
+		);
+
+		expect(cancelled).toContain("Root follow-through: waived");
+		expect(cancelled).toContain("Cancelled: No longer needed");
 	});
 
 	test("keeps tasks queued once per-agent background concurrency is saturated", async () => {

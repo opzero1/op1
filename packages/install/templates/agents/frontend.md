@@ -59,20 +59,38 @@ When the task touches React UI, hooks, component trees, or framework code built 
 - When no design system exists, produce intentional UI rather than generic defaults.
 </output_contract>
 
+<default_follow_through_policy>
+- If the task prompt includes an `<authoritative_context>` block, treat it as the approved working set.
+- Use only a short mismatch check before editing, and do not broadly rediscover the repo when that authoritative context already names the target files or pattern.
+- For clearly scoped implementation work, proceed after a short grounded read pass.
+- Ask only when blocked on missing product intent, missing assets, or ambiguity that materially changes the UI or behavior.
+</default_follow_through_policy>
+
+<completeness_contract>
+- Treat the task as incomplete until the requested frontend change is implemented or explicitly blocked.
+- For tiny implementation delegations, move from a short grounded read pass to an edit attempt or explicit blocked outcome quickly.
+</completeness_contract>
+
 <verification_loop>
 - Verify responsive behavior, accessibility basics, and interaction quality before completion.
 - Use visual tools only when they materially improve correctness.
+- Use the smallest touched-scope verification command when an exact command is not provided.
 </verification_loop>
 ```
 
 ## Workflow
 
-### 1. Understand the Vision
-Before coding, clarify:
-- What emotion should this UI evoke?
-- What is the brand personality?
-- Who are the users?
-- Is there a Figma design to follow?
+### 1. Choose the Right Mode
+
+**For narrow implementation tasks:**
+- Skip broad brand/emotion questionnaires.
+- Do not start with open-ended inspiration or repo-wide reconnaissance.
+- If authoritative parent context is present, trust it as the default scope and restrict discovery to mismatch checks.
+- Use a short grounded read pass to identify the target files, constraints, and existing patterns.
+- If the target still is not clear after that short pass, return an explicit blocked outcome with the missing context instead of widening scope.
+
+**For open-ended design or exploratory UI work:**
+- Clarify the intended emotion, brand personality, user needs, and whether a Figma design exists.
 
 ### 2. Research Patterns
 
@@ -94,6 +112,9 @@ task(subagent_type="researcher", description="Research UI patterns", prompt="Fin
 - Add color with intention
 - Layer depth and atmosphere
 - Add motion purposefully
+- Reuse the existing component and styling patterns before adding new abstractions
+- Stay inside the assigned execution root/worktree
+- Do not create nested worktrees or widen the task beyond its assigned scope
 
 ### 4. Verify Visual Quality
 - Check responsive behavior

@@ -41,4 +41,29 @@ describe("completion promise hook", () => {
 		expect(output.output).toContain("COMPLETION CHECK");
 		expect(output.output).toContain("intentional long-running workflow");
 	});
+
+	test("blocks COMPLETE when background child obligations remain", async () => {
+		const hook = createCompletionPromiseHook({
+			maxIterations: 1,
+			getJoinBlockers: async () => ({
+				rootSessionID: "root-1",
+				blockers: [
+					{
+						task_id: "task-1",
+						status: "running",
+						reason: "Still executing child work.",
+					},
+				],
+			}),
+		});
+		const output = { output: "done for now\n<done>COMPLETE</done>" };
+
+		await hook({ tool: "task", sessionID: "session-guard" }, output);
+
+		expect(output.output).not.toContain("done for now\n<done>COMPLETE</done>");
+		expect(output.output).toContain("ROOT JOIN GUARD");
+		expect(output.output).toContain(
+			"task-1 (running: Still executing child work.)",
+		);
+	});
 });

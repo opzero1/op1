@@ -149,7 +149,10 @@ function normalizeRelativePath(pathValue: string): string {
 	return normalizePathSegments(pathValue.replace(/\\/g, "/"));
 }
 
-function toAbsolutePath(pathValue: string, workspaceRoot: string): string {
+export function toAbsolutePath(
+	pathValue: string,
+	workspaceRoot: string,
+): string {
 	const trimmed = pathValue.trim();
 	if (!trimmed) return normalizeUnixAbsolute(resolve(workspaceRoot));
 
@@ -199,7 +202,7 @@ function normalizeAllowlistedRoots(input: {
 	return [toAbsolutePath(input.workspaceRoot, input.workspaceRoot)];
 }
 
-function isPathWithinRoot(absolutePath: string, root: string): boolean {
+export function isPathWithinRoot(absolutePath: string, root: string): boolean {
 	const normalizedPath = toAbsolutePath(absolutePath, root);
 	const normalizedRoot = toAbsolutePath(root, root);
 

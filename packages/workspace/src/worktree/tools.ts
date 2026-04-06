@@ -12,6 +12,7 @@ import {
 	join,
 	mkdir,
 	relative,
+	resolve,
 	stat,
 	symlink,
 } from "../bun-compat.js";
@@ -143,6 +144,21 @@ async function isDirtyWorktree(worktreePath: string): Promise<boolean> {
 	return status.trim().length > 0;
 }
 
+async function isLinkedWorktree(directory: string): Promise<boolean> {
+	try {
+		const [gitDirRaw, commonDirRaw] = await Promise.all([
+			runCommand(["git", "rev-parse", "--git-dir"], directory),
+			runCommand(["git", "rev-parse", "--git-common-dir"], directory),
+		]);
+
+		const gitDir = resolve(directory, gitDirRaw.trim());
+		const commonDir = resolve(directory, commonDirRaw.trim());
+		return gitDir !== commonDir;
+	} catch {
+		return false;
+	}
+}
+
 // ──────────────────────────────────────────────
 // Tool Definitions
 // ──────────────────────────────────────────────
@@ -190,6 +206,10 @@ export function createWorktreeTools(
 			async execute(args, toolCtx) {
 				if (!toolCtx?.sessionID) {
 					return "❌ worktree_create requires sessionID.";
+				}
+
+				if (await isLinkedWorktree(directory)) {
+					return "❌ Cannot create a nested worktree from an already-assigned child worktree root. Return to the primary execution root first.";
 				}
 
 				const sanitized = sanitizeBranchName(args.branch);

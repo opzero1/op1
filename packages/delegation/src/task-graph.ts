@@ -16,9 +16,24 @@ export interface TaskGraphNode {
 	execution_mode?: TaskExecution["mode"];
 	branch?: string;
 	worktree_path?: string;
+	effective_root_path?: string;
 	merge_status?: TaskExecution["merge_status"];
 	verification_status?: TaskExecution["verification_status"];
 	verification_strategy?: TaskExecution["verification_strategy"];
+	verification_summary?: TaskExecution["verification_summary"];
+	diff_summary?: TaskExecution["diff_summary"];
+	root_follow_through_status?: NonNullable<
+		TaskExecution["root_follow_through"]
+	>["status"];
+	root_follow_through_reason?: NonNullable<
+		TaskExecution["root_follow_through"]
+	>["reason"];
+	read_count?: number;
+	search_count?: number;
+	planning_count?: number;
+	edit_count?: number;
+	file_changed?: boolean;
+	stale_reason?: string;
 	retry_reason?: TaskRetry["reason"];
 	retry_state?: TaskRetry["state"];
 	last_resync_status?: TaskRetry["last_resync_status"];
@@ -100,9 +115,20 @@ export function buildTaskGraph(
 			execution_mode: record.execution?.mode,
 			branch: record.execution?.branch,
 			worktree_path: record.execution?.worktree_path,
+			effective_root_path: record.execution?.effective_root_path,
 			merge_status: record.execution?.merge_status,
 			verification_status: record.execution?.verification_status,
 			verification_strategy: record.execution?.verification_strategy,
+			verification_summary: record.execution?.verification_summary,
+			diff_summary: record.execution?.diff_summary,
+			root_follow_through_status: record.execution?.root_follow_through?.status,
+			root_follow_through_reason: record.execution?.root_follow_through?.reason,
+			read_count: record.execution?.read_count,
+			search_count: record.execution?.search_count,
+			planning_count: record.execution?.planning_count,
+			edit_count: record.execution?.edit_count,
+			file_changed: record.execution?.file_changed,
+			stale_reason: record.execution?.stale_reason,
 			retry_reason: record.assignment?.retry?.reason,
 			retry_state: record.assignment?.retry?.state,
 			last_resync_status: record.assignment?.retry?.last_resync_status,

@@ -1,4 +1,5 @@
 import { relative, resolve } from "./bun-compat.js";
+import { isPathWithinRoot, toAbsolutePath } from "./hooks/context-scout.js";
 import { redactText, redactUnknown } from "./redaction.js";
 
 type UnknownRecord = Record<string, unknown>;
@@ -186,7 +187,12 @@ function normalizeDirectoryScope(
 
 	const resolved = trimmed.startsWith("/")
 		? resolve(trimmed)
-		: resolve(projectDirectory, trimmed);
+		: toAbsolutePath(trimmed, projectDirectory);
+	if (!isPathWithinRoot(resolved, projectDirectory)) {
+		throw new Error(
+			`directory must stay within the current execution root: ${projectDirectory}`,
+		);
+	}
 	return { directory: resolved, explicit: true };
 }
 

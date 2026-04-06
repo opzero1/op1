@@ -202,13 +202,35 @@ describe("prompt template contracts", () => {
 		expect(build).toContain(
 			"Never use this override for clearly frontend-owned work",
 		);
+		expect(build).toContain("authoritative_context");
 		expect(coder).toContain("belongs to `frontend`");
 		expect(coder).toContain("FE-adjacent logic or mixed tasks");
+		expect(coder).toContain("<authoritative_context>");
+		expect(coder).toContain("approved working set");
 		expect(frontend).toContain("You ARE the frontend specialist");
+		expect(frontend).toContain("<authoritative_context>");
+		expect(frontend).toContain("approved working set");
 		expect(ulw).toContain("| Frontend/UI | `frontend` |");
 		expect(ulw).toContain("Use `frontend` for UI polish");
 		expect(ulw).toContain("reroute to `frontend`");
 		expect(ulw).toContain("Frontend-owned implementation");
+	});
+
+	test("frontend prompt treats tiny implementation work as edit-or-blocked execution", async () => {
+		const frontend = await readTemplate("agents", "frontend.md");
+
+		expect(frontend).toContain("short grounded read pass");
+		expect(frontend).toContain("edit attempt or explicit blocked outcome");
+		expect(frontend).toContain("Skip broad brand/emotion questionnaires");
+		expect(frontend).toContain("trust it as the default scope");
+		expect(frontend).toContain("do not broadly rediscover the repo");
+		expect(frontend).toContain(
+			"Stay inside the assigned execution root/worktree",
+		);
+		expect(frontend).toContain("Do not create nested worktrees");
+		expect(frontend).toContain(
+			"Use the smallest touched-scope verification command",
+		);
 	});
 
 	test("/work execution guidance enforces frontend delegation over build direct handling", async () => {

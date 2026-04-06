@@ -142,4 +142,22 @@ describe("worktree delete safety", () => {
 		expect(forced).toContain("✅ Worktree deleted");
 		await expect(stat(worktreePath)).rejects.toBeTruthy();
 	});
+
+	test("rejects nested worktree creation from an already-linked worktree root", async () => {
+		const { root, repo } = await createRepositoryFixture();
+		const worktreePath = await createDirtyWorktree({
+			repo,
+			root,
+			branch: "feature/existing-linked-worktree",
+			marker: "wt-linked-root",
+		});
+
+		const tools = createWorktreeTools(worktreePath, "worktree-delete-safety");
+		const result = await tools.worktree_create.execute(
+			{ branch: "feature/nested-attempt", open_terminal: false },
+			{ sessionID: "child-session" } as never,
+		);
+
+		expect(result).toContain("Cannot create a nested worktree");
+	});
 });

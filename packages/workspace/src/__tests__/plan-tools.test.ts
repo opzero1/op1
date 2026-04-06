@@ -387,4 +387,36 @@ describe("plan tools", () => {
 		expect(activePlanState.session_ids).toContain("session-b");
 		expect(activePlanState.active_plan).toContain(".opencode/workspace/plans/");
 	});
+
+	test("plan_doc_load rejects paths outside the current execution root", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-doc-boundary-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const outsideRoot = await mkdtemp(join(tmpdir(), "op1-plan-doc-outside-"));
+		tempRoots.push(outsideRoot);
+		const outsideDoc = join(outsideRoot, "outside.md");
+		await Bun.write(outsideDoc, "# Outside\n");
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planDocLoadTool = plugin.tool?.plan_doc_load as unknown as {
+			execute: (
+				args: { path: string; mode: "summary" },
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		const result = await planDocLoadTool.execute(
+			{ path: outsideDoc, mode: "summary" },
+			{ sessionID: "plan-doc-session" },
+		);
+
+		expect(result).toContain(
+			"Doc path must stay within the current execution root",
+		);
+	});
 });

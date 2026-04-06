@@ -34,6 +34,7 @@ export type TaskVerificationStatus =
 	| "not_required";
 
 export type TaskVerificationStrategy = "targeted" | "fallback";
+export type TaskRootFollowThroughStatus = "pending" | "delivered" | "waived";
 
 export type TaskAssignmentOwner = "manager";
 export type TaskAssignmentWorkflow = "caid";
@@ -83,6 +84,7 @@ export interface TaskExecutionRecord {
 	branch?: string;
 	base_branch?: string;
 	worktree_path?: string;
+	effective_root_path?: string;
 	merge_status?: TaskMergeStatus;
 	verification_status?: TaskVerificationStatus;
 	verification_strategy?: TaskVerificationStrategy;
@@ -90,6 +92,21 @@ export interface TaskExecutionRecord {
 	verification_fallback_reason?: string;
 	verification_command?: string;
 	verification_summary?: string;
+	diff_summary?: string;
+	root_follow_through?: {
+		status: TaskRootFollowThroughStatus;
+		updated_at: string;
+		reason?: string;
+		source?: string;
+	};
+	read_count?: number;
+	search_count?: number;
+	planning_count?: number;
+	edit_count?: number;
+	other_count?: number;
+	file_changed?: boolean;
+	edit_or_blocked_threshold?: number;
+	stale_reason?: string;
 	retry_count?: number;
 }
 
@@ -101,6 +118,7 @@ export interface TaskRecord {
 	description: string;
 	agent: string;
 	prompt: string;
+	authoritative_context?: string;
 	command?: string;
 	category?: DelegationCategory;
 	routing?: DelegationRoutingTelemetry;
@@ -314,6 +332,15 @@ function parseTaskVerificationStrategy(
 	return undefined;
 }
 
+function parseTaskRootFollowThroughStatus(
+	value: unknown,
+): TaskRootFollowThroughStatus | undefined {
+	if (value === "pending") return "pending";
+	if (value === "delivered") return "delivered";
+	if (value === "waived") return "waived";
+	return undefined;
+}
+
 function normalizeTaskAssignment(
 	value: unknown,
 ): TaskAssignmentRecord | undefined {
@@ -510,6 +537,10 @@ function normalizeTaskExecution(
 		branch: typeof raw.branch === "string" ? raw.branch : undefined,
 		base_branch:
 			typeof raw.base_branch === "string" ? raw.base_branch : undefined,
+		effective_root_path:
+			typeof raw.effective_root_path === "string"
+				? raw.effective_root_path
+				: undefined,
 		worktree_path:
 			typeof raw.worktree_path === "string" ? raw.worktree_path : undefined,
 		merge_status:
@@ -536,6 +567,67 @@ function normalizeTaskExecution(
 			typeof raw.verification_summary === "string"
 				? raw.verification_summary
 				: undefined,
+		diff_summary:
+			typeof raw.diff_summary === "string" ? raw.diff_summary : undefined,
+		root_follow_through:
+			raw.root_follow_through && typeof raw.root_follow_through === "object"
+				? (() => {
+						const followThrough = raw.root_follow_through as Record<
+							string,
+							unknown
+						>;
+						const status = parseTaskRootFollowThroughStatus(
+							followThrough.status,
+						);
+						if (!status) return undefined;
+
+						return {
+							status,
+							updated_at:
+								typeof followThrough.updated_at === "string"
+									? followThrough.updated_at
+									: nowIso(),
+							reason:
+								typeof followThrough.reason === "string"
+									? followThrough.reason
+									: undefined,
+							source:
+								typeof followThrough.source === "string"
+									? followThrough.source
+									: undefined,
+						};
+					})()
+				: undefined,
+		read_count:
+			Number.isInteger(raw.read_count) && (raw.read_count as number) >= 0
+				? (raw.read_count as number)
+				: undefined,
+		search_count:
+			Number.isInteger(raw.search_count) && (raw.search_count as number) >= 0
+				? (raw.search_count as number)
+				: undefined,
+		planning_count:
+			Number.isInteger(raw.planning_count) &&
+			(raw.planning_count as number) >= 0
+				? (raw.planning_count as number)
+				: undefined,
+		edit_count:
+			Number.isInteger(raw.edit_count) && (raw.edit_count as number) >= 0
+				? (raw.edit_count as number)
+				: undefined,
+		other_count:
+			Number.isInteger(raw.other_count) && (raw.other_count as number) >= 0
+				? (raw.other_count as number)
+				: undefined,
+		file_changed:
+			typeof raw.file_changed === "boolean" ? raw.file_changed : undefined,
+		edit_or_blocked_threshold:
+			Number.isInteger(raw.edit_or_blocked_threshold) &&
+			(raw.edit_or_blocked_threshold as number) >= 0
+				? (raw.edit_or_blocked_threshold as number)
+				: undefined,
+		stale_reason:
+			typeof raw.stale_reason === "string" ? raw.stale_reason : undefined,
 		retry_count:
 			Number.isInteger(raw.retry_count) && (raw.retry_count as number) >= 0
 				? (raw.retry_count as number)
@@ -571,6 +663,10 @@ function normalizeTaskRecord(value: unknown): TaskRecord | null {
 		description: raw.description,
 		agent: raw.agent,
 		prompt: raw.prompt,
+		authoritative_context:
+			typeof raw.authoritative_context === "string"
+				? raw.authoritative_context
+				: undefined,
 		command: typeof raw.command === "string" ? raw.command : undefined,
 		category: category ?? undefined,
 		routing: normalizeRoutingTelemetry(raw.routing),
@@ -839,6 +935,7 @@ export function createTaskStateManager(
 		description: string;
 		agent: string;
 		prompt: string;
+		authoritative_context?: string;
 		command?: string;
 		category?: DelegationCategory;
 		routing?: DelegationRoutingTelemetry;
@@ -900,6 +997,7 @@ export function createTaskStateManager(
 				description: input.description,
 				agent: input.agent,
 				prompt: input.prompt,
+				authoritative_context: input.authoritative_context,
 				command: input.command,
 				category: input.category,
 				routing: input.routing,
@@ -973,6 +1071,7 @@ export function createTaskStateManager(
 		child_session_id?: string;
 		description?: string;
 		prompt: string;
+		authoritative_context?: string;
 		command?: string;
 		category?: DelegationCategory;
 		routing?: DelegationRoutingTelemetry;
@@ -1007,6 +1106,8 @@ export function createTaskStateManager(
 				child_session_id: input.child_session_id ?? current.child_session_id,
 				description: input.description ?? current.description,
 				prompt: input.prompt,
+				authoritative_context:
+					input.authoritative_context ?? current.authoritative_context,
 				command:
 					typeof input.command === "string" ? input.command : current.command,
 				category: input.category ?? current.category,

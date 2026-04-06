@@ -27,7 +27,11 @@ import {
 	createCompactionHook,
 } from "./hooks/compaction.js";
 import { createCompletionPromiseHook } from "./hooks/completion-promise.js";
-import { createContextScoutHook } from "./hooks/context-scout.js";
+import {
+	createContextScoutHook,
+	isPathWithinRoot,
+	toAbsolutePath,
+} from "./hooks/context-scout.js";
 import {
 	createEditSafetyAfterHook,
 	createEditSafetyBeforeHook,
@@ -200,15 +204,22 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	}
 
 	function toAbsoluteDocPath(pathValue: string): string {
+		let absolutePath: string;
 		if (pathValue.startsWith("~")) {
-			return resolve(homedir(), pathValue.slice(1));
+			absolutePath = resolve(homedir(), pathValue.slice(1));
+		} else if (pathValue.startsWith("/")) {
+			absolutePath = resolve(pathValue);
+		} else {
+			absolutePath = toAbsolutePath(pathValue, directory);
 		}
 
-		if (pathValue.startsWith("/")) {
-			return resolve(pathValue);
+		if (!isPathWithinRoot(absolutePath, directory)) {
+			throw new Error(
+				`Doc path must stay within the current execution root: ${directory}`,
+			);
 		}
 
-		return resolve(directory, pathValue);
+		return absolutePath;
 	}
 
 	function parseJsonArrayArg<T>(args: {
@@ -464,7 +475,22 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	);
 	const completionPromiseHandler = createSafeRuntimeHook(
 		"completionPromise",
-		() => createCompletionPromiseHook(),
+		() =>
+			createCompletionPromiseHook({
+				getJoinBlockers: async (sessionID: string) => {
+					const rootSessionID = await getRootSessionID(sessionID);
+					const continuationRecord =
+						await continuationState.getSession(rootSessionID);
+					if (continuationRecord?.mode === "handoff") {
+						return { rootSessionID, blockers: [] };
+					}
+					const blockers = await readRootJoinBlockers(
+						workspaceDir,
+						rootSessionID,
+					);
+					return { rootSessionID, blockers };
+				},
+			}),
 		hookConfig,
 	);
 	const writePolicyHandler = createSafeRuntimeHook(
@@ -676,7 +702,17 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		if (sessionReadyNotificationHook && isSessionIdleEvent(payload.event)) {
 			const sessionID = payload.event.properties.sessionID;
 			if (!sessionID) return;
-			if (await isDelegationChildSession(workspaceDir, sessionID)) return;
+			const delegationTask = await readDelegationTaskByChildSession(
+				workspaceDir,
+				sessionID,
+			);
+			if (delegationTask) {
+				await sessionReadyNotificationHook({
+					sessionID: delegationTask.root_session_id,
+					source: `delegation.${delegationTask.id}.${payload.event.type}`,
+				});
+				return;
+			}
 
 			await sessionReadyNotificationHook({
 				sessionID,
@@ -1617,7 +1653,12 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						return "No active plan. Create a plan first with /plan.";
 					}
 
-					const absoluteDocPath = toAbsoluteDocPath(args.path);
+					let absoluteDocPath: string;
+					try {
+						absoluteDocPath = toAbsoluteDocPath(args.path);
+					} catch (error) {
+						return `❌ ${error instanceof Error ? error.message : String(error)}`;
+					}
 					const docFile = Bun.file(absoluteDocPath);
 					if (!(await docFile.exists())) {
 						return `❌ Doc file not found: ${absoluteDocPath}`;
@@ -1752,7 +1793,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							backlinksText = `\nLinked from: ${refs}`;
 						}
 					} else if (args.path) {
-						targetPath = toAbsoluteDocPath(args.path);
+						try {
+							targetPath = toAbsoluteDocPath(args.path);
+						} catch (error) {
+							return `❌ ${error instanceof Error ? error.message : String(error)}`;
+						}
 					} else {
 						return "❌ Provide either doc_id or path.";
 					}
@@ -2213,31 +2258,126 @@ function getFirstQuestionText(
 		: undefined;
 }
 
-async function isDelegationChildSession(
+interface DelegationTaskEventRecord {
+	id: string;
+	root_session_id: string;
+	child_session_id: string;
+	status: string;
+	run_in_background: boolean;
+	updated_at?: string;
+	execution?: {
+		root_follow_through?: {
+			status?: string;
+			reason?: string;
+		};
+	};
+}
+
+async function readDelegationTasks(
 	workspaceDir: string,
-	sessionID: string,
-): Promise<boolean> {
+): Promise<DelegationTaskEventRecord[]> {
 	const taskStoreFile = Bun.file(join(workspaceDir, "task-records.json"));
-	if (!(await taskStoreFile.exists())) return false;
+	if (!(await taskStoreFile.exists())) return [];
 
 	let parsed: unknown;
 	try {
 		parsed = await taskStoreFile.json();
 	} catch {
-		return false;
+		return [];
 	}
 
-	if (!parsed || typeof parsed !== "object") return false;
+	if (!parsed || typeof parsed !== "object") return [];
 	const record = parsed as {
-		delegations?: Record<string, { child_session_id?: unknown }>;
+		delegations?: Record<string, Record<string, unknown>>;
 	};
 	if (!record.delegations || typeof record.delegations !== "object") {
-		return false;
+		return [];
 	}
 
-	return Object.values(record.delegations).some(
-		(item) => item?.child_session_id === sessionID,
+	const tasks: DelegationTaskEventRecord[] = [];
+	for (const [id, item] of Object.entries(record.delegations)) {
+		const execution =
+			item?.execution && typeof item.execution === "object"
+				? (item.execution as Record<string, unknown>)
+				: undefined;
+		const rootFollowThrough =
+			execution?.root_follow_through &&
+			typeof execution.root_follow_through === "object"
+				? (execution.root_follow_through as Record<string, unknown>)
+				: undefined;
+		if (
+			typeof item?.root_session_id !== "string" ||
+			typeof item.child_session_id !== "string" ||
+			typeof item.status !== "string" ||
+			typeof item.run_in_background !== "boolean"
+		) {
+			continue;
+		}
+
+		tasks.push({
+			id,
+			root_session_id: item.root_session_id,
+			child_session_id: item.child_session_id,
+			status: item.status,
+			run_in_background: item.run_in_background,
+			updated_at:
+				typeof item.updated_at === "string" ? item.updated_at : undefined,
+			execution: rootFollowThrough
+				? {
+						root_follow_through: {
+							status:
+								typeof rootFollowThrough.status === "string"
+									? rootFollowThrough.status
+									: undefined,
+							reason:
+								typeof rootFollowThrough.reason === "string"
+									? rootFollowThrough.reason
+									: undefined,
+						},
+					}
+				: undefined,
+		});
+	}
+
+	return tasks.sort((a, b) =>
+		(b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
 	);
+}
+
+async function readDelegationTaskByChildSession(
+	workspaceDir: string,
+	sessionID: string,
+): Promise<DelegationTaskEventRecord | null> {
+	const tasks = await readDelegationTasks(workspaceDir);
+	return tasks.find((item) => item.child_session_id === sessionID) ?? null;
+}
+
+async function readRootJoinBlockers(
+	workspaceDir: string,
+	rootSessionID: string,
+): Promise<Array<{ task_id: string; status: string; reason?: string }>> {
+	const tasks = await readDelegationTasks(workspaceDir);
+	return tasks
+		.filter(
+			(task) =>
+				task.run_in_background && task.root_session_id === rootSessionID,
+		)
+		.filter((task) => {
+			if (
+				task.status === "queued" ||
+				task.status === "blocked" ||
+				task.status === "running"
+			) {
+				return true;
+			}
+
+			return task.execution?.root_follow_through?.status === "pending";
+		})
+		.map((task) => ({
+			task_id: task.id,
+			status: task.status,
+			reason: task.execution?.root_follow_through?.reason,
+		}));
 }
 
 // ── Test Exports (backward compatibility) ──────────────────

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { redactUnknown } from "../redaction";
 import {
+	executeSessionList,
 	executeSessionInfo,
 	executeSessionSearch,
 	formatSessionListSummary,
@@ -180,5 +181,21 @@ describe("session history helpers", () => {
 		expect(parsed.integrity.status_snapshot_available).toBe(true);
 		expect(parsed.children[0]?.id).toBe("child-1");
 		expect(parsed.status_snapshot?.mode).toBe("running");
+	});
+
+	test("rejects explicit directory scopes outside the current execution root", async () => {
+		await expect(
+			executeSessionList(
+				{ directory: "../outside" },
+				{
+					projectDirectory: "/repo/root",
+					client: {
+						session: {
+							list: async () => ({ data: [] }),
+						},
+					},
+				},
+			),
+		).rejects.toThrow("directory must stay within the current execution root");
 	});
 });

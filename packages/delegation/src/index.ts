@@ -9,6 +9,7 @@ import {
 	extractLatestAssistantText,
 	extractPromptResponseText,
 	formatFullSession,
+	summarizeSessionActivity,
 } from "./messages.js";
 import {
 	type DelegationCategory,
@@ -46,6 +47,8 @@ import { sleep } from "./utils.js";
 
 const MAX_RUNNING_PER_AGENT = 5;
 const DEFAULT_BLOCK_TIMEOUT_MS = 60_000;
+const TINY_FRONTEND_EDIT_OR_BLOCKED_THRESHOLD = 6;
+const TINY_FRONTEND_AUTHORITATIVE_CONTEXT_THRESHOLD = 10;
 
 interface RuntimeEvent {
 	type?: string;
@@ -220,6 +223,69 @@ function isActiveTask(status: TaskStatus): boolean {
 	return status === "queued" || status === "blocked" || status === "running";
 }
 
+function isTerminalTask(status: TaskStatus): boolean {
+	return (
+		status === "succeeded" || status === "failed" || status === "cancelled"
+	);
+}
+
+function shouldAttemptRootFollowThrough(status: TaskStatus): boolean {
+	return status === "blocked" || isTerminalTask(status);
+}
+
+function buildChildPrompt(task: TaskRecord): string {
+	const authoritativeContext = task.authoritative_context?.trim();
+	if (!authoritativeContext) return task.prompt;
+
+	return [
+		"<authoritative_context>",
+		authoritativeContext,
+		"</authoritative_context>",
+		"",
+		"Treat <authoritative_context> as the approved working set for this task.",
+		"Run only a short mismatch re-check before editing (1-2 targeted reads/searches).",
+		"If the context mismatches repo reality after that short re-check, return an explicit blocked result with the mismatch instead of broad rediscovery.",
+		"",
+		task.prompt,
+	].join("\n");
+}
+
+function withInitialRootFollowThrough(
+	execution: TaskExecutionRecord,
+	runInBackground: boolean,
+): TaskExecutionRecord {
+	if (!runInBackground) return execution;
+
+	return {
+		...execution,
+		root_follow_through: {
+			status: "pending",
+			updated_at: new Date().toISOString(),
+			source: "launch",
+		},
+	};
+}
+
+async function readContinuationMode(
+	workspaceDir: string,
+	sessionID: string,
+): Promise<"running" | "stopped" | "handoff"> {
+	const stateFile = Bun.file(join(workspaceDir, "continuation.json"));
+	if (!(await stateFile.exists())) return "running";
+
+	try {
+		const parsed = (await stateFile.json()) as {
+			sessions?: Record<string, { mode?: unknown }>;
+		};
+		const mode = parsed.sessions?.[sessionID]?.mode;
+		if (mode === "stopped" || mode === "handoff") return mode;
+	} catch {
+		return "running";
+	}
+
+	return "running";
+}
+
 function isWorktreeEligibleAgent(agent: string): boolean {
 	return agent === "build" || agent === "coder" || agent === "frontend";
 }
@@ -315,7 +381,11 @@ async function prepareTaskExecution(
 	logger: ReturnType<typeof createLogger>,
 ): Promise<TaskExecutionRecord> {
 	if (!isWorktreeEligibleAgent(input.agent)) {
-		return { mode: "direct", merge_status: "bypassed" };
+		return {
+			mode: "direct",
+			merge_status: "bypassed",
+			effective_root_path: directory,
+		};
 	}
 
 	if (
@@ -323,7 +393,11 @@ async function prepareTaskExecution(
 		input.existing.worktree_path &&
 		(await pathExists(input.existing.worktree_path))
 	) {
-		return input.existing;
+		return {
+			...input.existing,
+			effective_root_path:
+				input.existing.effective_root_path ?? input.existing.worktree_path,
+		};
 	}
 
 	const repoCheck = await runGitCommand(
@@ -335,7 +409,11 @@ async function prepareTaskExecution(
 			task_id: input.taskID,
 			agent: input.agent,
 		});
-		return { mode: "direct", merge_status: "bypassed" };
+		return {
+			mode: "direct",
+			merge_status: "bypassed",
+			effective_root_path: directory,
+		};
 	}
 
 	const repoRoot = repoCheck.stdout.trim() || directory;
@@ -350,12 +428,20 @@ async function prepareTaskExecution(
 			agent: input.agent,
 			base_branch: baseBranch || undefined,
 		});
-		return { mode: "direct", merge_status: "bypassed" };
+		return {
+			mode: "direct",
+			merge_status: "bypassed",
+			effective_root_path: repoRoot,
+		};
 	}
 
 	const branch = sanitizeBranchName(`op1/${input.agent}/${input.taskID}`);
 	if (!branch) {
-		return { mode: "direct", merge_status: "bypassed" };
+		return {
+			mode: "direct",
+			merge_status: "bypassed",
+			effective_root_path: repoRoot,
+		};
 	}
 
 	const worktreeBase = join(repoRoot, "..", `${basename(repoRoot)}-worktrees`);
@@ -377,7 +463,11 @@ async function prepareTaskExecution(
 					error: createResult.stderr.trim() || createResult.stdout.trim(),
 				},
 			);
-			return { mode: "direct", merge_status: "bypassed" };
+			return {
+				mode: "direct",
+				merge_status: "bypassed",
+				effective_root_path: repoRoot,
+			};
 		}
 
 		await Promise.all([
@@ -399,6 +489,7 @@ async function prepareTaskExecution(
 		branch,
 		base_branch: baseBranch,
 		worktree_path: worktreePath,
+		effective_root_path: worktreePath,
 		merge_status: "pending",
 		verification_status: "pending",
 		verification_command: await detectDefaultVerificationCommand(repoRoot),
@@ -433,6 +524,344 @@ async function detectDefaultVerificationCommand(
 async function hasUncommittedChanges(directory: string): Promise<boolean> {
 	const status = await runGitCommand(["status", "--porcelain"], directory);
 	return status.code === 0 && status.stdout.trim().length > 0;
+}
+
+function hasExplicitScopeHint(text: string): boolean {
+	return (
+		/(?:^|\s)(?:[\w.-]+\/)+[\w.-]+(?:\.[\w-]+)?/.test(text) ||
+		/\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*/.test(text) ||
+		/\b(page|screen|component|dialog|modal|form|button|route)\b/i.test(text)
+	);
+}
+
+function isTinyFrontendImplementationTask(task: TaskRecord): boolean {
+	if (task.agent !== "frontend") return false;
+	if (
+		task.category === "research" ||
+		task.category === "planning" ||
+		task.category === "deep"
+	) {
+		return false;
+	}
+
+	const text = `${task.description}\n${task.prompt}`;
+	if (
+		/\b(research|investigate|compare|explore|audit|architecture|plan|strategy|roadmap|entire|all screens|all pages|system)\b/i.test(
+			text,
+		)
+	) {
+		return false;
+	}
+
+	if (task.category === "quick") return true;
+	return text.length <= 1200 && hasExplicitScopeHint(text);
+}
+
+async function getSessionTranscriptData(
+	client: DelegationClient,
+	sessionID: string,
+): Promise<unknown> {
+	const response = await client.session.messages({
+		path: { id: sessionID },
+		query: { limit: 120 },
+	});
+	return response.data;
+}
+
+function hasExecutionTelemetryChanged(
+	current: TaskExecutionRecord | undefined,
+	next: TaskExecutionRecord,
+): boolean {
+	if (!current) return true;
+
+	return (
+		current.effective_root_path !== next.effective_root_path ||
+		current.verification_summary !== next.verification_summary ||
+		current.diff_summary !== next.diff_summary ||
+		current.root_follow_through?.status !== next.root_follow_through?.status ||
+		current.root_follow_through?.reason !== next.root_follow_through?.reason ||
+		current.read_count !== next.read_count ||
+		current.search_count !== next.search_count ||
+		current.planning_count !== next.planning_count ||
+		current.edit_count !== next.edit_count ||
+		current.other_count !== next.other_count ||
+		current.file_changed !== next.file_changed ||
+		current.edit_or_blocked_threshold !== next.edit_or_blocked_threshold ||
+		current.stale_reason !== next.stale_reason
+	);
+}
+
+function getTinyFrontendThreshold(task: TaskRecord): number {
+	if (!isTinyFrontendImplementationTask(task)) {
+		return (
+			task.execution?.edit_or_blocked_threshold ??
+			TINY_FRONTEND_EDIT_OR_BLOCKED_THRESHOLD
+		);
+	}
+
+	return task.authoritative_context
+		? TINY_FRONTEND_AUTHORITATIVE_CONTEXT_THRESHOLD
+		: TINY_FRONTEND_EDIT_OR_BLOCKED_THRESHOLD;
+}
+
+async function buildDiffSummary(task: TaskRecord): Promise<string> {
+	const execution = task.execution;
+	if (execution?.diff_summary?.trim()) return execution.diff_summary.trim();
+	if (!execution) return "Diff summary unavailable.";
+
+	if (execution.mode === "worktree") {
+		const changedFiles = await listChangedFilesAgainstBase(execution);
+		if (changedFiles.length > 0) {
+			const visibleFiles = changedFiles.slice(0, 5).join(", ");
+			const hiddenCount =
+				changedFiles.length - Math.min(changedFiles.length, 5);
+			return hiddenCount > 0
+				? `Changed files (${changedFiles.length}): ${visibleFiles}, +${hiddenCount} more.`
+				: `Changed files (${changedFiles.length}): ${visibleFiles}.`;
+		}
+
+		if (execution.file_changed === true) {
+			return "Changed files were detected, but a scoped diff summary could not be derived.";
+		}
+	}
+
+	return task.result?.trim()
+		? "Diff summary unavailable; inspect the task result for details."
+		: "Diff summary unavailable.";
+}
+
+function getVerificationSummary(task: TaskRecord): string {
+	return (
+		task.execution?.verification_summary?.trim() ||
+		"Verification summary unavailable."
+	);
+}
+
+async function ensureTerminalSummaries(
+	state: TaskStateManager,
+	task: TaskRecord,
+): Promise<TaskRecord> {
+	const execution = task.execution;
+	if (!execution) return task;
+
+	const diffSummary = await buildDiffSummary(task);
+	const verificationSummary = getVerificationSummary(task);
+	const nextExecution: TaskExecutionRecord = {
+		...execution,
+		diff_summary: diffSummary,
+		verification_summary: verificationSummary,
+	};
+	if (!hasExecutionTelemetryChanged(task.execution, nextExecution)) {
+		return task;
+	}
+
+	return state.updateTask(task.id, { execution: nextExecution });
+}
+
+async function updateRootFollowThrough(
+	state: TaskStateManager,
+	task: TaskRecord,
+	input: {
+		status: "pending" | "delivered" | "waived";
+		reason?: string;
+		source: string;
+	},
+): Promise<TaskRecord> {
+	const current = await ensureTerminalSummaries(state, task);
+	const execution = current.execution;
+	if (!execution) return current;
+
+	const nextExecution: TaskExecutionRecord = {
+		...execution,
+		root_follow_through: {
+			status: input.status,
+			updated_at: new Date().toISOString(),
+			reason: input.reason,
+			source: input.source,
+		},
+	};
+	return state.updateTask(current.id, { execution: nextExecution });
+}
+
+function buildRootFollowThroughPrompt(task: TaskRecord): string {
+	const diffSummary =
+		task.execution?.diff_summary ?? "Diff summary unavailable.";
+	const verificationSummary = getVerificationSummary(task);
+
+	return [
+		"<system-reminder>",
+		"[delegation-follow-through]",
+		"A background child task reached a terminal state and needs root follow-through.",
+		`Task ID: ${task.id}`,
+		`Reference: ref:${task.id}`,
+		`Status: ${task.status}`,
+		`Diff summary: ${diffSummary}`,
+		`Verification summary: ${verificationSummary}`,
+		"Continue the active plan now. Use background_output(task_id=...) or task_graph_status only if more detail is needed.",
+		"</system-reminder>",
+	].join("\n");
+}
+
+async function handleRootFollowThrough(
+	client: DelegationClient,
+	state: TaskStateManager,
+	workspaceDir: string,
+	task: TaskRecord,
+	logger: ReturnType<typeof createLogger>,
+): Promise<TaskRecord> {
+	if (!task.run_in_background || !shouldAttemptRootFollowThrough(task.status)) {
+		return task;
+	}
+
+	const currentStatus = task.execution?.root_follow_through?.status;
+	if (currentStatus === "delivered" || currentStatus === "waived") {
+		return task;
+	}
+
+	const prepared = await updateRootFollowThrough(state, task, {
+		status: "pending",
+		reason: undefined,
+		source: "terminal",
+	});
+	const continuationMode = await readContinuationMode(
+		workspaceDir,
+		prepared.root_session_id,
+	);
+	if (continuationMode !== "running") {
+		return updateRootFollowThrough(state, prepared, {
+			status: "pending",
+			reason: `Root continuation is ${continuationMode}; follow-through remains unresolved until explicit cancel or handoff clears it.`,
+			source: `continuation-${continuationMode}`,
+		});
+	}
+
+	const response = await client.session.promptAsync({
+		path: { id: prepared.root_session_id },
+		body: {
+			parts: [{ type: "text", text: buildRootFollowThroughPrompt(prepared) }],
+		},
+	});
+	if (response.error) {
+		logger.warn("Root follow-through prompt failed", {
+			task_id: prepared.id,
+			root_session_id: prepared.root_session_id,
+			error: String(response.error),
+		});
+		return updateRootFollowThrough(state, prepared, {
+			status: "pending",
+			reason: `Auto-resume failed: ${String(response.error)}`,
+			source: "prompt-failed",
+		});
+	}
+
+	return updateRootFollowThrough(state, prepared, {
+		status: "delivered",
+		reason:
+			"Root session auto-resume was dispatched after child terminalization.",
+		source: "auto-resume",
+	});
+}
+
+async function buildExecutionTelemetry(
+	task: TaskRecord,
+	primaryDirectory: string,
+	transcriptData: unknown,
+): Promise<TaskExecutionRecord | undefined> {
+	const execution = task.execution;
+	if (!execution) return undefined;
+
+	const summary = summarizeSessionActivity(transcriptData);
+	const fileChanged =
+		execution.mode === "worktree" && execution.worktree_path
+			? await hasUncommittedChanges(execution.worktree_path)
+			: (execution.file_changed ?? false);
+
+	return {
+		...execution,
+		effective_root_path:
+			execution.worktree_path ??
+			execution.effective_root_path ??
+			primaryDirectory,
+		read_count: summary.read_count,
+		search_count: summary.search_count,
+		planning_count: summary.planning_count,
+		edit_count: summary.edit_count,
+		other_count: summary.other_count,
+		file_changed: fileChanged,
+		edit_or_blocked_threshold: isTinyFrontendImplementationTask(task)
+			? getTinyFrontendThreshold(task)
+			: execution.edit_or_blocked_threshold,
+		stale_reason:
+			summary.edit_count > 0 || fileChanged
+				? undefined
+				: execution.stale_reason,
+	};
+}
+
+async function persistExecutionTelemetry(
+	state: TaskStateManager,
+	task: TaskRecord,
+	primaryDirectory: string,
+	transcriptData: unknown,
+): Promise<TaskRecord> {
+	const nextExecution = await buildExecutionTelemetry(
+		task,
+		primaryDirectory,
+		transcriptData,
+	);
+	if (!nextExecution) return task;
+	if (!hasExecutionTelemetryChanged(task.execution, nextExecution)) {
+		return task;
+	}
+
+	return state.updateTask(task.id, { execution: nextExecution });
+}
+
+function getNonEditReadPassCount(
+	execution: TaskExecutionRecord | undefined,
+): number {
+	if (!execution) return 0;
+	return (
+		(execution.read_count ?? 0) +
+		(execution.search_count ?? 0) +
+		(execution.planning_count ?? 0)
+	);
+}
+
+async function maybeBlockStaleTinyFrontendTask(
+	state: TaskStateManager,
+	task: TaskRecord,
+	resultText?: string,
+): Promise<TaskRecord | null> {
+	if (task.status !== "running") return null;
+	if (!isTinyFrontendImplementationTask(task)) return null;
+
+	const execution = task.execution;
+	if (!execution) return null;
+	if ((execution.edit_count ?? 0) > 0 || execution.file_changed === true) {
+		return null;
+	}
+
+	const threshold =
+		execution.edit_or_blocked_threshold ??
+		TINY_FRONTEND_EDIT_OR_BLOCKED_THRESHOLD;
+	const nonEditCount = getNonEditReadPassCount(execution);
+	if (nonEditCount < threshold) return null;
+
+	const reason = `Tiny frontend implementation task exceeded the short read pass without an edit attempt (${nonEditCount}/${threshold} read/search/planning calls).`;
+	const nextExecution: TaskExecutionRecord = {
+		...execution,
+		edit_or_blocked_threshold: threshold,
+		stale_reason: reason,
+	};
+	await state.updateTask(task.id, { execution: nextExecution });
+	return state.transitionTask(task.id, "blocked", {
+		result: appendResultNote(
+			resultText,
+			`${reason} Blocked instead of widening scope; retry with clearer file or scope context.`,
+		),
+		error: reason,
+	});
 }
 
 interface VerificationSelection {
@@ -738,8 +1167,11 @@ async function integrateWorktreeTask(
 	task: TaskRecord,
 	resultText: string | undefined,
 	logger: ReturnType<typeof createLogger>,
+	transcriptData?: unknown,
 ): Promise<TaskRecord> {
-	const execution = task.execution;
+	const execution = transcriptData
+		? await buildExecutionTelemetry(task, primaryDirectory, transcriptData)
+		: task.execution;
 	if (
 		execution?.mode !== "worktree" ||
 		!execution.worktree_path ||
@@ -1098,10 +1530,52 @@ function formatTaskMetadata(payload: CanonicalTaskPayload): string {
 	if (payload.execution.worktree_path) {
 		lines.push(`worktree_path: ${payload.execution.worktree_path}`);
 	}
+	if (payload.execution.effective_root_path) {
+		lines.push(`effective_root_path: ${payload.execution.effective_root_path}`);
+	}
 	if (payload.execution.verification_strategy) {
 		lines.push(
 			`verification_strategy: ${payload.execution.verification_strategy}`,
 		);
+	}
+	if (payload.execution.diff_summary) {
+		lines.push(`diff_summary: ${payload.execution.diff_summary}`);
+	}
+	lines.push(
+		`verification_summary: ${payload.execution.verification_summary ?? "Verification summary unavailable."}`,
+	);
+	if (payload.execution.root_follow_through?.status) {
+		lines.push(
+			`root_follow_through: ${payload.execution.root_follow_through.status}`,
+		);
+		if (payload.execution.root_follow_through.reason) {
+			lines.push(
+				`root_follow_through_reason: ${payload.execution.root_follow_through.reason}`,
+			);
+		}
+	}
+	if (
+		typeof payload.execution.read_count === "number" ||
+		typeof payload.execution.search_count === "number" ||
+		typeof payload.execution.planning_count === "number" ||
+		typeof payload.execution.edit_count === "number"
+	) {
+		lines.push(
+			`activity: read=${payload.execution.read_count ?? 0}, search=${payload.execution.search_count ?? 0}, planning=${payload.execution.planning_count ?? 0}, edit=${payload.execution.edit_count ?? 0}`,
+		);
+	}
+	if (typeof payload.execution.file_changed === "boolean") {
+		lines.push(
+			`file_changed: ${payload.execution.file_changed ? "true" : "false"}`,
+		);
+	}
+	if (typeof payload.execution.edit_or_blocked_threshold === "number") {
+		lines.push(
+			`edit_or_blocked_threshold: ${payload.execution.edit_or_blocked_threshold}`,
+		);
+	}
+	if (payload.execution.stale_reason) {
+		lines.push(`stale_reason: ${payload.execution.stale_reason}`);
 	}
 	if (payload.assignment?.review?.status) {
 		lines.push(`review_status: ${payload.assignment.review.status}`);
@@ -1131,12 +1605,21 @@ function formatTaskSummaryLines(payload: CanonicalTaskPayload): string[] {
 	if (payload.execution.worktree_path) {
 		lines.push(`Worktree: ${payload.execution.worktree_path}`);
 	}
+	if (payload.execution.effective_root_path) {
+		lines.push(`Root: ${payload.execution.effective_root_path}`);
+	}
 	if (payload.assignment?.workflow) {
 		lines.push(`Workflow: ${payload.assignment.workflow}`);
 	}
 	if (payload.execution.verification_strategy) {
 		lines.push(`Verification: ${payload.execution.verification_strategy}`);
 	}
+	if (payload.execution.diff_summary) {
+		lines.push(`Diff: ${payload.execution.diff_summary}`);
+	}
+	lines.push(
+		`Verification summary: ${payload.execution.verification_summary ?? "Verification summary unavailable."}`,
+	);
 	if (payload.assignment?.retry?.state) {
 		lines.push(
 			`Retry: ${payload.assignment.retry.state}${payload.assignment.retry.reason ? ` (${payload.assignment.retry.reason})` : ""}`,
@@ -1144,6 +1627,31 @@ function formatTaskSummaryLines(payload: CanonicalTaskPayload): string[] {
 	}
 	if (payload.assignment?.review?.status) {
 		lines.push(`Review: ${payload.assignment.review.status}`);
+	}
+	if (payload.execution.root_follow_through?.status) {
+		lines.push(
+			`Root follow-through: ${payload.execution.root_follow_through.status}`,
+		);
+		if (payload.execution.root_follow_through.reason) {
+			lines.push(
+				`Root follow-through reason: ${payload.execution.root_follow_through.reason}`,
+			);
+		}
+	}
+	if (
+		typeof payload.execution.read_count === "number" ||
+		typeof payload.execution.search_count === "number" ||
+		typeof payload.execution.planning_count === "number" ||
+		typeof payload.execution.edit_count === "number"
+	) {
+		lines.push(
+			`Activity: read=${payload.execution.read_count ?? 0}, search=${payload.execution.search_count ?? 0}, planning=${payload.execution.planning_count ?? 0}, edit=${payload.execution.edit_count ?? 0}`,
+		);
+	}
+	if (typeof payload.execution.file_changed === "boolean") {
+		lines.push(
+			`Files changed: ${payload.execution.file_changed ? "yes" : "no"}`,
+		);
 	}
 	if (payload.error) {
 		lines.push(`Error: ${payload.error}`);
@@ -1247,7 +1755,7 @@ async function startTaskSession(
 		path: { id: task.child_session_id },
 		body: {
 			agent: task.agent,
-			parts: [{ type: "text", text: task.prompt }],
+			parts: [{ type: "text", text: buildChildPrompt(task) }],
 		},
 	});
 
@@ -1271,6 +1779,7 @@ async function startTaskSession(
 async function promoteRunnableTasks(
 	client: DelegationClient,
 	state: TaskStateManager,
+	workspaceDir: string,
 	logger: ReturnType<typeof createLogger>,
 ): Promise<void> {
 	const candidates = await state.listPromotableTasks({ limit: 100 });
@@ -1286,9 +1795,16 @@ async function promoteRunnableTasks(
 			await startTaskSession(client, task, logger);
 			await state.transitionTask(task.id, "running");
 		} catch (error) {
-			await state.transitionTask(task.id, "failed", {
+			const failed = await state.transitionTask(task.id, "failed", {
 				error: error instanceof Error ? error.message : String(error),
 			});
+			await handleRootFollowThrough(
+				client,
+				state,
+				workspaceDir,
+				failed,
+				logger,
+			);
 		}
 	}
 	return;
@@ -1298,11 +1814,8 @@ async function getLatestAssistantResult(
 	client: DelegationClient,
 	sessionID: string,
 ): Promise<string | null> {
-	const response = await client.session.messages({
-		path: { id: sessionID },
-		query: { limit: 40 },
-	});
-	return extractLatestAssistantText(response.data);
+	const transcriptData = await getSessionTranscriptData(client, sessionID);
+	return extractLatestAssistantText(transcriptData);
 }
 
 async function getSessionStatus(
@@ -1335,28 +1848,46 @@ async function refreshTaskFromRuntime(
 ): Promise<TaskRecord> {
 	if (task.status !== "running") return task;
 
+	const transcriptData = await getSessionTranscriptData(
+		client,
+		task.child_session_id,
+	);
+	let current = await persistExecutionTelemetry(
+		state,
+		task,
+		primaryDirectory,
+		transcriptData,
+	);
+
+	const staleBlocked = await maybeBlockStaleTinyFrontendTask(
+		state,
+		current,
+		extractLatestAssistantText(transcriptData) ?? undefined,
+	);
+	if (staleBlocked) {
+		return staleBlocked;
+	}
+
 	const status = await getSessionStatus(client, task.child_session_id);
 	if (status === "idle") {
-		const result = await getLatestAssistantResult(
-			client,
-			task.child_session_id,
-		);
+		const result = extractLatestAssistantText(transcriptData);
 		return integrateWorktreeTask(
 			primaryDirectory,
 			state,
-			task,
+			current,
 			result ?? undefined,
 			logger,
+			transcriptData,
 		);
 	}
 
 	if (status === "error") {
-		return state.transitionTask(task.id, "failed", {
+		return state.transitionTask(current.id, "failed", {
 			error: "Task session reported an error.",
 		});
 	}
 
-	return task;
+	return current;
 }
 
 async function resolveTaskByHandle(
@@ -1446,7 +1977,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 	const queuePromotionPass = async (): Promise<void> => {
 		const nextPass = promotionQueue
 			.catch(() => undefined)
-			.then(() => promoteRunnableTasks(client, state, logger));
+			.then(() => promoteRunnableTasks(client, state, workspaceDir, logger));
 		promotionQueue = nextPass.catch(() => undefined);
 		return nextPass;
 	};
@@ -1530,12 +2061,47 @@ export const DelegationPlugin: Plugin = async (ctx: {
 			taskID = task.id;
 
 			if (runtimeEvent.type === "session.idle") {
-				const result = await getLatestAssistantResult(client, sessionID);
-				await integrateWorktreeTask(
-					ctx.directory,
+				const transcriptData = await getSessionTranscriptData(
+					client,
+					sessionID,
+				);
+				const current = await persistExecutionTelemetry(
 					state,
 					task,
+					ctx.directory,
+					transcriptData,
+				);
+				const staleBlocked = await maybeBlockStaleTinyFrontendTask(
+					state,
+					current,
+					extractLatestAssistantText(transcriptData) ?? undefined,
+				);
+				if (staleBlocked) {
+					await handleRootFollowThrough(
+						client,
+						state,
+						workspaceDir,
+						staleBlocked,
+						logger,
+					);
+					await queuePromotionPass();
+					return;
+				}
+
+				const result = extractLatestAssistantText(transcriptData);
+				const terminal = await integrateWorktreeTask(
+					ctx.directory,
+					state,
+					current,
 					result ?? undefined,
+					logger,
+					transcriptData,
+				);
+				await handleRootFollowThrough(
+					client,
+					state,
+					workspaceDir,
+					terminal,
 					logger,
 				);
 				await queuePromotionPass();
@@ -1543,19 +2109,33 @@ export const DelegationPlugin: Plugin = async (ctx: {
 			}
 
 			if (runtimeEvent.type === "session.error") {
-				await state.transitionTask(task.id, "failed", {
+				const terminal = await state.transitionTask(task.id, "failed", {
 					error: getEventError(runtimeEvent),
 				});
+				await handleRootFollowThrough(
+					client,
+					state,
+					workspaceDir,
+					terminal,
+					logger,
+				);
 				await queuePromotionPass();
 				return;
 			}
 
-			await state.transitionTask(task.id, "cancelled", {
+			const terminal = await state.transitionTask(task.id, "cancelled", {
 				error:
 					runtimeEvent.type === "session.interrupt"
 						? "Task session interrupted."
 						: "Task session deleted.",
 			});
+			await handleRootFollowThrough(
+				client,
+				state,
+				workspaceDir,
+				terminal,
+				logger,
+			);
 			await queuePromotionPass();
 		} catch (error) {
 			if (taskID) {
@@ -1605,6 +2185,12 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					prompt: tool.schema
 						.string()
 						.describe("The task for the agent to perform"),
+					authoritative_context: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"Optional authoritative parent context / working set to prepend for the child task.",
+						),
 					subagent_type: tool.schema
 						.string()
 						.optional()
@@ -1652,6 +2238,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 
 					const description = args.description.trim();
 					const prompt = args.prompt.trim();
+					const authoritativeContext = args.authoritative_context?.trim();
 					if (!description) return "❌ description is required.";
 					if (!prompt) return "❌ prompt is required.";
 					if (args.task_id?.trim() && args.continue_task_id?.trim()) {
@@ -1801,14 +2388,17 @@ export const DelegationPlugin: Plugin = async (ctx: {
 								});
 							}
 
-							const execution = await prepareTaskExecution(
-								ctx.directory,
-								{
-									taskID: existing.id,
-									agent,
-									existing: existing.execution,
-								},
-								logger,
+							const execution = withInitialRootFollowThrough(
+								await prepareTaskExecution(
+									ctx.directory,
+									{
+										taskID: existing.id,
+										agent,
+										existing: existing.execution,
+									},
+									logger,
+								),
+								runInBackground,
 							);
 							childSessionID = await createChildSessionForTask(
 								client,
@@ -1826,6 +2416,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 								child_session_id: childSessionID,
 								description,
 								prompt,
+								authoritative_context: authoritativeContext,
 								command: args.command?.trim(),
 								category,
 								routing,
@@ -1840,10 +2431,13 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						}
 					} else {
 						const taskID = requestedTaskID || (await generateTaskID(state));
-						const execution = await prepareTaskExecution(
-							ctx.directory,
-							{ taskID, agent },
-							logger,
+						const execution = withInitialRootFollowThrough(
+							await prepareTaskExecution(
+								ctx.directory,
+								{ taskID, agent },
+								logger,
+							),
+							runInBackground,
 						);
 						childSessionID = await createChildSessionForTask(
 							client,
@@ -1864,6 +2458,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							description,
 							agent,
 							prompt,
+							authoritative_context: authoritativeContext,
 							command: args.command?.trim(),
 							category,
 							routing,
@@ -1891,7 +2486,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							path: { id: task.child_session_id },
 							body: {
 								agent,
-								parts: [{ type: "text", text: prompt }],
+								parts: [{ type: "text", text: buildChildPrompt(task) }],
 							},
 						});
 						if (response.error) {
@@ -1913,9 +2508,13 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							return `❌ Task failed.\n\n${formatTaskStatus(failed)}`;
 						}
 
+						const transcriptData = await getSessionTranscriptData(
+							client,
+							task.child_session_id,
+						);
 						const resultText =
 							extractPromptResponseText(response.data) ??
-							(await getLatestAssistantResult(client, task.child_session_id)) ??
+							extractLatestAssistantText(transcriptData) ??
 							"";
 						const succeeded = await integrateWorktreeTask(
 							ctx.directory,
@@ -1923,6 +2522,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							task,
 							resultText || undefined,
 							logger,
+							transcriptData,
 						);
 						logger.info("Sync child session completed", {
 							task_id: task.id,
@@ -2030,6 +2630,19 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						}
 					}
 
+					if (
+						toolCtx.sessionID === current.root_session_id &&
+						isTerminalTask(current.status) &&
+						current.execution?.root_follow_through?.status === "pending"
+					) {
+						current = await updateRootFollowThrough(state, current, {
+							status: "delivered",
+							reason:
+								"Root session consumed the terminal child output via background_output.",
+							source: "background-output",
+						});
+					}
+
 					await emitTaskMetadata(toolCtx, toolMetadata, current);
 
 					if (args.full_session !== false) {
@@ -2105,11 +2718,22 @@ export const DelegationPlugin: Plugin = async (ctx: {
 									})
 									.catch(() => undefined);
 							}
-							cancelled.push(
-								await state.transitionTask(task.id, "cancelled", {
+							const currentCancelled = await state.transitionTask(
+								task.id,
+								"cancelled",
+								{
 									error: reasonText
 										? `Cancelled: ${reasonText}`
 										: "Task cancelled by user request.",
+								},
+							);
+							cancelled.push(
+								await updateRootFollowThrough(state, currentCancelled, {
+									status: "waived",
+									reason: reasonText
+										? `Cancelled: ${reasonText}`
+										: "Task cancelled by user request.",
+									source: "background-cancel",
 								}),
 							);
 						}
@@ -2136,8 +2760,15 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					const task = await resolveScopedTask(client, state, handle, toolCtx);
 					if (!task) return `❌ Task not found: ${handle}`;
 					if (!isActiveTask(task.status)) {
-						await emitTaskMetadata(toolCtx, toolMetadata, task);
-						return formatTaskStatus(task);
+						const waived = await updateRootFollowThrough(state, task, {
+							status: "waived",
+							reason: reasonText
+								? `Cancelled: ${reasonText}`
+								: "Task cancelled by user request.",
+							source: "background-cancel",
+						});
+						await emitTaskMetadata(toolCtx, toolMetadata, waived);
+						return formatTaskStatus(waived);
 					}
 
 					if (task.status === "running") {
@@ -2148,10 +2779,17 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							.catch(() => undefined);
 					}
 
-					const cancelled = await state.transitionTask(task.id, "cancelled", {
+					const terminal = await state.transitionTask(task.id, "cancelled", {
 						error: reasonText
 							? `Cancelled: ${reasonText}`
 							: "Task cancelled by user request.",
+					});
+					const cancelled = await updateRootFollowThrough(state, terminal, {
+						status: "waived",
+						reason: reasonText
+							? `Cancelled: ${reasonText}`
+							: "Task cancelled by user request.",
+						source: "background-cancel",
 					});
 					await queuePromotionPass();
 					await emitTaskMetadata(toolCtx, toolMetadata, cancelled);

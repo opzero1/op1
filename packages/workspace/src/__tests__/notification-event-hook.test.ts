@@ -62,7 +62,7 @@ describe("workspace notification event hook", () => {
 		expect(toasts[0].title).toBe("Ready for Input");
 	});
 
-	test("suppresses ready notifications for delegated child sessions", async () => {
+	test("reroutes delegated child idle notifications to the root session", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-notification-child-"));
 		tempRoots.push(root);
 		const workspaceDir = join(root, ".opencode", "workspace");
@@ -74,7 +74,11 @@ describe("workspace notification event hook", () => {
 					version: 3,
 					delegations: {
 						"task-1": {
+							id: "task-1",
+							root_session_id: "root-session",
 							child_session_id: "child-session",
+							status: "succeeded",
+							run_in_background: true,
 						},
 					},
 				},
@@ -102,8 +106,9 @@ describe("workspace notification event hook", () => {
 			},
 		});
 
-		expect(toasts.length).toBe(1);
+		expect(toasts.length).toBe(2);
 		expect(toasts[0].title).toBe("Ready for Input");
+		expect(toasts[1].title).toBe("Ready for Input");
 	});
 
 	test("emits a permission notification toast for permission events", async () => {

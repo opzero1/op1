@@ -12,6 +12,20 @@
 const DEFAULT_MAX_ITERATIONS = 10;
 const CONTINUATION_TOOLS = new Set(["task", "bash"]);
 
+interface CompletionJoinBlocker {
+	task_id: string;
+	status: string;
+	reason?: string;
+}
+
+interface CompletionPromiseConfig {
+	maxIterations?: number;
+	getJoinBlockers?: (sessionID: string) => Promise<{
+		rootSessionID: string;
+		blockers: CompletionJoinBlocker[];
+	} | null>;
+}
+
 /** Per-session iteration tracker */
 const sessionIterations = new Map<string, number>();
 
@@ -19,9 +33,45 @@ const sessionIterations = new Map<string, number>();
  * Check continuation output for completion tag and manage iteration count.
  * Attaches to `tool.execute.after` — triggers on the same continuation tools as momentum.
  */
+function buildJoinGuardReminder(input: {
+	rootSessionID: string;
+	blockers: CompletionJoinBlocker[];
+}): string {
+	const visibleBlockers = input.blockers.slice(0, 5);
+	const hiddenCount = input.blockers.length - visibleBlockers.length;
+	const lines = [
+		"<system-reminder>",
+		"🧷 ROOT JOIN GUARD",
+		`Root session ${input.rootSessionID} still has ${input.blockers.length} blocking background child obligation${input.blockers.length === 1 ? "" : "s"}:`,
+		...visibleBlockers.map(
+			(blocker) =>
+				`- ${blocker.task_id} (${blocker.status}${blocker.reason ? `: ${blocker.reason}` : ""})`,
+		),
+	];
+
+	if (hiddenCount > 0) {
+		lines.push(`- +${hiddenCount} more`);
+	}
+
+	lines.push(
+		"Do not finalize with <done>COMPLETE</done> while these obligations remain active or unresolved.",
+		"Continue the plan, inspect background_output/task_graph_status if needed, or explicitly cancel/handoff the remaining child work first.",
+		"</system-reminder>",
+	);
+
+	return lines.join("\n");
+}
+
 export function createCompletionPromiseHook(
-	maxIterations: number = DEFAULT_MAX_ITERATIONS,
+	config: number | CompletionPromiseConfig = DEFAULT_MAX_ITERATIONS,
 ) {
+	const maxIterations =
+		typeof config === "number"
+			? config
+			: (config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
+	const getJoinBlockers =
+		typeof config === "number" ? undefined : config.getJoinBlockers;
+
 	return async (
 		input: { tool: string; sessionID: string; args?: unknown },
 		output: { output?: string },
@@ -32,6 +82,20 @@ export function createCompletionPromiseHook(
 		const key = input.sessionID;
 		const current = (sessionIterations.get(key) ?? 0) + 1;
 		sessionIterations.set(key, current);
+
+		const joinBlockers = getJoinBlockers
+			? await getJoinBlockers(input.sessionID)
+			: null;
+
+		if (
+			output.output.includes("<done>COMPLETE</done>") &&
+			joinBlockers &&
+			joinBlockers.blockers.length > 0
+		) {
+			output.output =
+				`${output.output.replace(/\s*<done>COMPLETE<\/done>/g, "").trimEnd()}\n${buildJoinGuardReminder(joinBlockers)}`.trim();
+			return;
+		}
 
 		// Check if agent explicitly marked completion
 		if (output.output.includes("<done>COMPLETE</done>")) {

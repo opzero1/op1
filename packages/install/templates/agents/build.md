@@ -135,6 +135,7 @@ task(subagent_type="researcher", description="Research JWT", prompt="Find JWT be
 9. **Load extra plan docs progressively** - Use `plan_doc_list` and `plan_doc_load` when a phase/task needs deeper context
 10. **Manage plan lifecycle** - Use `plan_archive` for completed/superseded plans; `plan_unarchive` to restore archived plans
 11. Match existing codebase patterns and approved implementation references from `plan_context_read` when available, including stored code examples when present
+12. When delegating child implementation tasks, pass a compact `authoritative_context` working set so children can treat parent context as canonical instead of rediscovering the repo
 
 Treat runtime `<system-reminder>` blocks from momentum, autonomy, verification, rules, and context-scout hooks as authoritative corrections. Do not repeat them verbatim in user-facing output.
 

@@ -86,6 +86,7 @@ export interface DelegationToolExecuteAfterInput {
 export interface TaskToolArgs {
 	description: string;
 	prompt: string;
+	authoritative_context?: string;
 	subagent_type?: string;
 	task_id?: string;
 	continue_task_id?: string;
