@@ -363,7 +363,18 @@ describe("plan state manager", () => {
 		await sm.upsertPlanRegistryEntry(draftPath, { lifecycle: "draft" });
 		await sm.syncPlanContext("100-alpha", {
 			stage: "draft",
+			primary_kind: "implementation",
+			overlays: ["deep-grill", "vertical-slices"],
 			goal: "Refine alpha planning flow",
+			non_goals: ["Do not modify prompt runtime"],
+			happy_path: ["Capture context", "Implement phase 1"],
+			expected_outcome: "Phase 1 contract is persistable and renderable.",
+			missing_context_behavior: "Stop and ask one focused clarification.",
+			approval_readiness_rules: ["Explicit user approval is required"],
+			state_ownership: ["workspace state manager owns plan context files"],
+			dependencies: ["workspace plan context must stay backward-readable"],
+			triggers: ["plan_context_write updates structured state"],
+			invariants: ["Keep one canonical current-state persistence path"],
 			chosen_pattern: "repo-first plan refinement",
 			affected_areas: ["packages/install", "packages/workspace"],
 			blast_radius: ["prompt templates", "workspace plan lifecycle"],
@@ -408,6 +419,34 @@ describe("plan state manager", () => {
 		const context = await sm.readPlanContext("100-alpha");
 		expect(context?.stage).toBe("active");
 		expect(context?.confirmed_by_user).toBe(true);
+		expect(context?.primary_kind).toBe("implementation");
+		expect(context?.overlays).toEqual(["deep-grill", "vertical-slices"]);
+		expect(context?.non_goals).toEqual(["Do not modify prompt runtime"]);
+		expect(context?.happy_path).toEqual([
+			"Capture context",
+			"Implement phase 1",
+		]);
+		expect(context?.expected_outcome).toBe(
+			"Phase 1 contract is persistable and renderable.",
+		);
+		expect(context?.missing_context_behavior).toBe(
+			"Stop and ask one focused clarification.",
+		);
+		expect(context?.approval_readiness_rules).toEqual([
+			"Explicit user approval is required",
+		]);
+		expect(context?.state_ownership).toEqual([
+			"workspace state manager owns plan context files",
+		]);
+		expect(context?.dependencies).toEqual([
+			"workspace plan context must stay backward-readable",
+		]);
+		expect(context?.triggers).toEqual([
+			"plan_context_write updates structured state",
+		]);
+		expect(context?.invariants).toEqual([
+			"Keep one canonical current-state persistence path",
+		]);
 		expect(context?.pattern_examples[0]?.name).toBe("Workspace plan registry");
 		expect(context?.pattern_examples[0]?.source_type).toBe("repo");
 		expect(context?.pattern_examples[0]?.code_example).toContain(
@@ -448,6 +487,130 @@ describe("plan state manager", () => {
 		expect(context?.affected_areas).toEqual(["packages/install"]);
 		expect(context?.success_criteria).toEqual([
 			"plan context merges concurrent updates",
+		]);
+	});
+
+	test("merge-safe plan context updates preserve confirmed entries", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const sm = createStateManager(
+			env.workspaceDir,
+			env.plansDir,
+			env.notepadsDir,
+			env.activePlanPath,
+		);
+
+		await sm.syncPlanContext("100-alpha", {
+			stage: "confirmed",
+			primary_kind: "implementation",
+			overlays: ["deep-grill"],
+			non_goals: ["Avoid prompt-layer edits"],
+			happy_path: ["Implement state model"],
+			approval_readiness_rules: ["User confirmation required"],
+			state_ownership: ["plan-contexts/*.json owned by workspace plugin"],
+			dependencies: ["workspace context rendering must stay deterministic"],
+			triggers: ["plan_context_write"],
+			invariants: ["Keep plan context file canonical"],
+			question_answers: [
+				{
+					id: "qa-merge-1",
+					question: "Should we keep a single canonical state path?",
+					header: "State path",
+					answers: ["Yes"],
+					source: "question-tool",
+					confirmed_by_user: true,
+					captured_at: "2026-03-19T00:00:00.000Z",
+				},
+			],
+			pattern_examples: [
+				{
+					name: "Plan context sync",
+					source_type: "repo",
+					example_files: ["packages/workspace/src/plan/state.ts"],
+					symbols: ["syncPlanContext"],
+					why_it_fits: "State updates stay centralized and deterministic.",
+					constraints: ["Avoid replacing confirmed arrays wholesale"],
+					blast_radius: ["plan context persistence"],
+					test_implications: ["plan-state tests"],
+					confirmed_by_user: true,
+				},
+			],
+		});
+
+		await sm.syncPlanContext("100-alpha", {
+			overlays: ["tdd"],
+			non_goals: ["Avoid broad repo-wide refactors"],
+			happy_path: ["Run focused tests"],
+			approval_readiness_rules: ["Verification must pass before completion"],
+			state_ownership: ["active-plan.json remains source of active selection"],
+			dependencies: ["verification commands must stay package-scoped"],
+			triggers: ["plan_promote"],
+			invariants: ["No compatibility shim unless required"],
+			question_answers: [
+				{
+					id: "qa-merge-2",
+					question: "Should we keep a single canonical state path?",
+					header: "State path",
+					answers: ["Absolutely"],
+					source: "freeform",
+					confirmed_by_user: true,
+					captured_at: "2026-03-20T00:00:00.000Z",
+				},
+			],
+			pattern_examples: [
+				{
+					name: "Plan context sync",
+					source_type: "repo",
+					example_files: ["packages/workspace/src/index.ts"],
+					symbols: ["plan_context_write"],
+					why_it_fits: "Tool args map directly into structured context fields.",
+					constraints: ["Preserve previously confirmed examples"],
+					blast_radius: ["plan-context rendering"],
+					test_implications: ["plan-tools tests"],
+					confirmed_by_user: true,
+				},
+			],
+		});
+
+		const context = await sm.readPlanContext("100-alpha");
+		expect(context).not.toBeNull();
+		expect(context?.overlays).toEqual(["deep-grill", "tdd"]);
+		expect(context?.non_goals).toEqual([
+			"Avoid prompt-layer edits",
+			"Avoid broad repo-wide refactors",
+		]);
+		expect(context?.happy_path).toEqual([
+			"Implement state model",
+			"Run focused tests",
+		]);
+		expect(context?.approval_readiness_rules).toEqual([
+			"User confirmation required",
+			"Verification must pass before completion",
+		]);
+		expect(context?.state_ownership).toEqual([
+			"plan-contexts/*.json owned by workspace plugin",
+			"active-plan.json remains source of active selection",
+		]);
+		expect(context?.dependencies).toEqual([
+			"workspace context rendering must stay deterministic",
+			"verification commands must stay package-scoped",
+		]);
+		expect(context?.triggers).toEqual(["plan_context_write", "plan_promote"]);
+		expect(context?.invariants).toEqual([
+			"Keep plan context file canonical",
+			"No compatibility shim unless required",
+		]);
+		expect(context?.question_answers).toHaveLength(1);
+		expect(context?.question_answers[0].answers).toEqual(["Yes", "Absolutely"]);
+		expect(context?.pattern_examples).toHaveLength(1);
+		expect(context?.pattern_examples[0].example_files).toEqual([
+			"packages/workspace/src/plan/state.ts",
+			"packages/workspace/src/index.ts",
+		]);
+		expect(context?.pattern_examples[0].symbols).toEqual([
+			"syncPlanContext",
+			"plan_context_write",
 		]);
 	});
 

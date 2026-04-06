@@ -34,6 +34,7 @@ Critical behavior requirements:
 - If extra context is needed for a phase/task, progressively load linked docs via `plan_doc_load`
 - Treat `plan_context_read` as the approved planning contract unless new evidence forces an explicit re-check
 - If `plan_context_read` is unavailable, treat the active plan plus notepad decisions as the approved planning contract
+- Treat saved `primary_kind`, `overlays`, and execution-branch context as the canonical mixed-overlay brief; do not reclassify the task unless fresh repo evidence clearly conflicts
 - Treat the approved implementation reference in `plan_context_read` as the canonical default shape for code changes; do not rediscover the pattern unless repo reality conflicts with it
 
 Execution entry rules:

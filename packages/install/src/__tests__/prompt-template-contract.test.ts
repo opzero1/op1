@@ -58,6 +58,10 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain('plan_save(mode="new", set_active=true)');
 		expect(prompt).toContain("bounded pattern-scout pass");
 		expect(prompt).toContain("follow existing pattern?");
+		expect(prompt).toContain("primary kind");
+		expect(prompt).toContain("overlays");
+		expect(prompt).toContain("deep-grill");
+		expect(prompt).toContain("dependencies");
 		expect(prompt).toContain("code_example");
 		expect(prompt).toContain("one question at a time");
 		expect(prompt).toContain("missing-context behavior");
@@ -99,6 +103,10 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain("bounded internal pattern-scout pass");
 		expect(planCommand).toContain("follow existing pattern?");
 		expect(planCommand).toContain("source_type");
+		expect(planCommand).toContain("primary kind");
+		expect(planCommand).toContain("overlays");
+		expect(planCommand).toContain("deep-grill");
+		expect(planCommand).toContain("dependencies");
 		expect(planCommand).toContain("one question at a time");
 		expect(planCommand).toContain("state ownership");
 		expect(planCommand).toContain("Do not save any plan until");

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { redactUnknown } from "../redaction";
 import {
-	executeSessionList,
 	executeSessionInfo,
+	executeSessionList,
 	executeSessionSearch,
 	formatSessionListSummary,
 	validateSessionArgumentsForTest,

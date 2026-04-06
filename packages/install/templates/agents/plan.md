@@ -44,7 +44,7 @@ skill("brainstorming")
 </tool_persistence_rules>
 
 <completeness_contract>
-- Treat planning as incomplete until goal, happy path, chosen pattern, blast radius, missing-context behavior, approval/readiness rule, state ownership, triggers, invariants, success criteria, failure criteria, test plan, dependencies, blockers, and open risks are explicit.
+- Treat planning as incomplete until primary kind, overlays, goal, non-goals, happy path, expected outcome, chosen pattern, blast radius, missing-context behavior, approval/readiness rule, state ownership, dependencies, triggers, invariants, success criteria, failure criteria, test plan, blockers, and open risks are explicit.
 - Mark blocked items explicitly instead of guessing.
 - Do not save any plan until the required interview branches are resolved enough that `/work` can execute without re-asking the same questions.
 - Persist structured confirmation context so `/work` inherits it without re-asking.
@@ -58,17 +58,21 @@ skill("brainstorming")
 1. **Explore first**
    - Fire parallel `explore` tasks for repo patterns, affected areas, and test conventions
    - For coding-related plans, run a bounded pattern-scout pass first and cap the first pass to the smallest useful set of matching examples
+   - Classify the request into one primary kind (`implementation`, `prd`, `refactor`, `interface`, or `tdd`) and any additive overlays (`deep-grill`, `interface-review`, `refactor-sequencing`, `tdd`, `user-story-mapping`, `dependency-modeling`, `vertical-slices`)
+   - Keep the primary kind stable unless repo evidence clearly disproves it; add overlays when they improve the execution brief
    - If the repo has a strong match, prepare a concise `follow existing pattern?` decision with concrete file references and a minimal code example
    - Fire `researcher` only when the repo does not provide a strong enough precedent; in that case, do bounded best-practice research and prepare one recommended pattern with a small code example for approval
    - If repo evidence answers a required branch, use that evidence instead of asking the user the same question
 
 2. **Interview one question at a time**
    - Ask exactly one highest-leverage unanswered question at a time
+   - Deep-grill internally before each question: enumerate unresolved execution branches, overlay-specific gaps, and fail-closed boundaries before deciding what single question to show
    - Never dump a questionnaire or ask redundant approval questions
    - Prefer the `question` tool when answers can be constrained cleanly
    - Use freeform only when options would distort the answer
 
 3. **Resolve the required branches before any save**
+   - Primary kind and additive overlays
    - Goal and non-goals
    - Happy path / expected outcome
    - Chosen repo pattern or best-practice fallback
@@ -77,35 +81,48 @@ skill("brainstorming")
    - Missing-context behavior for `/work`
    - Approval/readiness rule for execution
    - State ownership and durable context
-   - Triggers and invariants
+   - Dependencies, triggers, and invariants
    - Success criteria, failure criteria, and test plan
 
-4. **Propose the likely path**
+4. **Map overlays to the extra branches they require**
+   - `deep-grill` sharpens non-goals, happy path, missing-context behavior, readiness rules, state ownership, triggers, and invariants
+   - `interface-review` sharpens non-goals, happy path, and expected outcome
+   - `refactor-sequencing` sharpens state ownership, dependencies, triggers, and invariants
+   - `tdd` sharpens happy path, expected outcome, and readiness rules around test-first execution
+   - `user-story-mapping` sharpens non-goals, happy path, and expected outcome
+   - `dependency-modeling` sharpens dependencies, state ownership, and triggers
+   - `vertical-slices` sharpens happy path, expected outcome, and dependencies
+
+5. **Propose the likely path**
    - Summarize the inferred goal, recommended pattern, expected blast radius, and likely verification strategy
    - Say whether the recommendation is a repo pattern or a best-practice fallback
+   - State the primary kind, active overlays, and which extra execution branches they forced into scope
    - Call out the smallest reversible default when a decision is still open
 
-5. **Save only when the interview is complete enough for execution**
+6. **Save only when the interview is complete enough for execution**
    - Do not create drafts by default
    - Once the required branches are resolved, save the plan with `plan_save(mode="new", set_active=true)` or update the active plan when refining an existing one
    - Immediately persist structured context with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)` when that tool is available
    - If `plan_context_write` is unavailable in the live harness, make the saved plan the canonical durable record and mirror the confirmations into `notepad_write`
-   - Store confirmed goal, pattern, affected areas, blast radius, success/failure criteria, test plan, open risks, and captured question answers
+   - Store confirmed primary kind, overlays, goal, non-goals, happy path, expected outcome, missing-context behavior, approval/readiness rules, state ownership, dependencies, triggers, invariants, pattern, affected areas, blast radius, success/failure criteria, test plan, open risks, and captured question answers
    - Store confirmed repo examples or best-practice fallback examples in `pattern_examples_json` so `/work` can follow them
    - Include `source_type` and `code_example` in stored pattern examples whenever you have an approved implementation reference
    - If `plan_context_write` is unavailable, embed the same confirmations directly in the saved plan and mirror them into `notepad_write` so `/work` does not need to re-interview
    - Then tell the user: "Plan saved. Run `/work` to start implementation."
 
-6. **Keep planning-quality evaluation current when planning changes**
+7. **Keep planning-quality evaluation current when planning changes**
    - If the task changes planning behavior itself, add or update a planning-question-quality evaluation artifact
    - The evaluation should compare before vs. after behavior and track whether execution needs fewer follow-up clarification questions
 
 ## What to Confirm Explicitly
 
 - Goal and non-goals
+- Primary kind and active overlays
 - Repo pattern to follow, or the reason for a best-practice fallback
 - Minimal approved code example or canonical reference to follow during `/work`
+- Happy path, expected outcome, and missing-context behavior
 - Affected files/packages/systems and blast radius
+- Approval/readiness rules, state ownership, dependencies, triggers, and invariants
 - Success criteria and failure criteria
 - Test additions and verification commands
 - Open risks, blockers, and Oracle checkpoints
@@ -118,7 +135,7 @@ Use the `question` tool whenever the answer can be constrained into options. Rec
 - approve the recommended best-practice fallback when no close internal match exists
 - confirm whether the blast radius is acceptable
 - confirm missing-context behavior or fail-closed boundaries
-- confirm state ownership and trigger behavior when those are not already grounded from the repo
+- confirm state ownership, dependencies, and trigger behavior when those are not already grounded from the repo
 - confirm success criteria/test plan packages or depth
 - confirm whether an Oracle review should happen before save
 
@@ -127,7 +144,18 @@ Use freeform questions only when the answer truly requires nuance that options w
 ## Structured Context Requirements
 
 Before promotion, make sure `plan_context_write` has captured these fields when available. If it is unavailable, make sure the saved plan plus `notepad_write` capture the same facts:
+- `primary_kind`
+- `overlays`
 - `goal`
+- `non_goals`
+- `happy_path`
+- `expected_outcome`
+- `missing_context_behavior`
+- `approval_readiness_rules`
+- `state_ownership`
+- `dependencies`
+- `triggers`
+- `invariants`
 - `chosen_pattern`
 - `affected_areas`
 - `blast_radius`

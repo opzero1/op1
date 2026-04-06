@@ -68,7 +68,7 @@ import { handleVerification } from "./hooks/verification.js";
 import { createWritePolicyHook } from "./hooks/write-policy.js";
 import { buildMcpOAuthHelperSnapshot } from "./interop/mcp-oauth-helper.js";
 import { buildMcp0HealthSnapshot } from "./interop/mcp0-health.js";
-import { setLoggerSink } from "./logging.js";
+import { createLogger, setLoggerSink } from "./logging.js";
 import { formatParseError, parsePlanMarkdown } from "./plan/schema.js";
 import {
 	type ActivePlanState,
@@ -80,6 +80,9 @@ import {
 	type LinkPlanDocInput,
 	NOTEPAD_FILES,
 	type NotepadFile,
+	PLAN_CONTEXT_OVERLAY_REQUIRED_EXECUTION_BRANCHES,
+	PLAN_CONTEXT_OVERLAYS,
+	PLAN_CONTEXT_PRIMARY_KINDS,
 	type PlanContextPatch,
 	type PlanDocType,
 	type PlanQuestionAnswer,
@@ -185,6 +188,14 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		sessionID: string,
 	): Promise<void> {
 		const joinBlockers = await getCompletionJoinBlockers(sessionID);
+		createLogger("workspace.completion-guard").debug(
+			"Evaluating idle completion join guard",
+			{
+				session_id: sessionID,
+				root_session_id: joinBlockers.rootSessionID,
+				blocker_count: joinBlockers.blockers.length,
+			},
+		);
 		if (joinBlockers.blockers.length === 0) return;
 
 		const latestAssistantText = await getLatestAssistantMessageText(
@@ -202,8 +213,25 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			latestAssistantText ?? "",
 			joinBlockers,
 		);
+		createLogger("workspace.completion-guard").debug(
+			"Computed idle completion join guard output",
+			{
+				session_id: sessionID,
+				has_latest_assistant_text: Boolean(latestAssistantText),
+				latest_assistant_preview: latestAssistantText?.slice(0, 120),
+				guard_applied: Boolean(guardedOutput),
+			},
+		);
 		if (!guardedOutput) return;
 
+		createLogger("workspace.completion-guard").info(
+			"Prompting root session with join guard reminder after idle completion",
+			{
+				session_id: sessionID,
+				root_session_id: joinBlockers.rootSessionID,
+				blocker_count: joinBlockers.blockers.length,
+			},
+		);
 		await ctx.client.session.promptAsync({
 			path: { id: sessionID },
 			body: {
@@ -386,10 +414,14 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	function formatPlanContextBlock(
 		context: PlanContextPatch & { plan_name?: string },
 	): string {
+		const primaryKind = context.primary_kind ?? "implementation";
+		const overlays = context.overlays ?? [];
 		const sections = [
 			"<plan-context>",
 			`stage: ${context.stage ?? "draft"}`,
 			`confirmed_by_user: ${context.confirmed_by_user === true ? "true" : "false"}`,
+			`primary_kind: ${primaryKind}`,
+			`overlays: ${overlays.length > 0 ? overlays.join(", ") : "none"}`,
 		];
 
 		if (context.plan_name) {
@@ -398,14 +430,40 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		if (context.goal) {
 			sections.push("", "Goal:", `- ${context.goal}`);
 		}
-		if (context.chosen_pattern) {
-			sections.push("", "Chosen pattern:", `- ${context.chosen_pattern}`);
-		}
-
 		const pushList = (label: string, values?: string[]) => {
 			if (!values || values.length === 0) return;
 			sections.push("", `${label}:`, ...values.map((item) => `- ${item}`));
 		};
+
+		pushList("Non-goals", context.non_goals);
+		pushList("Happy path", context.happy_path);
+		if (context.expected_outcome) {
+			sections.push("", "Expected outcome:", `- ${context.expected_outcome}`);
+		}
+		if (context.missing_context_behavior) {
+			sections.push(
+				"",
+				"Missing-context behavior:",
+				`- ${context.missing_context_behavior}`,
+			);
+		}
+		pushList("Approval/readiness rules", context.approval_readiness_rules);
+		pushList("State ownership", context.state_ownership);
+		pushList("Dependencies", context.dependencies);
+		pushList("Triggers", context.triggers);
+		pushList("Invariants", context.invariants);
+		if (context.chosen_pattern) {
+			sections.push("", "Chosen pattern:", `- ${context.chosen_pattern}`);
+		}
+
+		if (overlays.length > 0) {
+			sections.push("", "Overlay branch requirements:");
+			for (const overlay of overlays) {
+				const requiredBranches =
+					PLAN_CONTEXT_OVERLAY_REQUIRED_EXECUTION_BRANCHES[overlay] ?? [];
+				sections.push(`- ${overlay}: ${requiredBranches.join(", ")}`);
+			}
+		}
 
 		pushList("Affected areas", context.affected_areas);
 		pushList("Blast radius", context.blast_radius);
@@ -740,6 +798,13 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		if (sessionReadyNotificationHook && isSessionIdleEvent(payload.event)) {
 			const sessionID = payload.event.properties.sessionID;
 			if (!sessionID) return;
+			createLogger("workspace.completion-guard").debug(
+				"Received session idle event",
+				{
+					session_id: sessionID,
+					event_type: payload.event.type,
+				},
+			);
 			const delegationTask = await readDelegationTaskByChildSession(
 				workspaceDir,
 				sessionID,
@@ -758,6 +823,20 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				sessionID,
 				source: payload.event.type,
 			});
+			return;
+		}
+
+		if (isMessageUpdatedEvent(payload.event)) {
+			const sessionID = getEventSessionID(payload.event.properties);
+			if (!sessionID) return;
+			createLogger("workspace.completion-guard").debug(
+				"Received message update event",
+				{
+					session_id: sessionID,
+					event_type: payload.event.type,
+				},
+			);
+			await enforceIdleCompletionJoinGuard(sessionID);
 			return;
 		}
 
@@ -1453,13 +1532,23 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 			plan_context_write: tool({
 				description:
-					"Persist structured planning context such as confirmations, blast radius, success criteria, and pattern examples.",
+					"Persist structured planning context such as execution branches, confirmations, blast radius, and pattern examples.",
 				args: {
 					plan_name: tool.schema
 						.string()
 						.optional()
 						.describe(
 							"Optional target plan name. Defaults to the active plan.",
+						),
+					primary_kind: tool.schema
+						.enum(PLAN_CONTEXT_PRIMARY_KINDS)
+						.optional()
+						.describe("Primary execution kind for this plan context."),
+					overlays: tool.schema
+						.array(tool.schema.enum(PLAN_CONTEXT_OVERLAYS))
+						.optional()
+						.describe(
+							"Optional overlays that require specific execution branches before /work.",
 						),
 					stage: tool.schema
 						.enum(["draft", "confirmed", "active", "archived"])
@@ -1475,6 +1564,46 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.string()
 						.optional()
 						.describe("Confirmed goal statement."),
+					non_goals: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Explicit non-goals that /work must not chase."),
+					happy_path: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Happy-path execution steps for the approved approach."),
+					expected_outcome: tool.schema
+						.string()
+						.optional()
+						.describe("Expected final outcome when execution completes."),
+					missing_context_behavior: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"Required behavior when execution is blocked by missing context.",
+						),
+					approval_readiness_rules: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Approval/readiness rules that gate execution."),
+					state_ownership: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("State ownership and source-of-truth expectations."),
+					dependencies: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe(
+							"Dependencies, sequencing constraints, or prerequisite work.",
+						),
+					triggers: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Execution triggers and event boundaries."),
+					invariants: tool.schema
+						.array(tool.schema.string())
+						.optional()
+						.describe("Invariants that must remain true during /work."),
 					chosen_pattern: tool.schema
 						.string()
 						.optional()
@@ -1549,9 +1678,20 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						});
 
 						const patch: PlanContextPatch = {
+							primary_kind: args.primary_kind,
+							overlays: args.overlays,
 							stage: args.stage,
 							confirmed_by_user: args.confirmed_by_user,
 							goal: args.goal,
+							non_goals: args.non_goals,
+							happy_path: args.happy_path,
+							expected_outcome: args.expected_outcome,
+							missing_context_behavior: args.missing_context_behavior,
+							approval_readiness_rules: args.approval_readiness_rules,
+							state_ownership: args.state_ownership,
+							dependencies: args.dependencies,
+							triggers: args.triggers,
+							invariants: args.invariants,
 							chosen_pattern: args.chosen_pattern,
 							affected_areas: args.affected_areas,
 							blast_radius: args.blast_radius,
@@ -2260,6 +2400,20 @@ function isPermissionEvent(event: unknown): event is {
 		record.type === "permission.asked" ||
 		record.type === "permission.updated" ||
 		record.type === "permission.requested"
+	);
+}
+
+function isMessageUpdatedEvent(event: unknown): event is {
+	type: "message.updated" | "message.part.updated";
+	properties?: Record<string, unknown>;
+} {
+	if (!event || typeof event !== "object") return false;
+	const record = event as {
+		type?: unknown;
+		properties?: Record<string, unknown>;
+	};
+	return (
+		record.type === "message.updated" || record.type === "message.part.updated"
 	);
 }
 

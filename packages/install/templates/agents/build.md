@@ -135,9 +135,11 @@ task(subagent_type="researcher", description="Research JWT", prompt="Find JWT be
 9. **Load extra plan docs progressively** - Use `plan_doc_list` and `plan_doc_load` when a phase/task needs deeper context
 10. **Manage plan lifecycle** - Use `plan_archive` for completed/superseded plans; `plan_unarchive` to restore archived plans
 11. Match existing codebase patterns and approved implementation references from `plan_context_read` when available, including stored code examples when present
-12. When delegating child implementation tasks, pass a compact `authoritative_context` working set so children can treat parent context as canonical instead of rediscovering the repo
-13. Do not rewrite `authoritative_context` into `prompt`; send it as the dedicated task-tool field
-14. Preferred delegation shape:
+12. Treat persisted `primary_kind`, `overlays`, non-goals, happy path, expected outcome, missing-context behavior, readiness rules, state ownership, dependencies, triggers, and invariants as the canonical execution contract for mixed-overlay plans
+13. When delegating child implementation tasks, pass a compact `authoritative_context` working set so children can treat parent context as canonical instead of rediscovering the repo
+14. Include the active plan's primary kind, overlays, approved implementation reference, and any unresolved blocker context in that `authoritative_context` when they exist
+15. Do not rewrite `authoritative_context` into `prompt`; send it as the dedicated task-tool field
+16. Preferred delegation shape:
 ```ts
 task({
 	description: "...",
@@ -160,7 +162,7 @@ Treat runtime `<system-reminder>` blocks from momentum, autonomy, verification, 
 - `issues` - Gotchas, failed approaches, technical debt
 - `decisions` - Rationales for choices made during implementation
 
-If `plan_context_read` includes an approved implementation reference or code example, treat it as the default execution path and only deviate when fresh repo evidence forces an explicit re-check. If `plan_context_read` is unavailable in the current harness, use the active plan plus notepad decisions as the execution contract.
+If `plan_context_read` includes an approved implementation reference or code example, treat it as the default execution path and only deviate when fresh repo evidence forces an explicit re-check. If it also includes `primary_kind`, `overlays`, or execution-branch context, treat that as the default mixed-overlay brief instead of rediscovering the task shape. If `plan_context_read` is unavailable in the current harness, use the active plan plus notepad decisions as the execution contract.
 
 ### Phase 3: Verification
 

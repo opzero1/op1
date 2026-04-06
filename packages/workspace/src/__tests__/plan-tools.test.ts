@@ -225,7 +225,22 @@ describe("plan tools", () => {
 				plan_name: planName,
 				stage: "confirmed",
 				confirmed_by_user: true,
+				primary_kind: "implementation",
+				overlays: ["deep-grill", "vertical-slices"],
 				goal: "Refine terse planning requests into confirmed implementation-ready plans",
+				non_goals: ["Do not modify runtime prompts"],
+				happy_path: ["Save draft", "Confirm context", "Promote plan"],
+				expected_outcome:
+					"Phase 1 context is complete and directly executable by /work.",
+				missing_context_behavior:
+					"Stop and ask one targeted clarification before coding.",
+				approval_readiness_rules: [
+					"User confirmation must be explicit before promotion",
+				],
+				state_ownership: ["workspace plugin owns plan context persistence"],
+				dependencies: ["plan_context_write output must remain /work-readable"],
+				triggers: ["plan_context_write", "plan_promote"],
+				invariants: ["One canonical current-state persistence path"],
 				chosen_pattern: "repo-first staged refinement",
 				affected_areas: [
 					"packages/install/templates",
@@ -278,9 +293,172 @@ describe("plan tools", () => {
 		);
 		expect(planReadResult).toContain("<plan-context>");
 		expect(planReadResult).toContain("repo-first staged refinement");
+		expect(planReadResult).toContain("primary_kind: implementation");
+		expect(planReadResult).toContain("overlays: deep-grill, vertical-slices");
+		expect(planReadResult).toContain("Non-goals:");
+		expect(planReadResult).toContain("Happy path:");
+		expect(planReadResult).toContain("Expected outcome:");
+		expect(planReadResult).toContain("Missing-context behavior:");
+		expect(planReadResult).toContain("Approval/readiness rules:");
+		expect(planReadResult).toContain("State ownership:");
+		expect(planReadResult).toContain("Dependencies:");
+		expect(planReadResult).toContain("Triggers:");
+		expect(planReadResult).toContain("Invariants:");
+		expect(planReadResult).toContain("Overlay branch requirements:");
+		expect(planReadResult).toContain(
+			"deep-grill: non_goals, happy_path, missing_context_behavior",
+		);
 		expect(planReadResult).toContain("Approved implementation references:");
 		expect(planReadResult).toContain("Workspace plan save flow [repo]");
 		expect(planReadResult).toContain("code example:");
+	});
+
+	test("plan_context_write merges iterative confirmations", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-plan-context-merge-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const planSaveTool = plugin.tool?.plan_save as unknown as {
+			execute: (
+				args: {
+					content: string;
+					mode: "draft";
+				},
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+		const planContextWriteTool = plugin.tool?.plan_context_write as unknown as {
+			execute: (
+				args: Record<string, unknown>,
+				toolCtx: { sessionID: string },
+			) => Promise<string>;
+		};
+
+		const sessionID = "merge-session";
+		await planSaveTool.execute(
+			{ content: validPlan, mode: "draft" },
+			{ sessionID },
+		);
+
+		const [draftFile] = (
+			await readdir(join(root, ".opencode", "workspace", "plans"))
+		).filter((name) => name.endsWith(".md"));
+		const planName = draftFile.replace(/\.md$/, "");
+
+		await planContextWriteTool.execute(
+			{
+				plan_name: planName,
+				stage: "confirmed",
+				overlays: ["deep-grill"],
+				non_goals: ["Skip runtime prompt edits"],
+				happy_path: ["Write persistence model"],
+				dependencies: ["plan context schema must stay merge-safe"],
+				question_answers_json: JSON.stringify([
+					{
+						question: "Should we keep a canonical plan context file?",
+						header: "Canonical state",
+						answers: ["Yes"],
+						source: "question-tool",
+					},
+				]),
+				pattern_examples_json: JSON.stringify([
+					{
+						name: "Plan context sync",
+						source_type: "repo",
+						example_files: ["packages/workspace/src/plan/state.ts"],
+						symbols: ["syncPlanContext"],
+						why_it_fits: "State updates stay deterministic.",
+						constraints: ["Preserve prior confirmations"],
+						blast_radius: ["plan context state"],
+						test_implications: ["plan-state tests"],
+					},
+				]),
+			},
+			{ sessionID },
+		);
+
+		await planContextWriteTool.execute(
+			{
+				plan_name: planName,
+				overlays: ["tdd"],
+				non_goals: ["Avoid broad refactors"],
+				happy_path: ["Run focused tests"],
+				dependencies: ["verification order should stay explicit"],
+				question_answers_json: JSON.stringify([
+					{
+						question: "Should we keep a canonical plan context file?",
+						header: "Canonical state",
+						answers: ["Absolutely"],
+						source: "freeform",
+					},
+				]),
+				pattern_examples_json: JSON.stringify([
+					{
+						name: "Plan context sync",
+						source_type: "repo",
+						example_files: ["packages/workspace/src/index.ts"],
+						symbols: ["plan_context_write"],
+						why_it_fits: "Tool args map directly to persistence fields.",
+						constraints: ["Merge, do not replace, confirmed context"],
+						blast_radius: ["plan context rendering"],
+						test_implications: ["plan-tools tests"],
+					},
+				]),
+			},
+			{ sessionID },
+		);
+
+		const contextPath = join(
+			root,
+			".opencode",
+			"workspace",
+			"plan-contexts",
+			`${planName}.json`,
+		);
+		const persisted = JSON.parse(await Bun.file(contextPath).text()) as {
+			overlays: string[];
+			non_goals: string[];
+			happy_path: string[];
+			dependencies: string[];
+			question_answers: Array<{ answers: string[] }>;
+			pattern_examples: Array<{
+				example_files: string[];
+				symbols: string[];
+			}>;
+		};
+
+		expect(persisted.overlays).toEqual(["deep-grill", "tdd"]);
+		expect(persisted.non_goals).toEqual([
+			"Skip runtime prompt edits",
+			"Avoid broad refactors",
+		]);
+		expect(persisted.happy_path).toEqual([
+			"Write persistence model",
+			"Run focused tests",
+		]);
+		expect(persisted.dependencies).toEqual([
+			"plan context schema must stay merge-safe",
+			"verification order should stay explicit",
+		]);
+		expect(persisted.question_answers).toHaveLength(1);
+		expect(persisted.question_answers[0].answers).toEqual([
+			"Yes",
+			"Absolutely",
+		]);
+		expect(persisted.pattern_examples).toHaveLength(1);
+		expect(persisted.pattern_examples[0].example_files).toEqual([
+			"packages/workspace/src/plan/state.ts",
+			"packages/workspace/src/index.ts",
+		]);
+		expect(persisted.pattern_examples[0].symbols).toEqual([
+			"syncPlanContext",
+			"plan_context_write",
+		]);
 	});
 
 	test("plan_promote preserves concurrent session IDs", async () => {

@@ -447,7 +447,6 @@ describe("delegation plugin", () => {
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
-		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const launch = await taskTool.execute(
 			{
@@ -525,7 +524,6 @@ describe("delegation plugin", () => {
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
-		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const launch = await taskTool.execute(
 			{
@@ -917,6 +915,16 @@ describe("delegation plugin", () => {
 			{
 				description: "Implement helper",
 				prompt: "Add the helper and tests.",
+				authoritative_context: [
+					"<plan-context>",
+					"primary_kind: implementation",
+					"overlays: deep-grill, tdd",
+					"Goal:",
+					"- Ship the helper without re-asking the user",
+					"Dependencies:",
+					"- Reuse existing verification flow",
+					"</plan-context>",
+				].join("\n"),
 				subagent_type: "coder",
 				run_in_background: true,
 			},
@@ -1553,6 +1561,13 @@ describe("delegation plugin", () => {
 		expect(
 			client.getPromptedSessionIDs().filter((id) => id === "parent-session"),
 		).toHaveLength(1);
+		const rootFollowThroughRequest = client
+			.getPromptAsyncRequests()
+			.filter((request) => request.sessionID === "parent-session")
+			.at(-1);
+		expect(rootFollowThroughRequest?.text).toContain(
+			"Resume from the saved primary kind + overlays contract",
+		);
 
 		const status = await backgroundOutputTool.execute(
 			{ task_id: taskID, full_session: false },

@@ -3,12 +3,18 @@
 		"id": "repo-pattern-follow",
 		"prompt": "/plan add a new workspace planning tool that persists approval metadata for implementation handoff",
 		"expected_mode": "repo-pattern",
+		"expected_primary_kind": "implementation",
+		"expected_overlays": ["deep-grill"],
 		"must_capture_branches": [
-			"missing-context behavior",
-			"approval/readiness",
-			"state ownership",
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"missing_context_behavior",
+			"approval_readiness_rules",
+			"state_ownership",
+			"dependencies",
 			"triggers",
-			"rules",
+			"invariants",
 			"tests"
 		],
 		"must_surface_files": [
@@ -16,48 +22,177 @@
 			"packages/workspace/src/plan/state.ts"
 		],
 		"must_ask": "Follow existing pattern?",
-		"must_persist": ["source_type: repo", "code_example"],
+		"must_persist": [
+			"primary_kind: implementation",
+			"overlays: deep-grill",
+			"source_type: repo",
+			"code_example"
+		],
+		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
 	},
 	{
 		"id": "best-practice-fallback",
 		"prompt": "/plan add a planning-quality benchmark runner for question quality regressions",
 		"expected_mode": "best-practice",
+		"expected_primary_kind": "implementation",
+		"expected_overlays": ["deep-grill"],
 		"must_capture_branches": [
-			"missing-context behavior",
-			"approval/readiness",
-			"state ownership",
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"missing_context_behavior",
+			"approval_readiness_rules",
+			"state_ownership",
+			"dependencies",
 			"triggers",
-			"rules",
+			"invariants",
 			"tests"
 		],
 		"must_do_bounded_research": true,
 		"must_ask": "Approve recommended fallback?",
-		"must_persist": ["source_type: best-practice", "code_example"],
+		"must_persist": [
+			"primary_kind: implementation",
+			"overlays: deep-grill",
+			"source_type: best-practice",
+			"code_example"
+		],
+		"must_not_reask_in_work": false,
 		"max_execution_follow_up_questions": 1
 	},
 	{
-		"id": "frontend-ownership-reroute",
-		"prompt": "/plan tighten frontend ownership routing so wrong-agent /work requests reroute to frontend",
-		"expected_mode": "repo-pattern",
+		"id": "prd-vertical-slices",
+		"prompt": "/plan turn a rough PRD into a saved execution plan with vertical slices and user-story sequencing",
+		"expected_mode": "best-practice",
+		"expected_primary_kind": "prd",
+		"expected_overlays": [
+			"deep-grill",
+			"user-story-mapping",
+			"vertical-slices"
+		],
 		"must_capture_branches": [
-			"missing-context behavior",
-			"approval/readiness",
-			"state ownership",
-			"triggers",
-			"rules",
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"approval_readiness_rules",
+			"dependencies",
 			"tests"
 		],
-		"must_surface_files": [
-			"packages/install/templates/agents/build.md",
-			"packages/workspace/src/delegation/router.ts"
+		"must_ask": "Approve recommended fallback?",
+		"must_persist": [
+			"primary_kind: prd",
+			"overlays: user-story-mapping",
+			"overlays: vertical-slices",
+			"code_example"
+		],
+		"must_not_reask_in_work": true,
+		"max_execution_follow_up_questions": 0
+	},
+	{
+		"id": "refactor-small-commits",
+		"prompt": "/plan split a risky refactor into tiny commit-ready steps with dependency ordering",
+		"expected_mode": "repo-pattern",
+		"expected_primary_kind": "refactor",
+		"expected_overlays": [
+			"deep-grill",
+			"refactor-sequencing",
+			"dependency-modeling"
+		],
+		"must_capture_branches": [
+			"non_goals",
+			"happy_path",
+			"state_ownership",
+			"dependencies",
+			"triggers",
+			"invariants",
+			"tests"
 		],
 		"must_ask": "Follow existing pattern?",
 		"must_persist": [
-			"source_type: repo",
-			"code_example",
-			"frontend ownership routing"
+			"primary_kind: refactor",
+			"overlays: refactor-sequencing",
+			"overlays: dependency-modeling",
+			"source_type: repo"
 		],
+		"must_not_reask_in_work": true,
+		"max_execution_follow_up_questions": 0
+	},
+	{
+		"id": "interface-comparison",
+		"prompt": "/plan compare interface options for a new command flow and save the approved execution path",
+		"expected_mode": "best-practice",
+		"expected_primary_kind": "interface",
+		"expected_overlays": ["deep-grill", "interface-review"],
+		"must_capture_branches": [
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"approval_readiness_rules",
+			"tests"
+		],
+		"must_ask": "Approve recommended fallback?",
+		"must_persist": [
+			"primary_kind: interface",
+			"overlays: interface-review",
+			"code_example"
+		],
+		"must_not_reask_in_work": true,
+		"max_execution_follow_up_questions": 0
+	},
+	{
+		"id": "tdd-planning",
+		"prompt": "/plan add test-first planning so execution starts with failing tests and explicit readiness gates",
+		"expected_mode": "repo-pattern",
+		"expected_primary_kind": "tdd",
+		"expected_overlays": ["deep-grill", "tdd"],
+		"must_capture_branches": [
+			"happy_path",
+			"expected_outcome",
+			"approval_readiness_rules",
+			"tests"
+		],
+		"must_ask": "Follow existing pattern?",
+		"must_persist": ["primary_kind: tdd", "overlays: tdd", "source_type: repo"],
+		"must_not_reask_in_work": true,
+		"max_execution_follow_up_questions": 0
+	},
+	{
+		"id": "mixed-overlay-no-reask",
+		"prompt": "/plan make /work start from a mixed refactor + tdd + dependency plan without re-interviewing the user",
+		"expected_mode": "repo-pattern",
+		"expected_primary_kind": "implementation",
+		"expected_overlays": [
+			"deep-grill",
+			"refactor-sequencing",
+			"tdd",
+			"dependency-modeling"
+		],
+		"must_capture_branches": [
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"missing_context_behavior",
+			"approval_readiness_rules",
+			"state_ownership",
+			"dependencies",
+			"triggers",
+			"invariants",
+			"tests"
+		],
+		"must_surface_files": [
+			"packages/install/templates/commands/work.md",
+			"packages/install/templates/agents/build.md",
+			"packages/delegation/src/index.ts"
+		],
+		"must_ask": "Follow existing pattern?",
+		"must_persist": [
+			"primary_kind: implementation",
+			"overlays: refactor-sequencing",
+			"overlays: tdd",
+			"overlays: dependency-modeling",
+			"code_example"
+		],
+		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
 	}
 ]

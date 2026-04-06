@@ -301,6 +301,54 @@ function extractInlineAuthoritativeContext(input: {
 	};
 }
 
+function getAuthoritativeContextExtractionTelemetry(input: {
+	prompt: string;
+	authoritativeContext?: string;
+}): {
+	source: "explicit" | "tagged" | "labeled" | "none";
+	prompt_preview: string;
+	has_authoritative_context: boolean;
+} {
+	const explicitContext = input.authoritativeContext?.trim();
+	if (explicitContext) {
+		return {
+			source: "explicit",
+			prompt_preview: input.prompt.slice(0, 120),
+			has_authoritative_context: true,
+		};
+	}
+
+	if (
+		/<authoritative_context>\s*[\s\S]*?\s*<\/authoritative_context>/i.test(
+			input.prompt,
+		)
+	) {
+		return {
+			source: "tagged",
+			prompt_preview: input.prompt.slice(0, 120),
+			has_authoritative_context: true,
+		};
+	}
+
+	if (
+		/(?:^|\n{2,})(?:authoritative[_ ]context)\s*:\s*\n([\s\S]+)$/i.test(
+			input.prompt,
+		)
+	) {
+		return {
+			source: "labeled",
+			prompt_preview: input.prompt.slice(0, 120),
+			has_authoritative_context: true,
+		};
+	}
+
+	return {
+		source: "none",
+		prompt_preview: input.prompt.slice(0, 120),
+		has_authoritative_context: false,
+	};
+}
+
 function withInitialRootFollowThrough(
 	execution: TaskExecutionRecord,
 	runInBackground: boolean,
@@ -688,6 +736,35 @@ function getVerificationSummary(task: TaskRecord): string {
 	);
 }
 
+function summarizeAuthoritativeContext(task: TaskRecord): string[] {
+	const context = task.authoritative_context?.trim();
+	if (!context) return [];
+
+	const extracted =
+		context.match(/<plan-context>\s*([\s\S]*?)\s*<\/plan-context>/i)?.[1] ??
+		context;
+
+	return extracted
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.filter((line) => !line.startsWith("<") && !line.startsWith("</"))
+		.slice(0, 8);
+}
+
+function buildFollowThroughBlockerSummary(
+	task: TaskRecord,
+): string | undefined {
+	if (task.error?.trim()) return task.error.trim();
+
+	const retry = task.assignment?.retry;
+	if (retry?.last_resync_summary?.trim()) {
+		return retry.last_resync_summary.trim();
+	}
+
+	return undefined;
+}
+
 async function ensureTerminalSummaries(
 	state: TaskStateManager,
 	task: TaskRecord,
@@ -738,19 +815,39 @@ function buildRootFollowThroughPrompt(task: TaskRecord): string {
 	const diffSummary =
 		task.execution?.diff_summary ?? "Diff summary unavailable.";
 	const verificationSummary = getVerificationSummary(task);
-
-	return [
+	const authoritativeContext = summarizeAuthoritativeContext(task);
+	const blockerSummary = buildFollowThroughBlockerSummary(task);
+	const lines = [
 		"<system-reminder>",
 		"[delegation-follow-through]",
 		"A background child task reached a terminal state and needs root follow-through.",
 		`Task ID: ${task.id}`,
 		`Reference: ref:${task.id}`,
+		`Agent: ${task.agent}`,
+		`Task: ${task.description}`,
 		`Status: ${task.status}`,
 		`Diff summary: ${diffSummary}`,
 		`Verification summary: ${verificationSummary}`,
+	];
+
+	if (blockerSummary) {
+		lines.push(`Unresolved blocker: ${blockerSummary}`);
+	}
+
+	if (authoritativeContext.length > 0) {
+		lines.push("Authoritative context summary:");
+		for (const line of authoritativeContext) {
+			lines.push(`- ${line}`);
+		}
+	}
+
+	lines.push(
+		"Resume from the saved primary kind + overlays contract when present; do not re-interview already confirmed branches.",
 		"Continue the active plan now. Use background_output(task_id=...) or task_graph_status only if more detail is needed.",
 		"</system-reminder>",
-	].join("\n");
+	);
+
+	return lines.join("\n");
 }
 
 async function handleRootFollowThrough(
@@ -1861,14 +1958,6 @@ async function promoteRunnableTasks(
 	return;
 }
 
-async function getLatestAssistantResult(
-	client: DelegationClient,
-	sessionID: string,
-): Promise<string | null> {
-	const transcriptData = await getSessionTranscriptData(client, sessionID);
-	return extractLatestAssistantText(transcriptData);
-}
-
 async function getSessionStatus(
 	client: DelegationClient,
 	sessionID: string,
@@ -1903,7 +1992,7 @@ async function refreshTaskFromRuntime(
 		client,
 		task.child_session_id,
 	);
-	let current = await persistExecutionTelemetry(
+	const current = await persistExecutionTelemetry(
 		state,
 		task,
 		primaryDirectory,
@@ -2288,12 +2377,25 @@ export const DelegationPlugin: Plugin = async (ctx: {
 					}
 
 					const description = args.description.trim();
+					logger.debug("Normalizing task authoritative context", {
+						description,
+						...getAuthoritativeContextExtractionTelemetry({
+							prompt: args.prompt,
+							authoritativeContext: args.authoritative_context,
+						}),
+					});
 					const normalizedTaskInput = extractInlineAuthoritativeContext({
 						prompt: args.prompt,
 						authoritativeContext: args.authoritative_context,
 					});
 					const prompt = normalizedTaskInput.prompt;
 					const authoritativeContext = normalizedTaskInput.authoritativeContext;
+					logger.debug("Resolved task authoritative context", {
+						description,
+						has_authoritative_context: Boolean(authoritativeContext),
+						prompt_preview: prompt.slice(0, 120),
+						authoritative_context_preview: authoritativeContext?.slice(0, 120),
+					});
 					if (!description) return "❌ description is required.";
 					if (!prompt) return "❌ prompt is required.";
 					if (args.task_id?.trim() && args.continue_task_id?.trim()) {

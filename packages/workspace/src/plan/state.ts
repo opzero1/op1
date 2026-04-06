@@ -99,6 +99,74 @@ export interface PlanRegistry {
 
 export type PlanContextStage = "draft" | "confirmed" | "active" | "archived";
 
+export type PlanContextPrimaryKind =
+	| "implementation"
+	| "prd"
+	| "refactor"
+	| "interface"
+	| "tdd";
+
+export const PLAN_CONTEXT_PRIMARY_KINDS = [
+	"implementation",
+	"prd",
+	"refactor",
+	"interface",
+	"tdd",
+] as const satisfies readonly PlanContextPrimaryKind[];
+
+export type PlanContextOverlay =
+	| "deep-grill"
+	| "interface-review"
+	| "refactor-sequencing"
+	| "tdd"
+	| "user-story-mapping"
+	| "dependency-modeling"
+	| "vertical-slices";
+
+export const PLAN_CONTEXT_OVERLAYS = [
+	"deep-grill",
+	"interface-review",
+	"refactor-sequencing",
+	"tdd",
+	"user-story-mapping",
+	"dependency-modeling",
+	"vertical-slices",
+] as const satisfies readonly PlanContextOverlay[];
+
+export type PlanExecutionBranch =
+	| "non_goals"
+	| "happy_path"
+	| "expected_outcome"
+	| "missing_context_behavior"
+	| "approval_readiness_rules"
+	| "state_ownership"
+	| "dependencies"
+	| "triggers"
+	| "invariants";
+
+export const PLAN_CONTEXT_OVERLAY_REQUIRED_EXECUTION_BRANCHES = {
+	"deep-grill": [
+		"non_goals",
+		"happy_path",
+		"missing_context_behavior",
+		"approval_readiness_rules",
+		"state_ownership",
+		"triggers",
+		"invariants",
+	],
+	"interface-review": ["non_goals", "happy_path", "expected_outcome"],
+	"refactor-sequencing": [
+		"state_ownership",
+		"dependencies",
+		"triggers",
+		"invariants",
+	],
+	tdd: ["happy_path", "expected_outcome", "approval_readiness_rules"],
+	"user-story-mapping": ["non_goals", "happy_path", "expected_outcome"],
+	"dependency-modeling": ["dependencies", "state_ownership", "triggers"],
+	"vertical-slices": ["happy_path", "expected_outcome", "dependencies"],
+} as const satisfies Record<PlanContextOverlay, readonly PlanExecutionBranch[]>;
+
 export interface PlanQuestionAnswer {
 	id: string;
 	question: string;
@@ -129,7 +197,18 @@ export interface PlanContextRecord {
 	plan_name: string;
 	stage: PlanContextStage;
 	confirmed_by_user: boolean;
+	primary_kind: PlanContextPrimaryKind;
+	overlays: PlanContextOverlay[];
 	goal?: string;
+	non_goals: string[];
+	happy_path: string[];
+	expected_outcome?: string;
+	missing_context_behavior?: string;
+	approval_readiness_rules: string[];
+	state_ownership: string[];
+	dependencies: string[];
+	triggers: string[];
+	invariants: string[];
 	chosen_pattern?: string;
 	affected_areas: string[];
 	blast_radius: string[];
@@ -146,7 +225,18 @@ export interface PlanContextRecord {
 export interface PlanContextPatch {
 	stage?: PlanContextStage;
 	confirmed_by_user?: boolean;
+	primary_kind?: PlanContextPrimaryKind;
+	overlays?: PlanContextOverlay[];
 	goal?: string;
+	non_goals?: string[];
+	happy_path?: string[];
+	expected_outcome?: string;
+	missing_context_behavior?: string;
+	approval_readiness_rules?: string[];
+	state_ownership?: string[];
+	dependencies?: string[];
+	triggers?: string[];
+	invariants?: string[];
 	chosen_pattern?: string;
 	affected_areas?: string[];
 	blast_radius?: string[];
@@ -292,8 +382,42 @@ function uniqueStrings(values: string[]): string[] {
 	];
 }
 
-function uniqueStringsOrEmpty(values?: string[]): string[] {
-	return uniqueStrings(values ?? []);
+function mergeStringListPatch(existing: string[], patch?: string[]): string[] {
+	if (patch === undefined) return existing;
+	return uniqueStrings([...existing, ...patch]);
+}
+
+function normalizePlanContextPrimaryKind(
+	value: unknown,
+): PlanContextPrimaryKind {
+	if (
+		value === "implementation" ||
+		value === "prd" ||
+		value === "refactor" ||
+		value === "interface" ||
+		value === "tdd"
+	) {
+		return value;
+	}
+
+	return "implementation";
+}
+
+function normalizePlanContextOverlays(value: unknown): PlanContextOverlay[] {
+	if (!Array.isArray(value)) return [];
+
+	const overlays = value.filter(
+		(item): item is PlanContextOverlay =>
+			item === "deep-grill" ||
+			item === "interface-review" ||
+			item === "refactor-sequencing" ||
+			item === "tdd" ||
+			item === "user-story-mapping" ||
+			item === "dependency-modeling" ||
+			item === "vertical-slices",
+	);
+
+	return [...new Set(overlays)];
 }
 
 function derivePlanMetadataFallback(
@@ -410,12 +534,129 @@ function normalizePatternExample(
 	};
 }
 
+function getQuestionAnswerMergeKey(item: PlanQuestionAnswer): string {
+	return [
+		item.question.trim().toLowerCase(),
+		(item.header ?? "").trim().toLowerCase(),
+		(item.phase ?? "").trim().toLowerCase(),
+		(item.task ?? "").trim().toLowerCase(),
+	].join("|");
+}
+
+function mergeQuestionAnswers(
+	existing: PlanQuestionAnswer[],
+	incoming: PlanQuestionAnswer[],
+): PlanQuestionAnswer[] {
+	const merged = new Map<string, PlanQuestionAnswer>();
+
+	for (const item of existing) {
+		const normalized = normalizeQuestionAnswer(item);
+		if (!normalized) continue;
+		merged.set(getQuestionAnswerMergeKey(normalized), normalized);
+	}
+
+	for (const item of incoming) {
+		const normalized = normalizeQuestionAnswer(item);
+		if (!normalized) continue;
+
+		const key = getQuestionAnswerMergeKey(normalized);
+		const previous = merged.get(key);
+		if (!previous) {
+			merged.set(key, normalized);
+			continue;
+		}
+
+		merged.set(key, {
+			...previous,
+			id: previous.id,
+			question: normalized.question,
+			header: normalized.header ?? previous.header,
+			answers: uniqueStrings([...previous.answers, ...normalized.answers]),
+			source: normalized.source,
+			phase: normalized.phase ?? previous.phase,
+			task: normalized.task ?? previous.task,
+			confirmed_by_user:
+				previous.confirmed_by_user || normalized.confirmed_by_user,
+			captured_at: previous.captured_at || normalized.captured_at,
+		});
+	}
+
+	return [...merged.values()];
+}
+
+function getPatternExampleMergeKey(item: ConfirmedPatternExample): string {
+	return `${item.name.trim().toLowerCase()}|${item.source_type}`;
+}
+
+function mergePatternExamples(
+	existing: ConfirmedPatternExample[],
+	incoming: ConfirmedPatternExample[],
+): ConfirmedPatternExample[] {
+	const merged = new Map<string, ConfirmedPatternExample>();
+
+	for (const item of existing) {
+		const normalized = normalizePatternExample(item);
+		if (!normalized) continue;
+		merged.set(getPatternExampleMergeKey(normalized), normalized);
+	}
+
+	for (const item of incoming) {
+		const normalized = normalizePatternExample(item);
+		if (!normalized) continue;
+
+		const key = getPatternExampleMergeKey(normalized);
+		const previous = merged.get(key);
+		if (!previous) {
+			merged.set(key, normalized);
+			continue;
+		}
+
+		merged.set(key, {
+			...previous,
+			name: normalized.name,
+			source_type: normalized.source_type,
+			example_files: uniqueStrings([
+				...previous.example_files,
+				...normalized.example_files,
+			]),
+			symbols: uniqueStrings([...previous.symbols, ...normalized.symbols]),
+			why_it_fits: normalized.why_it_fits,
+			constraints: uniqueStrings([
+				...previous.constraints,
+				...normalized.constraints,
+			]),
+			blast_radius: uniqueStrings([
+				...previous.blast_radius,
+				...normalized.blast_radius,
+			]),
+			test_implications: uniqueStrings([
+				...previous.test_implications,
+				...normalized.test_implications,
+			]),
+			code_example: normalized.code_example ?? previous.code_example,
+			confirmed_by_user:
+				previous.confirmed_by_user || normalized.confirmed_by_user,
+		});
+	}
+
+	return [...merged.values()];
+}
+
 function createEmptyPlanContext(planName: string): PlanContextRecord {
 	return {
 		version: 1,
 		plan_name: planName,
 		stage: "draft",
 		confirmed_by_user: false,
+		primary_kind: "implementation",
+		overlays: [],
+		non_goals: [],
+		happy_path: [],
+		approval_readiness_rules: [],
+		state_ownership: [],
+		dependencies: [],
+		triggers: [],
+		invariants: [],
 		affected_areas: [],
 		blast_radius: [],
 		success_criteria: [],
@@ -461,10 +702,47 @@ function normalizePlanContextRecord(
 				? raw.stage
 				: "draft",
 		confirmed_by_user: raw.confirmed_by_user === true,
+		primary_kind: normalizePlanContextPrimaryKind(raw.primary_kind),
+		overlays: normalizePlanContextOverlays(raw.overlays),
 		goal:
 			typeof raw.goal === "string" && raw.goal.trim().length > 0
 				? raw.goal.trim()
 				: undefined,
+		non_goals: uniqueStrings(
+			Array.isArray(raw.non_goals) ? (raw.non_goals as string[]) : [],
+		),
+		happy_path: uniqueStrings(
+			Array.isArray(raw.happy_path) ? (raw.happy_path as string[]) : [],
+		),
+		expected_outcome:
+			typeof raw.expected_outcome === "string" &&
+			raw.expected_outcome.trim().length > 0
+				? raw.expected_outcome.trim()
+				: undefined,
+		missing_context_behavior:
+			typeof raw.missing_context_behavior === "string" &&
+			raw.missing_context_behavior.trim().length > 0
+				? raw.missing_context_behavior.trim()
+				: undefined,
+		approval_readiness_rules: uniqueStrings(
+			Array.isArray(raw.approval_readiness_rules)
+				? (raw.approval_readiness_rules as string[])
+				: [],
+		),
+		state_ownership: uniqueStrings(
+			Array.isArray(raw.state_ownership)
+				? (raw.state_ownership as string[])
+				: [],
+		),
+		dependencies: uniqueStrings(
+			Array.isArray(raw.dependencies) ? (raw.dependencies as string[]) : [],
+		),
+		triggers: uniqueStrings(
+			Array.isArray(raw.triggers) ? (raw.triggers as string[]) : [],
+		),
+		invariants: uniqueStrings(
+			Array.isArray(raw.invariants) ? (raw.invariants as string[]) : [],
+		),
 		chosen_pattern:
 			typeof raw.chosen_pattern === "string" &&
 			raw.chosen_pattern.trim().length > 0
@@ -1535,41 +1813,73 @@ export function createStateManager(
 		return withPlanContextMutation(planName, async () => {
 			const existing =
 				(await readPlanContext(planName)) ?? createEmptyPlanContext(planName);
+			const nextQuestionAnswers =
+				patch.question_answers !== undefined
+					? mergeQuestionAnswers(
+							existing.question_answers,
+							patch.question_answers,
+						)
+					: existing.question_answers;
+			const nextPatternExamples =
+				patch.pattern_examples !== undefined
+					? mergePatternExamples(
+							existing.pattern_examples,
+							patch.pattern_examples,
+						)
+					: existing.pattern_examples;
 			const next: PlanContextRecord = {
 				...existing,
 				plan_name: planName,
 				stage: patch.stage ?? existing.stage,
 				confirmed_by_user:
 					patch.confirmed_by_user ?? existing.confirmed_by_user,
+				primary_kind: patch.primary_kind ?? existing.primary_kind,
+				overlays:
+					patch.overlays !== undefined
+						? [...new Set([...existing.overlays, ...patch.overlays])]
+						: existing.overlays,
 				goal: patch.goal ?? existing.goal,
+				non_goals: mergeStringListPatch(existing.non_goals, patch.non_goals),
+				happy_path: mergeStringListPatch(existing.happy_path, patch.happy_path),
+				expected_outcome: patch.expected_outcome ?? existing.expected_outcome,
+				missing_context_behavior:
+					patch.missing_context_behavior ?? existing.missing_context_behavior,
+				approval_readiness_rules: mergeStringListPatch(
+					existing.approval_readiness_rules,
+					patch.approval_readiness_rules,
+				),
+				state_ownership: mergeStringListPatch(
+					existing.state_ownership,
+					patch.state_ownership,
+				),
+				dependencies: mergeStringListPatch(
+					existing.dependencies,
+					patch.dependencies,
+				),
+				triggers: mergeStringListPatch(existing.triggers, patch.triggers),
+				invariants: mergeStringListPatch(existing.invariants, patch.invariants),
 				chosen_pattern: patch.chosen_pattern ?? existing.chosen_pattern,
-				affected_areas:
-					patch.affected_areas !== undefined
-						? uniqueStringsOrEmpty(patch.affected_areas)
-						: existing.affected_areas,
-				blast_radius:
-					patch.blast_radius !== undefined
-						? uniqueStringsOrEmpty(patch.blast_radius)
-						: existing.blast_radius,
-				success_criteria:
-					patch.success_criteria !== undefined
-						? uniqueStringsOrEmpty(patch.success_criteria)
-						: existing.success_criteria,
-				failure_criteria:
-					patch.failure_criteria !== undefined
-						? uniqueStringsOrEmpty(patch.failure_criteria)
-						: existing.failure_criteria,
-				test_plan:
-					patch.test_plan !== undefined
-						? uniqueStringsOrEmpty(patch.test_plan)
-						: existing.test_plan,
-				open_risks:
-					patch.open_risks !== undefined
-						? uniqueStringsOrEmpty(patch.open_risks)
-						: existing.open_risks,
+				affected_areas: mergeStringListPatch(
+					existing.affected_areas,
+					patch.affected_areas,
+				),
+				blast_radius: mergeStringListPatch(
+					existing.blast_radius,
+					patch.blast_radius,
+				),
+				success_criteria: mergeStringListPatch(
+					existing.success_criteria,
+					patch.success_criteria,
+				),
+				failure_criteria: mergeStringListPatch(
+					existing.failure_criteria,
+					patch.failure_criteria,
+				),
+				test_plan: mergeStringListPatch(existing.test_plan, patch.test_plan),
+				open_risks: mergeStringListPatch(existing.open_risks, patch.open_risks),
 				oracle_summary: patch.oracle_summary ?? existing.oracle_summary,
-				question_answers: patch.question_answers ?? existing.question_answers,
-				pattern_examples: patch.pattern_examples ?? existing.pattern_examples,
+				question_answers: nextQuestionAnswers,
+				pattern_examples: nextPatternExamples,
 				updated_at: nowIso(),
 			};
 
