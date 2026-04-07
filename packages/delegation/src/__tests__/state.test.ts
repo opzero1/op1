@@ -105,6 +105,39 @@ describe("task state manager", () => {
 		expect(persisted?.authoritative_context).toContain("Target files");
 	});
 
+	test("persists frontend reroute routing telemetry", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "frontend-reroute-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-1",
+			description: "Polish settings page",
+			agent: "frontend",
+			prompt: "Polish the settings page accessibility states.",
+			routing: {
+				detected_category: "visual",
+				chosen_agent: "frontend",
+				confidence: 0.9,
+				fallback_path: "frontend-reroute",
+			},
+			run_in_background: true,
+		});
+
+		const persisted = await createTaskStateManager(env.workspaceDir).getTask(
+			"frontend-reroute-task",
+		);
+
+		expect(persisted?.routing).toMatchObject({
+			detected_category: "visual",
+			chosen_agent: "frontend",
+			fallback_path: "frontend-reroute",
+		});
+	});
+
 	test("restarts a completed task on the same session", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);

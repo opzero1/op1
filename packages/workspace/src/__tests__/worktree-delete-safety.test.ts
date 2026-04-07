@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { lstat } from "node:fs/promises";
 import { join, mkdir, mkdtemp, rm, stat, tmpdir } from "../bun-compat";
 import { runCommand } from "../utils";
 import { createWorktreeTools } from "../worktree/tools";
@@ -159,5 +160,29 @@ describe("worktree delete safety", () => {
 		);
 
 		expect(result).toContain("Cannot create a nested worktree");
+	});
+
+	test("does not symlink root dependencies into new worktrees", async () => {
+		const { repo } = await createRepositoryFixture();
+		await mkdir(join(repo, "node_modules"), { recursive: true });
+		await mkdir(join(repo, ".bun"), { recursive: true });
+
+		const tools = createWorktreeTools(repo, "worktree-delete-safety");
+		const result = await tools.worktree_create.execute(
+			{ branch: "feature/local-deps", open_terminal: false },
+			{ sessionID: "child-session" } as never,
+		);
+
+		expect(result).toContain("Dependencies stay local to the worktree");
+		const worktreePath = join(
+			repo,
+			"..",
+			"repo-worktrees",
+			"feature-local-deps",
+		);
+		await expect(
+			lstat(join(worktreePath, "node_modules")),
+		).rejects.toBeTruthy();
+		await expect(lstat(join(worktreePath, ".bun"))).rejects.toBeTruthy();
 	});
 });

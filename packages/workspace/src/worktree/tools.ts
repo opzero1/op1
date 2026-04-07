@@ -6,6 +6,7 @@
  */
 
 import { type ToolDefinition, tool } from "@opencode-ai/plugin";
+import { lstat } from "node:fs/promises";
 import {
 	basename,
 	copyFile,
@@ -14,7 +15,6 @@ import {
 	relative,
 	resolve,
 	stat,
-	symlink,
 } from "../bun-compat.js";
 
 import { runCommand } from "../utils.js";
@@ -29,8 +29,6 @@ import { spawnTerminal, type TerminalKind } from "./terminal.js";
 interface WorktreeConfig {
 	/** Files/dirs to copy into new worktrees */
 	copy: string[];
-	/** Files/dirs to symlink from main into worktrees */
-	symlinks: string[];
 	/** Base directory for worktrees (default: ../{project}-worktrees) */
 	baseDir?: string;
 }
@@ -49,7 +47,6 @@ interface WorktreeToolOptions {
 
 const DEFAULT_CONFIG: WorktreeConfig = {
 	copy: [".env", ".env.local"],
-	symlinks: ["node_modules", ".bun"],
 };
 
 // ──────────────────────────────────────────────
@@ -78,26 +75,40 @@ async function copyFiles(
 	return copied;
 }
 
-async function createSymlinks(
-	from: string,
-	to: string,
-	targets: string[],
-): Promise<string[]> {
-	const linked: string[] = [];
-	for (const target of targets) {
-		try {
-			const src = join(from, target);
-			const dest = join(to, target);
-			const srcStat = await stat(src).catch(() => null);
-			if (srcStat) {
-				await symlink(src, dest).catch(() => {});
-				linked.push(target);
-			}
-		} catch {
-			// Skip targets that don't exist
+async function buildUnsafeDependencyBootstrapMessage(
+	worktreePath: string,
+): Promise<string> {
+	const nodeModulesPath = join(worktreePath, "node_modules");
+	return [
+		`❌ Worktree dependency bootstrap failed at ${nodeModulesPath}.`,
+		"Cause: node_modules must be a real directory inside the worktree, not a shared symlink or non-directory entry.",
+		"To fix:",
+		`1. rm -rf ${nodeModulesPath}`,
+		`2. From ${worktreePath}, run the repo's dependency install command using the repo's package manager/tooling.`,
+		"3. Re-run your task.",
+	].join("\n");
+}
+
+async function getUnsafeDependencyBootstrapMessage(
+	worktreePath: string,
+): Promise<string | undefined> {
+	const nodeModulesPath = join(worktreePath, "node_modules");
+	try {
+		const info = await lstat(nodeModulesPath);
+		if (info.isSymbolicLink() || !info.isDirectory()) {
+			return buildUnsafeDependencyBootstrapMessage(worktreePath);
+		}
+	} catch (error) {
+		const code =
+			error instanceof Error && "code" in error
+				? (error as { code?: string }).code
+				: undefined;
+		if (code !== "ENOENT") {
+			return buildUnsafeDependencyBootstrapMessage(worktreePath);
 		}
 	}
-	return linked;
+
+	return undefined;
 }
 
 function parseWorktreeList(output: string): Array<{
@@ -257,17 +268,21 @@ export function createWorktreeTools(
 						"git worktree add",
 					);
 
-					// Copy env files and symlink node_modules
+					// Copy env files; dependencies must stay local to the worktree.
 					const copied = await copyFiles(
 						directory,
 						worktreePath,
 						DEFAULT_CONFIG.copy,
 					);
-					const linked = await createSymlinks(
-						directory,
-						worktreePath,
-						DEFAULT_CONFIG.symlinks,
-					);
+					const unsafeBootstrap =
+						await getUnsafeDependencyBootstrapMessage(worktreePath);
+					if (unsafeBootstrap) {
+						await runCommand(
+							["git", "worktree", "remove", "--force", worktreePath],
+							directory,
+						).catch(() => undefined);
+						return unsafeBootstrap;
+					}
 
 					// Track in database
 					try {
@@ -316,8 +331,9 @@ export function createWorktreeTools(
 					];
 					if (copied.length > 0)
 						details.push(`📋 Copied: ${copied.join(", ")}`);
-					if (linked.length > 0)
-						details.push(`🔗 Symlinked: ${linked.join(", ")}`);
+					details.push(
+						"📦 Dependencies stay local to the worktree. Run the repo's dependency install command inside the worktree if this task needs project dependencies.",
+					);
 					if (terminalInfo) details.push(terminalInfo);
 
 					return details.join("\n");

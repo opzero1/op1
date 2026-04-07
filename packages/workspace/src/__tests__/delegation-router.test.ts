@@ -82,6 +82,18 @@ describe("delegation router", () => {
 		expect(result.telemetry.confidence).toBeGreaterThan(0.6);
 	});
 
+	test("keeps read-only discovery prompts on the research path", () => {
+		const result = resolveDelegationRouting({
+			description: "Inspect orchestration seams",
+			prompt:
+				"Find delegation entrypoints, search merge handling, and read the current orchestration docs.",
+			autoRoute: true,
+		});
+
+		expect(result.agent).toBe("researcher");
+		expect(result.telemetry.detected_category).toBe("research");
+	});
+
 	test("routes realistic frontend ownership prompts to the frontend agent", () => {
 		for (const prompt of [
 			{

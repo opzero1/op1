@@ -1264,8 +1264,8 @@ describe("delegation plugin", () => {
 		});
 
 		const updated = await state.getTask(taskID);
-		expect(updated?.status).toBe("blocked");
-		expect(updated?.execution?.merge_status).toBe("dirty_root");
+		expect(updated?.status).toBe("succeeded");
+		expect(updated?.execution?.merge_status).toBe("deferred");
 		expect(updated?.assignment?.retry?.reason).toBe("dirty_root");
 		expect(updated?.assignment?.retry?.state).toBe("blocked");
 	});

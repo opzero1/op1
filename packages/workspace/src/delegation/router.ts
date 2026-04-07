@@ -85,6 +85,44 @@ const FRONTEND_REFINEMENT_KEYWORDS = [
 	"tailwind",
 ] as const;
 
+const READ_ONLY_INTENT_KEYWORDS = [
+	"analyze",
+	"audit",
+	"compare",
+	"docs",
+	"documentation",
+	"entrypoint",
+	"entrypoints",
+	"find",
+	"inspect",
+	"investigate",
+	"lookup",
+	"pattern lookup",
+	"pattern-lookup",
+	"read",
+	"research",
+	"search",
+	"trace",
+] as const;
+
+const EDIT_INTENT_KEYWORDS = [
+	"add",
+	"change",
+	"create",
+	"delete",
+	"edit",
+	"fix",
+	"implement",
+	"modify",
+	"patch",
+	"refactor",
+	"remove",
+	"rename",
+	"ship",
+	"update",
+	"write",
+] as const;
+
 const CATEGORY_AGENT_DEFAULTS: Record<DelegationCategory, string> = {
 	quick: "coder",
 	deep: "oracle",
@@ -134,7 +172,20 @@ const CATEGORY_KEYWORDS: Array<{
 	},
 	{
 		category: "research",
-		keywords: ["research", "docs", "investigate", "analyze", "compare"],
+		keywords: [
+			"research",
+			"docs",
+			"investigate",
+			"analyze",
+			"compare",
+			"find",
+			"search",
+			"lookup",
+			"pattern lookup",
+			"pattern-lookup",
+			"entrypoint",
+			"entrypoints",
+		],
 	},
 	{
 		category: "review",
@@ -175,7 +226,21 @@ function scoreCategory(text: string, keywords: string[]): number {
 	return score;
 }
 
+export function looksReadOnlyDelegationIntent(inputText: string): boolean {
+	const text = normalizeText(inputText);
+	if (!text) return false;
+
+	return (
+		scoreCategory(text, [...READ_ONLY_INTENT_KEYWORDS]) > 0 &&
+		scoreCategory(text, [...EDIT_INTENT_KEYWORDS]) === 0
+	);
+}
+
 function isFrontendOwnedTask(text: string): boolean {
+	if (looksReadOnlyDelegationIntent(text)) {
+		return false;
+	}
+
 	if (scoreCategory(text, [...FRONTEND_OWNERSHIP_KEYWORDS]) > 0) {
 		return true;
 	}
@@ -227,6 +292,20 @@ export function classifyDelegationCategory(
 			category: "general",
 			confidence: 0.45,
 			fallbackPath: "keyword-fallback",
+		};
+	}
+
+	if (looksReadOnlyDelegationIntent(text)) {
+		const reviewScore = scoreCategory(text, [
+			"audit",
+			"performance",
+			"review",
+			"security",
+		]);
+		return {
+			category: reviewScore > 0 ? "review" : "research",
+			confidence: 0.86,
+			fallbackPath: "none",
 		};
 	}
 

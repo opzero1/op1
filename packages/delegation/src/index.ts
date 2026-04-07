@@ -1,4 +1,4 @@
-import { copyFile, stat, symlink } from "node:fs/promises";
+import { copyFile, lstat, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { summarizeAgentStatus } from "./agent-status.js";
@@ -14,6 +14,7 @@ import {
 import {
 	type DelegationCategory,
 	type DelegationRoutingTelemetry,
+	looksReadOnlyDelegationIntent,
 	parseDelegationCategory,
 	resolveDelegationRouting,
 } from "./router.js";
@@ -462,12 +463,62 @@ async function copyIfExists(
 	await copyFile(source, destination).catch(() => undefined);
 }
 
-async function symlinkIfExists(
-	source: string,
-	destination: string,
-): Promise<void> {
-	if (!(await pathExists(source))) return;
-	await symlink(source, destination).catch(() => undefined);
+async function buildUnsafeDependencyBootstrapMessage(
+	worktreePath: string,
+): Promise<string> {
+	const nodeModulesPath = join(worktreePath, "node_modules");
+	return [
+		`Unsafe worktree dependency bootstrap detected at ${nodeModulesPath}.`,
+		"Cause: node_modules must be a real directory inside the worktree, not a shared symlink or non-directory entry.",
+		"To fix:",
+		`1. rm -rf ${nodeModulesPath}`,
+		`2. From ${worktreePath}, run the repo's dependency install command using the repo's package manager/tooling.`,
+		"3. Re-run the task.",
+	].join("\n");
+}
+
+async function getUnsafeDependencyBootstrapMessage(
+	worktreePath: string,
+): Promise<string | undefined> {
+	const nodeModulesPath = join(worktreePath, "node_modules");
+	try {
+		const info = await lstat(nodeModulesPath);
+		if (info.isSymbolicLink() || !info.isDirectory()) {
+			return buildUnsafeDependencyBootstrapMessage(worktreePath);
+		}
+	} catch (error) {
+		const code =
+			error instanceof Error && "code" in error
+				? (error as { code?: string }).code
+				: undefined;
+		if (code !== "ENOENT") {
+			return buildUnsafeDependencyBootstrapMessage(worktreePath);
+		}
+	}
+
+	return undefined;
+}
+
+function shouldUseDirectExecution(input: {
+	agent: string;
+	category?: DelegationCategory;
+	description?: string;
+	prompt?: string;
+	command?: string;
+}): boolean {
+	if (!isWorktreeEligibleAgent(input.agent)) {
+		return true;
+	}
+
+	if (input.category === "research" || input.category === "review") {
+		return true;
+	}
+
+	return looksReadOnlyDelegationIntent(
+		[input.description ?? "", input.prompt ?? "", input.command ?? ""].join(
+			"\n",
+		),
+	);
 }
 
 async function prepareTaskExecution(
@@ -475,11 +526,15 @@ async function prepareTaskExecution(
 	input: {
 		taskID: string;
 		agent: string;
+		category?: DelegationCategory;
+		description?: string;
+		prompt?: string;
+		command?: string;
 		existing?: TaskExecutionRecord;
 	},
 	logger: ReturnType<typeof createLogger>,
 ): Promise<TaskExecutionRecord> {
-	if (!isWorktreeEligibleAgent(input.agent)) {
+	if (shouldUseDirectExecution(input)) {
 		return {
 			mode: "direct",
 			merge_status: "bypassed",
@@ -492,6 +547,13 @@ async function prepareTaskExecution(
 		input.existing.worktree_path &&
 		(await pathExists(input.existing.worktree_path))
 	) {
+		const unsafeExisting = await getUnsafeDependencyBootstrapMessage(
+			input.existing.worktree_path,
+		);
+		if (unsafeExisting) {
+			throw new Error(unsafeExisting);
+		}
+
 		return {
 			...input.existing,
 			effective_root_path:
@@ -575,12 +637,13 @@ async function prepareTaskExecution(
 				join(repoRoot, ".env.local"),
 				join(worktreePath, ".env.local"),
 			),
-			symlinkIfExists(
-				join(repoRoot, "node_modules"),
-				join(worktreePath, "node_modules"),
-			),
-			symlinkIfExists(join(repoRoot, ".bun"), join(worktreePath, ".bun")),
 		]);
+	}
+
+	const unsafeBootstrap =
+		await getUnsafeDependencyBootstrapMessage(worktreePath);
+	if (unsafeBootstrap) {
+		throw new Error(unsafeBootstrap);
 	}
 
 	return {
@@ -1014,7 +1077,7 @@ async function maybeBlockStaleTinyFrontendTask(
 
 interface VerificationSelection {
 	command?: string;
-	strategy: "targeted" | "fallback";
+	strategy: "targeted" | "fallback" | "not_required";
 	candidateCommands: string[];
 	fallbackCommand?: string;
 	reason: string;
@@ -1087,18 +1150,31 @@ async function listChangedFilesAgainstBase(
 		return [];
 	}
 
-	const [committedDiff, workingDiff, stagedDiff] = await Promise.all([
-		runGitCommand(
-			["diff", "--name-only", `${execution.base_branch}...HEAD`],
-			execution.worktree_path,
-		),
-		runGitCommand(["diff", "--name-only"], execution.worktree_path),
-		runGitCommand(["diff", "--cached", "--name-only"], execution.worktree_path),
-	]);
+	const [committedDiff, workingDiff, stagedDiff, untrackedDiff] =
+		await Promise.all([
+			runGitCommand(
+				["diff", "--name-only", `${execution.base_branch}...HEAD`],
+				execution.worktree_path,
+			),
+			runGitCommand(["diff", "--name-only"], execution.worktree_path),
+			runGitCommand(
+				["diff", "--cached", "--name-only"],
+				execution.worktree_path,
+			),
+			runGitCommand(
+				["ls-files", "--others", "--exclude-standard"],
+				execution.worktree_path,
+			),
+		]);
 
 	return [
 		...new Set(
-			[committedDiff.stdout, workingDiff.stdout, stagedDiff.stdout]
+			[
+				committedDiff.stdout,
+				workingDiff.stdout,
+				stagedDiff.stdout,
+				untrackedDiff.stdout,
+			]
 				.join("\n")
 				.split("\n")
 				.map((line) => line.trim())
@@ -1159,17 +1235,27 @@ async function selectVerificationCommand(
 		execution?.verification_command ||
 		(await detectDefaultVerificationCommand(primaryDirectory));
 
-	if (!execution || !isManagerOwnedCAIDTask(task)) {
+	if (!execution || execution.mode !== "worktree") {
 		return {
 			command: defaultCommand,
 			strategy: "fallback",
 			candidateCommands: defaultCommand ? [defaultCommand] : [],
 			fallbackCommand: defaultCommand,
-			reason: "Task is not in the manager-owned CAID workflow.",
+			reason: "Task is not running in a worktree.",
 		};
 	}
 
 	const changedFiles = await listChangedFilesAgainstBase(execution);
+	if (changedFiles.length === 0) {
+		return {
+			command: undefined,
+			strategy: "not_required",
+			candidateCommands: [],
+			fallbackCommand: defaultCommand,
+			reason: "No worktree edits were produced.",
+		};
+	}
+
 	const targeted = selectTargetedVerificationCommand(changedFiles);
 	if (targeted?.command) {
 		return {
@@ -1178,6 +1264,17 @@ async function selectVerificationCommand(
 			candidateCommands: targeted.candidateCommands,
 			fallbackCommand: defaultCommand,
 			reason: targeted.reason,
+		};
+	}
+
+	if (!isManagerOwnedCAIDTask(task)) {
+		return {
+			command: defaultCommand,
+			strategy: "fallback",
+			candidateCommands: defaultCommand ? [defaultCommand] : [],
+			fallbackCommand: defaultCommand,
+			reason:
+				"Changed files were detected, but this task is outside the manager-owned CAID workflow so fallback verification remains in use.",
 		};
 	}
 
@@ -1367,6 +1464,28 @@ async function integrateWorktreeTask(
 			})
 		: task.assignment;
 
+	if (verificationSelection.strategy === "not_required") {
+		const nextExecution: TaskExecutionRecord = {
+			...execution,
+			merge_status: "bypassed",
+			verification_status: "not_required",
+			verification_strategy: "not_required",
+			verification_candidates: [],
+			verification_command: undefined,
+			verification_summary: verificationSelection.reason,
+		};
+		await state.updateTask(task.id, {
+			execution: nextExecution,
+			assignment: nextVerificationAssignment,
+		});
+		return state.transitionTask(task.id, "succeeded", {
+			result: appendResultNote(
+				resultText,
+				"No worktree edits were produced; verification and merge were skipped.",
+			),
+		});
+	}
+
 	if (!verificationCommand) {
 		const nextExecution: TaskExecutionRecord = {
 			...execution,
@@ -1469,7 +1588,7 @@ async function integrateWorktreeTask(
 	if (await hasUncommittedChanges(repoRoot)) {
 		const nextExecution: TaskExecutionRecord = {
 			...execution,
-			merge_status: "dirty_root",
+			merge_status: "deferred",
 			verification_status: "passed",
 			verification_strategy: verificationSelection.strategy,
 			verification_candidates: verificationSelection.candidateCommands,
@@ -1496,12 +1615,11 @@ async function integrateWorktreeTask(
 					})
 				: nextVerificationAssignment,
 		});
-		return state.transitionTask(task.id, "blocked", {
+		return state.transitionTask(task.id, "succeeded", {
 			result: appendResultNote(
 				resultText,
-				"Merge retry required: repository root has uncommitted changes. Clean the root before retrying this task.",
+				"Verification passed, but merge was deferred because the repository root has uncommitted changes. Clean the root and continue the task to retry the merge.",
 			),
-			error: "Repository root has uncommitted changes.",
 		});
 	}
 
@@ -2545,16 +2663,26 @@ export const DelegationPlugin: Plugin = async (ctx: {
 								});
 							}
 
-							const execution = withInitialRootFollowThrough(
-								await prepareTaskExecution(
+							let preparedExecution: TaskExecutionRecord;
+							try {
+								preparedExecution = await prepareTaskExecution(
 									ctx.directory,
 									{
 										taskID: existing.id,
 										agent,
+										category,
+										description,
+										prompt,
+										command: args.command?.trim(),
 										existing: existing.execution,
 									},
 									logger,
-								),
+								);
+							} catch (error) {
+								return `❌ ${error instanceof Error ? error.message : String(error)}`;
+							}
+							const execution = withInitialRootFollowThrough(
+								preparedExecution,
 								runInBackground,
 							);
 							childSessionID = await createChildSessionForTask(
@@ -2588,12 +2716,25 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						}
 					} else {
 						const taskID = requestedTaskID || (await generateTaskID(state));
-						const execution = withInitialRootFollowThrough(
-							await prepareTaskExecution(
+						let preparedExecution: TaskExecutionRecord;
+						try {
+							preparedExecution = await prepareTaskExecution(
 								ctx.directory,
-								{ taskID, agent },
+								{
+									taskID,
+									agent,
+									category,
+									description,
+									prompt,
+									command: args.command?.trim(),
+								},
 								logger,
-							),
+							);
+						} catch (error) {
+							return `❌ ${error instanceof Error ? error.message : String(error)}`;
+						}
+						const execution = withInitialRootFollowThrough(
+							preparedExecution,
 							runInBackground,
 						);
 						childSessionID = await createChildSessionForTask(

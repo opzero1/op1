@@ -21,6 +21,7 @@ export type TaskStatus =
 export type TaskMergeStatus =
 	| "pending"
 	| "verified"
+	| "deferred"
 	| "merged"
 	| "conflicted"
 	| "dirty_root"
@@ -33,7 +34,7 @@ export type TaskVerificationStatus =
 	| "failed"
 	| "not_required";
 
-export type TaskVerificationStrategy = "targeted" | "fallback";
+export type TaskVerificationStrategy = "targeted" | "fallback" | "not_required";
 export type TaskRootFollowThroughStatus = "pending" | "delivered" | "waived";
 
 export type TaskAssignmentOwner = "manager";
@@ -329,6 +330,7 @@ function parseTaskVerificationStrategy(
 ): TaskVerificationStrategy | undefined {
 	if (value === "targeted") return "targeted";
 	if (value === "fallback") return "fallback";
+	if (value === "not_required") return "not_required";
 	return undefined;
 }
 
@@ -489,6 +491,7 @@ function parseRoutingFallbackPath(
 ): DelegationRoutingTelemetry["fallback_path"] | null {
 	if (value === "none") return "none";
 	if (value === "category-default") return "category-default";
+	if (value === "frontend-reroute") return "frontend-reroute";
 	if (value === "user-subagent") return "user-subagent";
 	if (value === "keyword-fallback") return "keyword-fallback";
 	return null;
