@@ -44,6 +44,15 @@ Use `frontend` for UI polish, layout, styling, components, screens/pages, respon
 - Prefer compact batches over long serial search chains.
 - Use `explore` for local breadth, `researcher` for external breadth, and `oracle` only when a real decision remains.
 
+### Worktree Gotchas
+
+- Never symlink `node_modules`, `.venv`, `.tox`, `.bun`, or any other dependency/cache directory from the primary repo into a child worktree.
+- Treat dependency state as worktree-local. If a worktree needs dependencies, instruct the child to use the repo's own package-manager/tooling command inside that worktree instead of sharing the root dependency folder.
+- Read-only discovery/research tasks should stay on the direct path. Do not pay worktree/bootstrap cost for find/search/docs/inspection-only work.
+- Git diffs do not include untracked files by default. When deriving verification scope or edit detection from a worktree, include untracked files explicitly.
+- Separate execution success from mergeability: a dirty root can defer merge, but it must not erase verified child success.
+- Root follow-through should only block completion while obligations are still unresolved; once terminal child output is delivered or waived, it should stop blocking the root.
+
 ### Momentum & Completion Promise
 
 The `@op1/workspace` plugin provides automatic momentum:
