@@ -11,6 +11,7 @@ Async task orchestration plugin for OpenCode.
 - persistent task records with citation-friendly ids (`ref:word-word-word`)
 - plugin-side metadata restoration so completed `task` tool parts stay clickable in OpenCode
 - `agent_status` and `task_graph_status` read models
+- `@op1/delegation/tui` for an embedded read-only delegation browser inside the OpenCode TUI (route + command entrypoints)
 
 ## Installation
 
@@ -58,6 +59,8 @@ opencode debug config | jq '.plugin'
 ```
 
 Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace` and `@op1/delegation`, then smoke-test with `opencode run`.
+
+If your OpenCode build supports TUI plugins, the same installed package can also expose a read-only delegation browser through the TUI route and command palette. When launched from a session route, the browser scopes to that session context and closes back to the launching session.
 
 For a frontend-routing smoke test under the linked local setup, launch a routed task and confirm the returned task metadata shows `Agent: frontend`:
 

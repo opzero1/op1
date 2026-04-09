@@ -1,6 +1,6 @@
 {
 	"name": "@op1/delegation",
-	"version": "0.5.4",
+	"version": "0.5.5",
 	"description": "Async task delegation plugin for OpenCode with background output, cancellation, and citation-friendly task records",
 	"type": "module",
 	"main": "dist/delegation.js",
@@ -9,10 +9,14 @@
 		".": {
 			"import": "./dist/delegation.js",
 			"types": "./dist/index.d.ts"
+		},
+		"./tui": {
+			"import": "./dist/tui.js",
+			"types": "./dist/tui/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/delegation.js --target bun --format esm --external @opencode-ai/plugin",
+		"build": "bun build src/index.ts --outfile dist/delegation.js --target bun --format esm --external @opencode-ai/plugin && bun build src/tui/index.ts --outfile dist/tui.js --target bun --format esm --external @opencode-ai/plugin && tsc --emitDeclarationOnly --declaration --declarationMap false --outDir dist",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun run build --watch"
 	},

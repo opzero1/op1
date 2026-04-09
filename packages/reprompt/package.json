@@ -1,6 +1,6 @@
 {
 	"name": "@op1/reprompt",
-	"version": "0.5.1",
+	"version": "0.5.2",
 	"description": "Optional reprompt plugin for incoming prompt compilation, bounded evidence packing, and safe retry orchestration",
 	"type": "module",
 	"main": "dist/reprompt.js",
@@ -32,7 +32,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/op1/op1.git",
+		"url": "git+https://github.com/op1/op1.git",
 		"directory": "packages/reprompt"
 	},
 	"license": "MIT",

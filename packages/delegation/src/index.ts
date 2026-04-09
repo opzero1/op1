@@ -3186,3 +3186,4 @@ export type {
 	TaskGraphNode,
 	TaskGraphSnapshot,
 } from "./task-graph.js";
+export { buildTaskGraph } from "./task-graph.js";

@@ -224,6 +224,10 @@ function isFullyRequiredCategory(category: McpCategory): boolean {
 	);
 }
 
+function getWarmplaneDownstreamMcps<T extends { id: string }>(mcps: T[]): T[] {
+	return isMcp0Selected(mcps) ? filterFacadeMcps(mcps) : [];
+}
+
 function toMcpPointerDefinition(input: {
 	mcp: McpDefinition;
 	category: McpCategory;
@@ -1792,10 +1796,18 @@ export async function main(mainOptions: MainOptions = {}) {
 				),
 			);
 		}
+		if (optionalCategories.some((category) => category.id === "mcp0")) {
+			p.log.info(
+				pc.dim(
+					"If you enable mcp0 (Warmplane), every other MCP you choose here is written as a downstream server in ~/.config/opencode/mcp0/mcp_servers.json and accessed through the compact mcp0_* facade.",
+				),
+			);
+		}
 		p.log.info(pc.dim("Use ↑↓ to navigate, space to toggle, enter to confirm"));
 
 		const selectedCategories = await p.multiselect({
-			message: "Enable additional MCP categories?",
+			message:
+				"Select MCP categories to install (mcp0 routes the other picks through Warmplane)",
 			options: optionalCategories.map((cat) => ({
 				value: cat.id,
 				label: cat.name,
@@ -1835,6 +1847,15 @@ export async function main(mainOptions: MainOptions = {}) {
 			}
 			p.log.success(
 				`Added ${category.name}: ${category.mcps.map((m) => m.name).join(", ")}`,
+			);
+		}
+
+		const warmplaneDownstreamMcps = getWarmplaneDownstreamMcps(selectedMcps);
+		if (warmplaneDownstreamMcps.length > 0) {
+			p.log.info(
+				pc.dim(
+					`Warmplane downstream MCPs: ${warmplaneDownstreamMcps.map((mcp) => mcp.name).join(", ")}.`,
+				),
 			);
 		}
 	}
@@ -2249,6 +2270,12 @@ export async function main(mainOptions: MainOptions = {}) {
 		summaryLines.push(
 			`${pc.green("✓")} Warmplane ${dryRun ? "would scaffold" : "scaffolded"} strict mcp0-only config at ${pc.dim("~/.config/opencode/mcp0/mcp_servers.json")}`,
 		);
+		const warmplaneDownstreamNames = Object.keys(warmplaneConfig.mcpServers);
+		if (warmplaneDownstreamNames.length > 0) {
+			summaryLines.push(
+				`${pc.green("✓")} Warmplane downstream MCPs ${configVerb}: ${warmplaneDownstreamNames.map((name) => pc.cyan(name)).join(", ")}`,
+			);
+		}
 	}
 	if (warmplaneBinaryResult) {
 		const actionText =
@@ -2371,6 +2398,7 @@ export {
 	filterFacadeMcps,
 	mergeConfig,
 	mergeWorkspaceConfig,
+	getWarmplaneDownstreamMcps,
 	MCP_CATEGORIES,
 	resolveDefaultPluginChoices,
 	getRequiredMcpDefinitions,

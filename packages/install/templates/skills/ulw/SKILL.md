@@ -26,7 +26,7 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE TO SATISFY THEIR REQUEST.
 | Code Implementation | `coder` | Atomic coding tasks |
 | Code Review | `reviewer` | Before completion |
 
-Use `frontend` for UI polish, layout, styling, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work. Use `coder` for FE-adjacent logic or data wiring when the task is not frontend-owned. If a request explicitly names the wrong subagent for clearly frontend-owned implementation work, reroute to `frontend` instead of executing directly in `build`/`coder`.
+Use `frontend` for UI polish and clearly visual/UI ownership: layout, styling, responsive or accessibility polish, visually owned components/screens/pages, and design-system/shadcn work. Use `coder` for FE-adjacent logic, data wiring, validation, state, API integration, and non-visual implementation even when the code lives in React/components/pages. If a request explicitly names the wrong subagent for clearly frontend-owned implementation work, reroute to `frontend` instead of executing directly in `build`/`coder`.
 
 ---
 

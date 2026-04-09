@@ -29,8 +29,8 @@ import {
 import {
 	applyCompletionJoinGuard,
 	buildJoinGuardReminder,
-	createCompletionPromiseHook,
 	type CompletionJoinBlockerSnapshot,
+	createCompletionPromiseHook,
 } from "./hooks/completion-promise.js";
 import {
 	createContextScoutHook,

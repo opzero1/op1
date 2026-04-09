@@ -136,6 +136,23 @@ describe("delegation router", () => {
 		expect(result.telemetry.detected_category).not.toBe("visual");
 	});
 
+	test("keeps UI-surface logic fixes routed to coder when visual ownership is not primary", () => {
+		for (const prompt of [
+			"Fix the React form submission flow by updating validation, mutation handling, and state transitions without changing layout or styling.",
+			"Fix the React form validation without changing any layout or styling.",
+			"Fix the React form validation with no layout or styling changes.",
+		]) {
+			const result = resolveDelegationRouting({
+				description: "React form state fix",
+				prompt,
+				autoRoute: true,
+			});
+
+			expect(result.agent).toBe("coder");
+			expect(result.telemetry.detected_category).toBe("build");
+		}
+	});
+
 	test("falls back to general category when prompt is ambiguous", () => {
 		const classification = classifyDelegationCategory("run thing");
 		expect(classification.category).toBe("general");

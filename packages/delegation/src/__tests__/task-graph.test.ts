@@ -20,6 +20,40 @@ function createTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
 }
 
 describe("task graph", () => {
+	test("populates description from the underlying task record", () => {
+		const graph = buildTaskGraph([
+			createTask({ description: "Fix login page" }),
+		]);
+
+		expect(graph.nodes).toHaveLength(1);
+		const firstNode = graph.nodes[0];
+		expect(firstNode).toBeDefined();
+		expect(firstNode?.description).toBe("Fix login page");
+	});
+
+	test("preserves description through the graph for multiple nodes", () => {
+		const graph = buildTaskGraph([
+			createTask({
+				id: "task-a",
+				description: "Alpha task",
+				created_at: "2026-04-02T00:00:00.000Z",
+			}),
+			createTask({
+				id: "task-b",
+				description: "Beta task",
+				created_at: "2026-04-02T00:01:00.000Z",
+			}),
+		]);
+
+		expect(graph.nodes).toHaveLength(2);
+		const alphaNode = graph.nodes[0];
+		const betaNode = graph.nodes[1];
+		expect(alphaNode).toBeDefined();
+		expect(betaNode).toBeDefined();
+		expect(alphaNode?.description).toBe("Alpha task");
+		expect(betaNode?.description).toBe("Beta task");
+	});
+
 	test("includes execution metadata for worktree-backed tasks", () => {
 		const graph = buildTaskGraph([
 			createTask({
@@ -62,6 +96,7 @@ describe("task graph", () => {
 		]);
 
 		expect(graph.nodes[0]).toMatchObject({
+			description: "Implement helper",
 			manager_owned: true,
 			workflow: "caid",
 			execution_mode: "worktree",

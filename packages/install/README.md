@@ -236,7 +236,7 @@ If you prefer manual setup:
 
 ```bash
 # Clone the repo
-git clone https://github.com/anthropics/op1.git
+git clone https://github.com/op1/op1.git
 
 # Copy templates to your config
 cp -r op1/packages/install/templates/* ~/.config/opencode/

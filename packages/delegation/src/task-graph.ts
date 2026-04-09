@@ -8,6 +8,7 @@ type TaskReview = NonNullable<TaskAssignment["review"]>;
 
 export interface TaskGraphNode {
 	id: string;
+	description: string;
 	status: TaskStatus;
 	agent: string;
 	category?: TaskRecord["category"];
@@ -105,6 +106,7 @@ export function buildTaskGraph(
 
 		return {
 			id: record.id,
+			description: record.description,
 			status: record.status,
 			agent: record.agent,
 			category: record.category,

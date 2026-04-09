@@ -34,8 +34,6 @@ interface CategoryClassification {
 }
 
 const FRONTEND_OWNERSHIP_KEYWORDS = [
-	"ui",
-	"ux",
 	"css",
 	"layout",
 	"tailwind",
@@ -51,9 +49,15 @@ const FRONTEND_OWNERSHIP_KEYWORDS = [
 	"design system",
 	"design-system",
 	"storybook",
+	"spacing",
+	"typography",
+	"color",
+	"colors",
 ] as const;
 
 const FRONTEND_SURFACE_KEYWORDS = [
+	"ui",
+	"ux",
 	"react",
 	"next.js",
 	"nextjs",
@@ -77,12 +81,53 @@ const FRONTEND_REFINEMENT_KEYWORDS = [
 	"design",
 	"visual",
 	"css",
-	"ux",
-	"ui",
 	"interaction",
 	"animation",
 	"shadcn",
 	"tailwind",
+	"spacing",
+	"typography",
+	"color",
+	"colors",
+] as const;
+
+const NON_VISUAL_IMPLEMENTATION_KEYWORDS = [
+	"api response",
+	"api responses",
+	"auth",
+	"business logic",
+	"cache",
+	"data flow",
+	"data wiring",
+	"endpoint",
+	"endpoints",
+	"fetch",
+	"hook state",
+	"mutation",
+	"permission",
+	"permissions",
+	"query",
+	"reducer",
+	"schema",
+	"selector",
+	"selectors",
+	"serialization",
+	"service",
+	"state transition",
+	"state transitions",
+	"store",
+	"transform",
+	"transforms",
+	"validation",
+	"view-model",
+	"view model",
+] as const;
+
+const NEGATED_VISUAL_PATTERNS = [
+	/without changing (?:the |any )?(?:layout|styling|style|styles|css|visuals?|ui)(?:(?:\s*,\s*|\s+or\s+)(?:layout|styling|style|styles|css|visuals?|ui))*/g,
+	/without (?:the |any )?(?:layout|styling|style|styles|css|visuals?|ui) changes?(?:(?:\s*,\s*|\s+or\s+)(?:layout|styling|style|styles|css|visuals?|ui))*/g,
+	/no (?:layout|styling|style|styles|css|visuals?|ui)(?:(?:\s*,\s*|\s+or\s+)(?:layout|styling|style|styles|css|visuals?|ui))* changes/g,
+	/leave (?:the )?(?:layout|styling|style|styles|css|visuals?|ui) unchanged/g,
 ] as const;
 
 const READ_ONLY_INTENT_KEYWORDS = [
@@ -152,8 +197,7 @@ const CATEGORY_KEYWORDS: Array<{
 	{
 		category: "visual",
 		keywords: [
-			"ui",
-			"ux",
+			"polish",
 			"css",
 			"layout",
 			"style",
@@ -168,6 +212,10 @@ const CATEGORY_KEYWORDS: Array<{
 			"design system",
 			"design-system",
 			"storybook",
+			"spacing",
+			"typography",
+			"color",
+			"colors",
 		],
 	},
 	{
@@ -210,7 +258,13 @@ const CATEGORY_KEYWORDS: Array<{
 ];
 
 function normalizeText(value: string): string {
-	return value.toLowerCase().replace(/\s+/g, " ").trim();
+	const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
+	return NEGATED_VISUAL_PATTERNS.reduce(
+		(text, pattern) => text.replace(pattern, " "),
+		normalized,
+	)
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 function clampConfidence(value: number): number {
@@ -241,13 +295,31 @@ function isFrontendOwnedTask(text: string): boolean {
 		return false;
 	}
 
-	if (scoreCategory(text, [...FRONTEND_OWNERSHIP_KEYWORDS]) > 0) {
+	const ownershipScore = scoreCategory(text, [...FRONTEND_OWNERSHIP_KEYWORDS]);
+	const surfaceScore = scoreCategory(text, [...FRONTEND_SURFACE_KEYWORDS]);
+	const refinementScore = scoreCategory(text, [
+		...FRONTEND_REFINEMENT_KEYWORDS,
+	]);
+	const nonVisualImplementationScore = scoreCategory(text, [
+		...NON_VISUAL_IMPLEMENTATION_KEYWORDS,
+	]);
+
+	if (ownershipScore >= 2) {
 		return true;
 	}
 
+	if (ownershipScore > 0 && nonVisualImplementationScore === 0) {
+		return true;
+	}
+
+	if (nonVisualImplementationScore > 0 && ownershipScore === 0) {
+		return false;
+	}
+
 	return (
-		scoreCategory(text, [...FRONTEND_SURFACE_KEYWORDS]) > 0 &&
-		scoreCategory(text, [...FRONTEND_REFINEMENT_KEYWORDS]) > 0
+		surfaceScore > 0 &&
+		refinementScore > 0 &&
+		nonVisualImplementationScore < surfaceScore + refinementScore
 	);
 }
 

@@ -1,6 +1,6 @@
 {
 	"name": "@op1/code-intel",
-	"version": "0.1.0",
+	"version": "0.1.2",
 	"description": "Semantic code graph engine - AST chunking, LSP relationships, vector embeddings for code intelligence",
 	"type": "module",
 	"main": "dist/index.js",
@@ -45,7 +45,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/op1/op1.git",
+		"url": "git+https://github.com/op1/op1.git",
 		"directory": "packages/code-intel"
 	},
 	"license": "MIT",

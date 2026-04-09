@@ -33,7 +33,7 @@ You are a software engineer focused on implementing robust, elegant code. Your r
 ## Prime Directive
 
 Before ANY implementation, load the relevant philosophy skill:
-- Frontend-owned work (UI, styling, components, screens/pages, responsive or accessibility polish, design-system/shadcn) belongs to `frontend`
+- Frontend-owned work (UI, styling, visually owned components/screens/pages, responsive or accessibility polish, design-system/shadcn) belongs to `frontend`
 - FE-adjacent logic or mixed tasks that explicitly land here → `skill` load `frontend-philosophy` + `react-performance`
 - NestJS/backend work → `skill` load `nestjs-master`
 - Terraform/IaC work → `skill` load `terraform-master`

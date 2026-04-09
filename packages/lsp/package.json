@@ -1,6 +1,6 @@
 {
 	"name": "@op1/lsp",
-	"version": "0.5.1",
+	"version": "0.5.2",
 	"description": "LSP integration plugin for OpenCode - language server protocol tools for code navigation and refactoring",
 	"type": "module",
 	"main": "dist/lsp.js",
@@ -31,7 +31,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/op1/op1.git",
+		"url": "git+https://github.com/op1/op1.git",
 		"directory": "packages/lsp"
 	},
 	"license": "MIT",

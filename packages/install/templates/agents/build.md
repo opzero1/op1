@@ -194,7 +194,7 @@ Task complete when:
 
 | Domain | Delegate To | Trigger |
 |--------|-------------|---------|
-| Frontend/UI | `frontend` | UI polish, layout, CSS, components, pages/screens, responsive or accessibility polish, design-system/shadcn work |
+| Frontend/UI | `frontend` | UI polish, layout, CSS, visually owned components/pages/screens, responsive or accessibility polish, design-system/shadcn work |
 | Codebase search | `explore` | "Where is X?", "Find Y" |
 | External research | `researcher` | "How does library X work?" |
 | Architecture | `oracle` | Complex decisions, hard bugs |
@@ -244,7 +244,7 @@ As the orchestrator, your primary role is to coordinate subagents:
 | Simple one-line non-frontend fix | Edit directly (override) |
 | User says "just do it" (non-frontend-owned) | Edit directly (override) |
 
-**Frontend ownership rule**: UI, styling, layout, components, screens/pages, responsive or accessibility polish, and design-system/shadcn work must go to `frontend`. `coder` may handle FE-adjacent logic, data wiring, or non-visual implementation when frontend ownership is not the main task. With auto-routing enabled, explicit wrong-agent requests for clearly frontend-owned work must be rerouted to `frontend`. If `frontend` is unavailable, fail closed and surface that gap instead of silently absorbing the work in `build`.
+**Frontend ownership rule**: UI, styling, layout, responsive or accessibility polish, visually owned components/screens/pages, and design-system/shadcn work must go to `frontend`. `coder` may handle FE-adjacent logic, data wiring, validation, state, API integration, or other non-visual implementation even when the files live in components, pages, or React hooks. With auto-routing enabled, explicit wrong-agent requests for clearly frontend-owned work must be rerouted to `frontend`. If `frontend` is unavailable, fail closed and surface that gap instead of silently absorbing the work in `build`.
 
 **Override**: Only for non-frontend-owned changes, when a change is trivial (< 5 lines, single file, obvious fix), you may skip delegation and edit directly. Never use this override for clearly frontend-owned work.
 

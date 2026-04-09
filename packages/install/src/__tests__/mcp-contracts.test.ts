@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	getRequiredMcpDefinitions,
+	getWarmplaneDownstreamMcps,
 	MCP_CATEGORIES,
 	resolveMcpCriticality,
 } from "../index";
@@ -92,6 +93,27 @@ describe("MCP requirement contract", () => {
 			"coder",
 			"frontend",
 		]);
+	});
+
+	test("treats non-mcp0 selections as warmplane downstream servers", () => {
+		const context7 = MCP_CATEGORIES.find(
+			(category) => category.id === "utilities",
+		)?.mcps.find((mcp) => mcp.id === "context7");
+		const figma = MCP_CATEGORIES.find(
+			(category) => category.id === "design",
+		)?.mcps.find((mcp) => mcp.id === "figma");
+		const facade = MCP_CATEGORIES.find((category) => category.id === "mcp0")
+			?.mcps[0];
+
+		if (!facade || !context7 || !figma) {
+			throw new Error("Expected mcp0, context7, and figma MCP definitions");
+		}
+
+		expect(
+			getWarmplaneDownstreamMcps([facade, context7, figma]).map(
+				(mcp) => mcp.id,
+			),
+		).toEqual(["context7", "figma"]);
 	});
 });
 

@@ -5,8 +5,8 @@
  * Each session gets its own worktree for isolated development.
  */
 
-import { type ToolDefinition, tool } from "@opencode-ai/plugin";
 import { lstat } from "node:fs/promises";
+import { type ToolDefinition, tool } from "@opencode-ai/plugin";
 import {
 	basename,
 	copyFile,

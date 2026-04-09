@@ -51,6 +51,12 @@ If you prefer manual setup:
 bun add @op1/workspace @op1/delegation @op1/lsp @op1/ast-grep
 ```
 
+Optional heavier add-on for semantic retrieval and indexing workflows:
+
+```bash
+bun add @op1/code-intel
+```
+
 Then add to your `opencode.json`:
 
 ```json
@@ -67,7 +73,7 @@ Then add to your `opencode.json`:
 |---------|-------------|---------|
 | [`@op1/install`](https://www.npmjs.com/package/@op1/install) | Interactive CLI installer | `bunx @op1/install` |
 | [`@op1/workspace`](https://www.npmjs.com/package/@op1/workspace) | Plan management, notepads, verification hooks | `bun add @op1/workspace` |
-| [`@op1/delegation`](https://www.npmjs.com/package/@op1/delegation) | Async `task` override, background output, cancellation, task diagnostics | `bun add @op1/delegation` |
+| [`@op1/delegation`](https://www.npmjs.com/package/@op1/delegation) | Async `task` override, background output, cancellation, task diagnostics, plus an optional `@op1/delegation/tui` read-only task browser | `bun add @op1/delegation` |
 
 ### Runtime Helpers
 
@@ -80,7 +86,10 @@ Then add to your `opencode.json`:
 | Package | Description | Install |
 |---------|-------------|---------|
 | [`@op1/ast-grep`](https://www.npmjs.com/package/@op1/ast-grep) | AST-aware code search and replace (25 languages) | `bun add @op1/ast-grep` |
+| [`@op1/code-intel`](https://www.npmjs.com/package/@op1/code-intel) | Semantic code graph — hybrid search, impact analysis, repo map | `bun add @op1/code-intel` |
 | [`@op1/lsp`](https://www.npmjs.com/package/@op1/lsp) | Language server integration (navigation, refactoring) | `bun add @op1/lsp` |
+
+`@op1/code-intel` is an optional heavier package rather than part of the default lean harness path.
 
 ## What's Included
 
