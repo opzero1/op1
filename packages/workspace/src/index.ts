@@ -30,6 +30,7 @@ import {
 	applyCompletionJoinGuard,
 	buildJoinGuardReminder,
 	createCompletionPromiseHook,
+	type CompletionJoinBlockerSnapshot,
 } from "./hooks/completion-promise.js";
 import {
 	createContextScoutHook,
@@ -188,6 +189,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		sessionID: string,
 	): Promise<void> {
 		const joinBlockers = await getCompletionJoinBlockers(sessionID);
+		if (joinBlockers.blockers.length === 0) {
+			joinGuardPromptFingerprints.delete(sessionID);
+			return;
+		}
+
 		createLogger("workspace.completion-guard").debug(
 			"Evaluating idle completion join guard",
 			{
@@ -196,7 +202,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				blocker_count: joinBlockers.blockers.length,
 			},
 		);
-		if (joinBlockers.blockers.length === 0) return;
 
 		const latestAssistantText = await getLatestAssistantMessageText(
 			ctx.client as {
@@ -213,6 +218,27 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			latestAssistantText ?? "",
 			joinBlockers,
 		);
+		if (!guardedOutput) {
+			joinGuardPromptFingerprints.delete(sessionID);
+			return;
+		}
+
+		const fingerprint = buildJoinGuardFingerprint({
+			sessionID,
+			joinBlockers,
+		});
+		if (joinGuardPromptFingerprints.get(sessionID) === fingerprint) {
+			createLogger("workspace.completion-guard").debug(
+				"Skipping duplicate idle completion join guard prompt",
+				{
+					session_id: sessionID,
+					root_session_id: joinBlockers.rootSessionID,
+					blocker_count: joinBlockers.blockers.length,
+				},
+			);
+			return;
+		}
+
 		createLogger("workspace.completion-guard").debug(
 			"Computed idle completion join guard output",
 			{
@@ -222,7 +248,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				guard_applied: Boolean(guardedOutput),
 			},
 		);
-		if (!guardedOutput) return;
 
 		createLogger("workspace.completion-guard").info(
 			"Prompting root session with join guard reminder after idle completion",
@@ -238,6 +263,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				parts: [{ type: "text", text: buildJoinGuardReminder(joinBlockers) }],
 			},
 		});
+		joinGuardPromptFingerprints.set(sessionID, fingerprint);
 	}
 
 	function parsePlanFrontmatter(content: string): {
@@ -576,6 +602,24 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		shouldContinue: (sessionID: string) =>
 			continuationState.isContinuationAllowed(sessionID),
 	};
+	const joinGuardPromptFingerprints = new Map<string, string>();
+
+	function buildJoinGuardFingerprint(input: {
+		sessionID: string;
+		joinBlockers: CompletionJoinBlockerSnapshot;
+	}): string {
+		return JSON.stringify({
+			sessionID: input.sessionID,
+			rootSessionID: input.joinBlockers.rootSessionID,
+			blockers: [...input.joinBlockers.blockers]
+				.map((blocker) => ({
+					task_id: blocker.task_id,
+					status: blocker.status,
+					reason: blocker.reason,
+				}))
+				.sort((left, right) => left.task_id.localeCompare(right.task_id)),
+		});
+	}
 	const momentumHandler = createSafeRuntimeHook(
 		"momentum",
 		() => createMomentumHook(momentumDeps),

@@ -1,6 +1,6 @@
 {
 	"name": "@op1/delegation",
-	"version": "0.5.1",
+	"version": "0.5.4",
 	"description": "Async task delegation plugin for OpenCode with background output, cancellation, and citation-friendly task records",
 	"type": "module",
 	"main": "dist/delegation.js",
@@ -31,7 +31,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/op1/op1.git",
+		"url": "git+https://github.com/op1/op1.git",
 		"directory": "packages/delegation"
 	},
 	"license": "MIT",

@@ -11,6 +11,7 @@
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const CONTINUATION_TOOLS = new Set(["task", "bash"]);
+const JOIN_GUARD_MARKER = "ROOT JOIN GUARD";
 
 interface CompletionJoinBlocker {
 	task_id: string;
@@ -70,6 +71,7 @@ export function applyCompletionJoinGuard(
 	output: string,
 	joinBlockers: CompletionJoinBlockerSnapshot | null,
 ): string | null {
+	if (output.includes(JOIN_GUARD_MARKER)) return null;
 	if (!output.includes("<done>COMPLETE</done>")) return null;
 	if (!joinBlockers || joinBlockers.blockers.length === 0) return null;
 

@@ -1,6 +1,6 @@
 {
 	"name": "@op1/workspace",
-	"version": "0.5.1",
+	"version": "0.5.4",
 	"description": "Project-scoped plan management plugin for OpenCode - plans, notepads, verification hooks",
 	"type": "module",
 	"main": "dist/workspace.js",
@@ -34,7 +34,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/op1/op1.git",
+		"url": "git+https://github.com/op1/op1.git",
 		"directory": "packages/workspace"
 	},
 	"license": "MIT",

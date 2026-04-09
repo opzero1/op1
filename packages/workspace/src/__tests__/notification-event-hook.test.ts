@@ -283,6 +283,79 @@ describe("workspace notification event hook", () => {
 		);
 	});
 
+	test("dedupes repeated join guard prompts for the same blocker snapshot", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-notification-dedupe-"));
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		await mkdir(workspaceDir, { recursive: true });
+		await Bun.write(
+			join(workspaceDir, "task-records.json"),
+			JSON.stringify(
+				{
+					version: 3,
+					delegations: {
+						"task-1": {
+							id: "task-1",
+							root_session_id: "root-session",
+							child_session_id: "child-session",
+							status: "running",
+							run_in_background: true,
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const client = createMockClient(toasts, {
+			sessionMessages: {
+				"root-session": [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-04-06T00:00:00.000Z" },
+						},
+						parts: [{ type: "text", text: "done\n<done>COMPLETE</done>" }],
+					},
+				],
+			},
+		}) as ReturnType<typeof createMockClient> & {
+			getPromptAsyncRequests: () => Array<{ sessionID: string; text?: string }>;
+		};
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client,
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "root-session" },
+			},
+		});
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "root-session" },
+			},
+		});
+		await pluginRecord.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "root-session" },
+			},
+		});
+
+		expect(client.getPromptAsyncRequests()).toHaveLength(1);
+		expect(client.getPromptAsyncRequests()[0]?.sessionID).toBe("root-session");
+	});
+
 	test("emits a question notification toast before question tool execution", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-notification-question-"));
 		tempRoots.push(root);

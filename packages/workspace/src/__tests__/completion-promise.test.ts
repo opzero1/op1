@@ -66,4 +66,22 @@ describe("completion promise hook", () => {
 			"task-1 (running: Still executing child work.)",
 		);
 	});
+
+	test("does not duplicate the join guard when output is already guarded", async () => {
+		const hook = createCompletionPromiseHook({
+			maxIterations: 1,
+			getJoinBlockers: async () => ({
+				rootSessionID: "root-1",
+				blockers: [{ task_id: "task-1", status: "running" }],
+			}),
+		});
+		const output = {
+			output:
+				"previous reminder\n<system-reminder>\n🧷 ROOT JOIN GUARD\nexisting\n</system-reminder>",
+		};
+
+		await hook({ tool: "task", sessionID: "session-guarded" }, output);
+
+		expect(output.output?.match(/ROOT JOIN GUARD/g)?.length).toBe(1);
+	});
 });

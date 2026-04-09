@@ -2103,8 +2103,20 @@ async function refreshTaskFromRuntime(
 	primaryDirectory: string,
 	task: TaskRecord,
 	logger: ReturnType<typeof createLogger>,
+	options?: {
+		fallbackStatus?: "idle" | "running" | "error";
+	},
 ): Promise<TaskRecord> {
 	if (task.status !== "running") return task;
+
+	const runtimeStatus =
+		(await getSessionStatus(client, task.child_session_id)) ??
+		options?.fallbackStatus;
+	if (runtimeStatus === "error") {
+		return state.transitionTask(task.id, "failed", {
+			error: "Task session reported an error.",
+		});
+	}
 
 	const transcriptData = await getSessionTranscriptData(
 		client,
@@ -2117,17 +2129,18 @@ async function refreshTaskFromRuntime(
 		transcriptData,
 	);
 
-	const staleBlocked = await maybeBlockStaleTinyFrontendTask(
-		state,
-		current,
-		extractLatestAssistantText(transcriptData) ?? undefined,
-	);
-	if (staleBlocked) {
-		return staleBlocked;
+	if (runtimeStatus === "idle") {
+		const staleBlocked = await maybeBlockStaleTinyFrontendTask(
+			state,
+			current,
+			extractLatestAssistantText(transcriptData) ?? undefined,
+		);
+		if (staleBlocked) {
+			return staleBlocked;
+		}
 	}
 
-	const status = await getSessionStatus(client, task.child_session_id);
-	if (status === "idle") {
+	if (runtimeStatus === "idle") {
 		const result = extractLatestAssistantText(transcriptData);
 		return integrateWorktreeTask(
 			primaryDirectory,
@@ -2137,12 +2150,6 @@ async function refreshTaskFromRuntime(
 			logger,
 			transcriptData,
 		);
-	}
-
-	if (status === "error") {
-		return state.transitionTask(current.id, "failed", {
-			error: "Task session reported an error.",
-		});
 	}
 
 	return current;
@@ -2319,47 +2326,23 @@ export const DelegationPlugin: Plugin = async (ctx: {
 			taskID = task.id;
 
 			if (runtimeEvent.type === "session.idle") {
-				const transcriptData = await getSessionTranscriptData(
+				const refreshed = await refreshTaskFromRuntime(
 					client,
-					sessionID,
-				);
-				const current = await persistExecutionTelemetry(
 					state,
-					task,
 					ctx.directory,
-					transcriptData,
+					task,
+					logger,
+					{ fallbackStatus: "idle" },
 				);
-				const staleBlocked = await maybeBlockStaleTinyFrontendTask(
-					state,
-					current,
-					extractLatestAssistantText(transcriptData) ?? undefined,
-				);
-				if (staleBlocked) {
-					await handleRootFollowThrough(
-						client,
-						state,
-						workspaceDir,
-						staleBlocked,
-						logger,
-					);
-					await queuePromotionPass();
+				if (refreshed.status === "running") {
 					return;
 				}
 
-				const result = extractLatestAssistantText(transcriptData);
-				const terminal = await integrateWorktreeTask(
-					ctx.directory,
-					state,
-					current,
-					result ?? undefined,
-					logger,
-					transcriptData,
-				);
 				await handleRootFollowThrough(
 					client,
 					state,
 					workspaceDir,
-					terminal,
+					refreshed,
 					logger,
 				);
 				await queuePromotionPass();

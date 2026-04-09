@@ -673,6 +673,39 @@ describe("delegation plugin", () => {
 		expect(output).toContain("Task ID:");
 	});
 
+	test("keeps FE-adjacent non-visual implementation on coder", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-auto-route-coder-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client: createMockClient(),
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		for (const prompt of [
+			"Fix the React form submission flow by updating validation, mutation handling, and state transitions without changing layout or styling.",
+			"Fix the React form validation without changing any layout or styling.",
+			"Fix the React form validation with no layout or styling changes.",
+		]) {
+			const output = await taskTool.execute(
+				{
+					description: "React form state fix",
+					prompt,
+					auto_route: true,
+					run_in_background: true,
+				},
+				{ sessionID: "parent-session", ask: async () => {} },
+			);
+
+			expect(output).toContain("Agent: coder");
+			expect(output).toContain("Task ID:");
+		}
+	});
+
 	test("launches eligible coding tasks in isolated worktrees for git repos", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-delegation-worktree-"));
 		tempRoots.push(root);
@@ -793,6 +826,7 @@ describe("delegation plugin", () => {
 				],
 			},
 		]);
+		client.setSessionStatus("child-session-1", "idle");
 
 		const output = await backgroundOutputTool.execute(
 			{
@@ -956,6 +990,206 @@ describe("delegation plugin", () => {
 		);
 		expect(output).toContain("Task completed.");
 		expect(output).toContain("Verified with `npm test` and merged branch");
+	});
+
+	test("keeps tiny frontend tasks running while the child session is still active", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-running-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient({
+			sessionMessages: {
+				"child-session-1": [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-04-09T00:00:00.000Z" },
+						},
+						parts: Array.from({ length: 10 }, (_, index) => ({
+							type: "tool",
+							tool: index % 2 === 0 ? "read" : "grep",
+						})),
+					},
+				],
+			},
+		});
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Polish button state",
+				prompt:
+					"Update src/components/Button.tsx loading copy without changing layout or styling.",
+				authoritative_context: "Target file: src/components/Button.tsx",
+				subagent_type: "frontend",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+		client.setSessionStatus("child-session-1", "running");
+
+		const output = await backgroundOutputTool.execute(
+			{
+				task_id: taskID,
+				block: true,
+				timeout: 1000,
+				full_session: false,
+			},
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Status: running");
+		expect(output).toContain("Agent: frontend");
+		expect(output).toContain("Activity: read=5, search=5, planning=0, edit=0");
+		expect(output).not.toContain("Status: blocked");
+		expect(output).not.toContain("short read pass without an edit attempt");
+	});
+
+	test("ignores delayed idle events when the child session is still running", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-delayed-idle-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient({
+			sessionMessages: {
+				"child-session-1": [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-04-09T00:00:00.000Z" },
+						},
+						parts: Array.from({ length: 10 }, (_, index) => ({
+							type: "tool",
+							tool: index % 2 === 0 ? "read" : "grep",
+						})),
+					},
+				],
+			},
+		});
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Polish button state",
+				prompt:
+					"Update src/components/Button.tsx loading copy without changing layout or styling.",
+				authoritative_context: "Target file: src/components/Button.tsx",
+				subagent_type: "frontend",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+		client.setSessionStatus("child-session-1", "running");
+
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).toContain("Status: running");
+		expect(output).not.toContain("Status: blocked");
+		expect(output).not.toContain("Task completed.");
+	});
+
+	test("uses the idle event as a fallback when session status is unavailable", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-idle-fallback-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient({
+			sessionMessages: {
+				"child-session-1": [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-04-09T00:00:00.000Z" },
+						},
+						parts: Array.from({ length: 10 }, (_, index) => ({
+							type: "tool",
+							tool: index % 2 === 0 ? "read" : "grep",
+						})),
+					},
+				],
+			},
+		});
+		delete (client.session as { status?: unknown }).status;
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Polish button state",
+				prompt:
+					"Update src/components/Button.tsx loading copy without changing layout or styling.",
+				authoritative_context: "Target file: src/components/Button.tsx",
+				subagent_type: "frontend",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		expect(taskID).toBeDefined();
+
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+
+		expect(output).not.toContain("Root follow-through: pending");
+		expect(output).toContain("Root follow-through: delivered");
+		expect(output).toContain("short read pass without an edit attempt");
 	});
 
 	test("fails worktree integration when verification fails", async () => {
