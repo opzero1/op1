@@ -20,6 +20,8 @@
 			"@op1/workspace/*": ["packages/workspace/src/*"],
 			"@op1/delegation": ["packages/delegation/src/index.ts"],
 			"@op1/delegation/*": ["packages/delegation/src/*"],
+			"@op1/fast-mode": ["packages/fast-mode/src/index.ts"],
+			"@op1/fast-mode/*": ["packages/fast-mode/src/*"],
 			"@op1/install": ["packages/install/src/index.ts"],
 			"@op1/install/*": ["packages/install/src/*"],
 			"@op1/ast-grep": ["packages/ast-grep/src/index.ts"],

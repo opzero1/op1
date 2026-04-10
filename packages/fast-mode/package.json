@@ -1,0 +1,45 @@
+{
+	"name": "@op1/fast-mode",
+	"version": "0.5.2",
+	"description": "Fast mode plugin for OpenCode that enables priority service tier for approved provider/model/agent requests",
+	"type": "module",
+	"main": "dist/fast-mode.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/fast-mode.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "bun build src/index.ts --outfile dist/fast-mode.js --target bun --format esm --external @opencode-ai/plugin --external zod",
+		"typecheck": "tsc --noEmit",
+		"dev": "bun run build --watch"
+	},
+	"files": [
+		"dist"
+	],
+	"dependencies": {
+		"@opencode-ai/plugin": "^1.0.0",
+		"zod": "^4.0.0"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.1.0",
+		"typescript": "^5.7.0"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/op1/op1.git",
+		"directory": "packages/fast-mode"
+	},
+	"license": "MIT",
+	"keywords": [
+		"opencode",
+		"plugin",
+		"fast-mode",
+		"priority"
+	]
+}
