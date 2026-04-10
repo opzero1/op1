@@ -109,7 +109,7 @@ opencode debug config
 | Plugin | Description |
 |--------|-------------|
 | `@op1/workspace` | Plan management, notepads (always included) |
-| `@op1/delegation` | Async task orchestration, background output, task graph |
+| `@op1/delegation` | Async task orchestration, background output, task graph, and TUI task browser wiring |
 | `@op1/ast-grep` | Structural code search |
 | `@op1/lsp` | Language server tools |
 
@@ -121,7 +121,7 @@ opencode debug config
 4. **Configure plugins** - Choose which plugins to enable
 5. **Select MCPs** - Optional MCP integrations (Linear, Notion, etc.)
 6. **Choose models** - Dropdown picker backed by `https://models.dev/api.json` (manual override supported)
-7. **Install** - Copies files to `~/.config/opencode/`
+7. **Install** - Copies files to `~/.config/opencode/` and writes `opencode.json`, `workspace.json`, and `tui.json` as needed
 
 ## Template Layout
 
@@ -158,9 +158,23 @@ The installer intelligently preserves your settings:
 
 - ✅ Provider credentials (API keys)
 - ✅ Existing plugins (merged, not replaced)
+- ✅ Existing TUI plugins in `tui.json` (merged, not replaced)
 - ✅ Custom agent models
 - ✅ Permission settings
 - ✅ MCP configurations
+
+## TUI Plugin Setup
+
+When delegation is enabled, the installer also writes `~/.config/opencode/tui.json` with the published package root:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["@op1/delegation"]
+}
+```
+
+That is the correct published setup. OpenCode resolves the package's `./tui` export from the package root, so you should not use `@op1/delegation/tui` in `tui.json`.
 
 ## mcp0-Only Migration
 

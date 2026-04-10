@@ -129,7 +129,9 @@ const MODEL_SELECT_LIMIT = 120;
 const MODEL_OPTION_CUSTOM = "__op7_custom_model__";
 const MODEL_FAMILY_ALL = "__op7_all_families__";
 const WORKSPACE_CONFIG_FILENAME = "workspace.json";
+const TUI_CONFIG_FILENAME = "tui.json";
 const LEGACY_SKILL_VAULT_PATH = "~/.config/opencode/skill-vault";
+const DELEGATION_PLUGIN_SPEC = "@op1/delegation";
 
 // =========================================
 // MCP DEFINITIONS BY CATEGORY
@@ -587,6 +589,12 @@ interface WorkspacePluginConfig {
 	notifications?: WorkspaceNotifications;
 	verification?: WorkspaceVerification;
 	mcpPointer?: WorkspaceMcpPointer;
+	[key: string]: unknown;
+}
+
+interface TuiConfig {
+	$schema?: string;
+	plugin?: string[];
 	[key: string]: unknown;
 }
 
@@ -1480,6 +1488,37 @@ function mergeConfig(
 	return base;
 }
 
+function mergeTuiConfig(
+	existing: TuiConfig | null,
+	pluginChoices: PluginChoice,
+): TuiConfig {
+	const base: TuiConfig = existing
+		? {
+				...existing,
+				plugin: existing.plugin ? [...existing.plugin] : undefined,
+			}
+		: {
+				$schema: "https://opencode.ai/tui.json",
+			};
+
+	base.$schema ??= "https://opencode.ai/tui.json";
+
+	const existingPlugins = base.plugin || [];
+	const newPlugins: string[] = [];
+	if (
+		pluginChoices.delegation &&
+		!existingPlugins.includes(DELEGATION_PLUGIN_SPEC)
+	) {
+		newPlugins.push(DELEGATION_PLUGIN_SPEC);
+	}
+
+	if (existingPlugins.length > 0 || newPlugins.length > 0) {
+		base.plugin = [...existingPlugins, ...newPlugins];
+	}
+
+	return base;
+}
+
 // =========================================
 // MAIN INSTALLER
 // =========================================
@@ -1506,18 +1545,23 @@ export async function main(mainOptions: MainOptions = {}) {
 		globalConfigDir,
 		WORKSPACE_CONFIG_FILENAME,
 	);
+	const tuiConfigFile = joinPath(globalConfigDir, TUI_CONFIG_FILENAME);
 
 	// Check for existing installation
 	const configDirExists = await dirExists(globalConfigDir);
 	const configFileResult = await readJsonFile<OpenCodeConfig>(globalConfigFile);
 	const workspaceConfigResult =
 		await readJsonFile<WorkspacePluginConfig>(workspaceConfigFile);
+	const tuiConfigResult = await readJsonFile<TuiConfig>(tuiConfigFile);
 
 	let existingJson: OpenCodeConfig | null = null;
 	let existingWorkspaceConfig: WorkspacePluginConfig | null =
 		workspaceConfigResult.error === null ? workspaceConfigResult.data : null;
+	let existingTuiConfig: TuiConfig | null =
+		tuiConfigResult.error === null ? tuiConfigResult.data : null;
 	let configBackupPath: string | null = null;
 	let workspaceConfigBackupPath: string | null = null;
+	let tuiConfigBackupPath: string | null = null;
 
 	// Determine the actual state
 	const hasConfigFile = configFileResult.error !== "not_found";
@@ -1777,6 +1821,31 @@ export async function main(mainOptions: MainOptions = {}) {
 		}
 	}
 
+	const shouldConfigureTui = options.plugins && pluginChoices.delegation;
+
+	if (shouldConfigureTui && tuiConfigResult.error === "parse_error") {
+		p.log.warn(
+			`${pc.yellow("Malformed TUI config")} at ${pc.dim(tuiConfigFile)}`,
+		);
+		if (tuiConfigResult.rawError) {
+			p.log.warn(`  ${pc.dim(tuiConfigResult.rawError.message)}`);
+		}
+
+		if (dryRun) {
+			tuiConfigBackupPath = `${tuiConfigFile.replace(".json", `.${getTimestamp()}.json.bak`)} (dry-run)`;
+			p.log.info(
+				`Would create TUI config backup: ${pc.dim(tuiConfigBackupPath)}`,
+			);
+		} else {
+			tuiConfigBackupPath = await backupConfigFile(tuiConfigFile);
+			if (tuiConfigBackupPath) {
+				p.log.success(`TUI config backup: ${pc.dim(tuiConfigBackupPath)}`);
+			}
+		}
+
+		existingTuiConfig = null;
+	}
+
 	// MCP Category selection
 	p.log.info(`\n${pc.bold("MCP Server Configuration")}`);
 
@@ -1996,6 +2065,7 @@ export async function main(mainOptions: MainOptions = {}) {
 
 	let totalFiles = 0;
 	let mergedConfig: OpenCodeConfig | null = null;
+	let mergedTuiConfig: TuiConfig | null = null;
 	let mergedWorkspaceConfig: WorkspacePluginConfig | null = null;
 	let mcpPointerResult: InstallMcpPointerArtifactsResult | null = null;
 	let mcpPointerFallbackReason: string | null = null;
@@ -2008,6 +2078,9 @@ export async function main(mainOptions: MainOptions = {}) {
 			existingWorkspaceConfig ?? undefined,
 			installerProfile,
 		);
+		mergedTuiConfig = shouldConfigureTui
+			? mergeTuiConfig(existingTuiConfig, pluginChoices)
+			: null;
 		mergedConfig = mergeConfig(
 			existingJson,
 			originalConfig,
@@ -2143,6 +2216,9 @@ export async function main(mainOptions: MainOptions = {}) {
 			}
 
 			totalFiles += 2; // opencode.json + workspace.json writes
+			if (mergedTuiConfig) {
+				totalFiles += 1;
+			}
 			s.stop(`Dry run complete. Would install ${totalFiles} files.`);
 		} else {
 			// Create config directory
@@ -2206,6 +2282,10 @@ export async function main(mainOptions: MainOptions = {}) {
 			await writeJsonFile(globalConfigFile, mergedConfig);
 			await writeJsonFile(workspaceConfigFile, mergedWorkspaceConfig);
 			totalFiles += 2;
+			if (mergedTuiConfig) {
+				await writeJsonFile(tuiConfigFile, mergedTuiConfig);
+				totalFiles += 1;
+			}
 
 			s.stop(`Installed ${totalFiles} files`);
 		}
@@ -2230,6 +2310,14 @@ export async function main(mainOptions: MainOptions = {}) {
 	if (workspaceConfigBackupPath) {
 		summaryLines.push(
 			`${pc.blue("↩")} Workspace config backup ${dryRun ? "would be" : ""} created: ${pc.dim(workspaceConfigBackupPath)}`.replace(
+				"  ",
+				" ",
+			),
+		);
+	}
+	if (tuiConfigBackupPath) {
+		summaryLines.push(
+			`${pc.blue("↩")} TUI config backup ${dryRun ? "would be" : ""} created: ${pc.dim(tuiConfigBackupPath)}`.replace(
 				"  ",
 				" ",
 			),
@@ -2261,6 +2349,11 @@ export async function main(mainOptions: MainOptions = {}) {
 	summaryLines.push(
 		`${pc.green("✓")} Workspace defaults ${configVerb} in ${pc.dim("~/.config/opencode/workspace.json")}`,
 	);
+	if (mergedTuiConfig) {
+		summaryLines.push(
+			`${pc.green("✓")} TUI plugins ${configVerb} in ${pc.dim("~/.config/opencode/tui.json")}`,
+		);
+	}
 	if (selectedMcps.length > 0) {
 		summaryLines.push(
 			`${pc.green("✓")} MCPs ${configVerb}: ${selectedMcps.map((m) => pc.cyan(m.name)).join(", ")}`,
@@ -2397,6 +2490,7 @@ export {
 	fileExists,
 	filterFacadeMcps,
 	mergeConfig,
+	mergeTuiConfig,
 	mergeWorkspaceConfig,
 	getWarmplaneDownstreamMcps,
 	MCP_CATEGORIES,
@@ -2415,5 +2509,6 @@ export type {
 	McpDefinition,
 	McpCategory,
 	OpenCodeConfig,
+	TuiConfig,
 	WorkspacePluginConfig,
 };

@@ -8,10 +8,12 @@ import {
 	type InstallerProfile,
 	type McpDefinition,
 	mergeConfig,
+	mergeTuiConfig,
 	mergeWorkspaceConfig,
 	type OpenCodeConfig,
 	type PluginChoice,
 	resolveDefaultPluginChoices,
+	type TuiConfig,
 	type WorkspacePluginConfig,
 } from "../index";
 
@@ -711,5 +713,48 @@ describe("mergeConfig", () => {
 		expect(result.agent?.coder?.tools?.["zai-vision_*"]).toBe(true); // new tool enabled
 		expect(result.agent?.researcher?.tools?.["linear_*"]).toBe(true);
 		expect(result.agent?.frontend?.tools?.["zai-vision_*"]).toBe(true);
+	});
+});
+
+describe("mergeTuiConfig", () => {
+	test("creates fresh tui config with delegation plugin", () => {
+		const result = mergeTuiConfig(null, ENABLED_PLUGIN_CHOICES);
+
+		expect(result.$schema).toBe("https://opencode.ai/tui.json");
+		expect(result.plugin).toEqual(["@op1/delegation"]);
+	});
+
+	test("preserves existing tui plugins and appends delegation once", () => {
+		const existing: TuiConfig = {
+			plugin: ["@existing/tui-plugin"],
+			keybinds: {
+				terminal_suspend: "none",
+			},
+		};
+
+		const result = mergeTuiConfig(existing, ENABLED_PLUGIN_CHOICES);
+
+		expect(result.plugin).toEqual(["@existing/tui-plugin", "@op1/delegation"]);
+		expect(result.keybinds).toEqual({ terminal_suspend: "none" });
+	});
+
+	test("does not duplicate delegation tui plugin if already present", () => {
+		const existing: TuiConfig = {
+			plugin: ["@op1/delegation"],
+		};
+
+		const result = mergeTuiConfig(existing, ENABLED_PLUGIN_CHOICES);
+
+		expect(result.plugin).toEqual(["@op1/delegation"]);
+	});
+
+	test("keeps existing tui config untouched when delegation is disabled", () => {
+		const existing: TuiConfig = {
+			plugin: ["@existing/tui-plugin"],
+		};
+
+		const result = mergeTuiConfig(existing, DEFAULT_PLUGIN_CHOICES);
+
+		expect(result.plugin).toEqual(["@existing/tui-plugin"]);
 	});
 });

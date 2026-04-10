@@ -27,6 +27,17 @@ Add plugin to OpenCode config:
 }
 ```
 
+For the TUI task browser, also add `~/.config/opencode/tui.json`:
+
+```json
+{
+	"$schema": "https://opencode.ai/tui.json",
+	"plugin": ["@op1/delegation"]
+}
+```
+
+Use the package root in `tui.json`. OpenCode resolves the package's `./tui` export automatically.
+
 ## Task Identity
 
 - `task_id`: durable record id returned from `task`, used for `background_output`, `background_cancel`, and plan citations. Fresh launches should usually omit it and let the tool generate one. If an older wrapper still requires the field, pass an empty string rather than inventing a new id.
@@ -58,7 +69,7 @@ bun link @op1/workspace @op1/delegation --cwd ~/.config/opencode
 opencode debug config | jq '.plugin'
 ```
 
-Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace` and `@op1/delegation`, then smoke-test with `opencode run`.
+Keep `~/.config/opencode/opencode.json` using package names like `@op1/workspace` and `@op1/delegation`, keep `~/.config/opencode/tui.json` using `@op1/delegation`, then smoke-test with `opencode run`.
 
 If your OpenCode build supports TUI plugins, the same installed package can also expose a read-only delegation browser through the TUI route and command palette. When launched from a session route, the browser scopes to that session context and closes back to the launching session.
 

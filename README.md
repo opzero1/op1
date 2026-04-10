@@ -65,6 +65,17 @@ Then add to your `opencode.json`:
 }
 ```
 
+If you want the delegation browser inside the OpenCode TUI, also add `~/.config/opencode/tui.json`:
+
+```json
+{
+	"$schema": "https://opencode.ai/tui.json",
+	"plugin": ["@op1/delegation"]
+}
+```
+
+Use the package root in `tui.json`. OpenCode resolves `@op1/delegation` to the package's `./tui` export automatically.
+
 ## Packages
 
 ### Core
@@ -124,6 +135,15 @@ After installation, your `~/.config/opencode/opencode.json` will include:
     "context7": { "type": "remote", "url": "https://mcp.context7.com/mcp" },
     "grep_app": { "type": "remote", "url": "https://mcp.grep.app" }
   }
+}
+```
+
+If delegation is enabled, the installer also writes `~/.config/opencode/tui.json`:
+
+```json
+{
+	"$schema": "https://opencode.ai/tui.json",
+	"plugin": ["@op1/delegation"]
 }
 ```
 

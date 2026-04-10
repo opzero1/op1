@@ -1,6 +1,6 @@
 {
 	"name": "@op1/delegation",
-	"version": "0.5.5",
+	"version": "0.5.6",
 	"description": "Async task delegation plugin for OpenCode with background output, cancellation, and citation-friendly task records",
 	"type": "module",
 	"main": "dist/delegation.js",
