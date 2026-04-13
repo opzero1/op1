@@ -35,6 +35,7 @@ interface WorktreeConfig {
 
 interface WorktreeToolOptions {
 	tmuxOrchestration?: boolean;
+	resolveTmuxOrchestration?: () => Promise<boolean>;
 	onTerminalSpawn?: (input: {
 		sessionID: string;
 		branch: string;
@@ -176,14 +177,35 @@ async function isLinkedWorktree(directory: string): Promise<boolean> {
 
 export function createWorktreeTools(
 	directory: string,
-	projectId: string,
+	projectIdSource: string | (() => Promise<string>),
 	options: WorktreeToolOptions = {},
 ): Record<string, ToolDefinition> {
 	let db: WorktreeDB | null = null;
+	let resolvedProjectIdPromise: Promise<string> | null = null;
+
+	async function getProjectId(): Promise<string> {
+		if (typeof projectIdSource === "string") {
+			return projectIdSource;
+		}
+
+		if (!resolvedProjectIdPromise) {
+			resolvedProjectIdPromise = projectIdSource();
+		}
+
+		return resolvedProjectIdPromise;
+	}
+
+	async function isTmuxOrchestrationEnabled(): Promise<boolean> {
+		if (typeof options.resolveTmuxOrchestration === "function") {
+			return options.resolveTmuxOrchestration();
+		}
+
+		return options.tmuxOrchestration ?? true;
+	}
 
 	async function getDB(): Promise<WorktreeDB> {
 		if (!db) {
-			db = await createWorktreeDB(projectId);
+			db = await createWorktreeDB(await getProjectId());
 		}
 		return db;
 	}
@@ -300,11 +322,13 @@ export function createWorktreeTools(
 					let terminalInfo = "";
 					if (openTerminal) {
 						try {
+							const terminalProjectId = await getProjectId();
+							const allowTmux = await isTmuxOrchestrationEnabled();
 							const result = await spawnTerminal(
 								worktreePath,
 								sanitized,
-								projectId,
-								{ allowTmux: options.tmuxOrchestration ?? true },
+								terminalProjectId,
+								{ allowTmux },
 							);
 
 							if (toolCtx?.sessionID && options.onTerminalSpawn) {

@@ -102,6 +102,16 @@ import { createWorktreeTools } from "./worktree/index.js";
 
 export const WorkspacePlugin: Plugin = async (ctx) => {
 	const { directory } = ctx;
+	const createLazyGetter = <T>(factory: () => Promise<T>) => {
+		let cached: Promise<T> | null = null;
+		return () => {
+			if (!cached) {
+				cached = factory();
+			}
+			return cached;
+		};
+	};
+
 	setLoggerSink(
 		ctx.client.app?.log
 			? async (entry) => {
@@ -112,16 +122,20 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			: null,
 	);
 
-	const projectId = await getProjectId(directory);
-
-	// Legacy session-scoped directory (for migration fallback)
-	const legacyBaseDir = join(
-		homedir(),
-		".local",
-		"share",
-		"opencode",
-		"workspace",
-		projectId,
+	const getResolvedProjectId = createLazyGetter(() => getProjectId(directory));
+	const getLegacyBaseDir = createLazyGetter(async () => {
+		const projectId = await getResolvedProjectId();
+		return join(
+			homedir(),
+			".local",
+			"share",
+			"opencode",
+			"workspace",
+			projectId,
+		);
+	});
+	const getResolvedHookConfig = createLazyGetter<ResolvedHookConfig>(() =>
+		loadHookConfig(directory),
 	);
 
 	// New project-scoped directories
@@ -141,9 +155,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	);
 	const contextScoutState = createContextScoutStateManager(workspaceDir);
 	const continuationState = createContinuationStateManager(workspaceDir);
-
-	// Hook configuration (global + project config + env overrides)
-	const hookConfig: ResolvedHookConfig = await loadHookConfig(directory);
 
 	// ── Session helpers ────────────────────────────────────
 
@@ -549,52 +560,98 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	}
 
 	// ── Hook factories ─────────────────────────────────────
+	const getInputNeededNotificationHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		return createSafeRuntimeHook(
+			"event.notificationChannels.inputNeeded",
+			() =>
+				createInputNeededNotificationHook(
+					ctx.client as unknown as NotificationClient,
+					{
+						enabled: hookConfig.notifications.enabled,
+						desktop: hookConfig.notifications.desktop,
+						quietHours: hookConfig.notifications.quietHours,
+						timezone: hookConfig.notifications.timezone,
+						privacy: hookConfig.notifications.privacy,
+					},
+				),
+			hookConfig,
+		);
+	});
 
-	const nonInteractiveBeforeHook = createSafeRuntimeHook(
-		"tool.execute.before.nonInteractiveGuard",
-		() => createToolExecuteBeforeHook(),
-		hookConfig,
-	);
+	const getSessionReadyNotificationHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		return createSafeRuntimeHook(
+			"event.notificationChannels",
+			() =>
+				createSessionReadyNotificationHook(
+					ctx.client as unknown as NotificationClient,
+					{
+						enabled: hookConfig.notifications.enabled,
+						desktop: hookConfig.notifications.desktop,
+						quietHours: hookConfig.notifications.quietHours,
+						timezone: hookConfig.notifications.timezone,
+						privacy: hookConfig.notifications.privacy,
+					},
+				),
+			hookConfig,
+		);
+	});
 
-	const editSafetyBeforeHook = createSafeRuntimeHook(
-		"tool.execute.before.editSafetyGuard",
-		() => createEditSafetyBeforeHook(directory),
-		hookConfig,
-	);
+	const getToolExecuteBeforeHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		const nonInteractiveBeforeHook = createSafeRuntimeHook(
+			"tool.execute.before.nonInteractiveGuard",
+			() => createToolExecuteBeforeHook(),
+			hookConfig,
+		);
+		const editSafetyBeforeHook = createSafeRuntimeHook(
+			"tool.execute.before.editSafetyGuard",
+			() => createEditSafetyBeforeHook(directory),
+			hookConfig,
+		);
 
-	const toolExecuteBeforeHook =
-		nonInteractiveBeforeHook || editSafetyBeforeHook
-			? async (
-					input: { tool: string; sessionID: string; callID: string },
-					output: { args: Record<string, unknown> },
-				) => {
-					if (nonInteractiveBeforeHook) {
-						await nonInteractiveBeforeHook(input, output);
-					}
+		if (!nonInteractiveBeforeHook && !editSafetyBeforeHook) {
+			return null;
+		}
 
-					if (editSafetyBeforeHook) {
-						await editSafetyBeforeHook(input, output);
-					}
+		return async (
+			input: { tool: string; sessionID: string; callID: string },
+			output: { args: Record<string, unknown> },
+		) => {
+			if (nonInteractiveBeforeHook) {
+				await nonInteractiveBeforeHook(input, output);
+			}
 
-					if (inputNeededNotificationHook) {
-						const toolName = input.tool.toLowerCase();
-						if (
-							toolName === "question" ||
-							toolName === "ask_user_question" ||
-							toolName === "askuserquestion"
-						) {
-							const questionText = getFirstQuestionText(output.args);
-							await inputNeededNotificationHook({
-								sessionID: input.sessionID,
-								callID: input.callID,
-								tool: input.tool,
-								source: "tool.execute.before",
-								questionText,
-							});
-						}
-					}
-				}
-			: null;
+			if (editSafetyBeforeHook) {
+				await editSafetyBeforeHook(input, output);
+			}
+
+			const toolName = input.tool.toLowerCase();
+			if (
+				toolName !== "question" &&
+				toolName !== "ask_user_question" &&
+				toolName !== "askuserquestion"
+			) {
+				return;
+			}
+
+			const inputNeededNotificationHook =
+				await getInputNeededNotificationHook();
+			if (!inputNeededNotificationHook) {
+				return;
+			}
+
+			const questionText = getFirstQuestionText(output.args);
+			await inputNeededNotificationHook({
+				sessionID: input.sessionID,
+				callID: input.callID,
+				tool: input.tool,
+				source: "tool.execute.before",
+				questionText,
+			});
+		};
+	});
 
 	// Phase 3 hook factories (created once, reused in tool.execute.after)
 	const momentumDeps: MomentumDeps = {
@@ -620,157 +677,164 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				.sort((left, right) => left.task_id.localeCompare(right.task_id)),
 		});
 	}
-	const momentumHandler = createSafeRuntimeHook(
-		"momentum",
-		() => createMomentumHook(momentumDeps),
-		hookConfig,
-	);
-	const completionPromiseHandler = createSafeRuntimeHook(
-		"completionPromise",
-		() =>
-			createCompletionPromiseHook({
-				getJoinBlockers: getCompletionJoinBlockers,
-			}),
-		hookConfig,
-	);
-	const writePolicyHandler = createSafeRuntimeHook(
-		"writePolicy",
-		() => createWritePolicyHook(),
-		hookConfig,
-	);
-	const taskReminderHandler = createSafeRuntimeHook(
-		"taskReminder",
-		() => createTaskReminderHook(hookConfig.thresholds.taskReminderThreshold),
-		hookConfig,
-	);
-	const autonomyPolicyHandler = createSafeRuntimeHook(
-		"autonomyPolicy",
-		() => createAutonomyPolicyHook(),
-		hookConfig,
-	);
-	const editSafetyAfterHook = createSafeRuntimeHook(
-		"tool.execute.after.editSafetyGuard",
-		() => createEditSafetyAfterHook(directory),
-		hookConfig,
-	);
-	const rulesInjectorLiteHook = createSafeRuntimeHook(
-		"tool.execute.after.rulesInjectorLite",
-		() => createRulesInjectorLiteHook({ getCurrentPhase: getActivePlanPhase }),
-		hookConfig,
-	);
-	const notificationChannelsHook = createSafeRuntimeHook(
-		"tool.execute.after.notificationChannels",
-		() =>
-			createNotificationChannelsHook(
-				ctx.client as unknown as NotificationClient,
-				{
-					enabled: hookConfig.notifications.enabled,
-					desktop: hookConfig.notifications.desktop,
-					quietHours: hookConfig.notifications.quietHours,
-					timezone: hookConfig.notifications.timezone,
-					privacy: hookConfig.notifications.privacy,
-				},
-			),
-		hookConfig,
-	);
-	const hashAnchorReadEnhancerHook = createSafeRuntimeHook(
-		"tool.execute.after.hashAnchorReadEnhancer",
-		() =>
-			createHashAnchorReadEnhancerHook({
-				enabled: hookConfig.features.hashAnchoredEdit,
-			}),
-		hookConfig,
-	);
-	const contextScoutAfterHook = createSafeRuntimeHook(
-		"tool.execute.after.contextScout",
-		() =>
-			createContextScoutHook({
-				enabled: hookConfig.features.contextScout,
-				stateManager: contextScoutState,
-				workspaceRoot: directory,
-			}),
-		hookConfig,
-	);
-
-	const toolExecuteAfterHook = createSafeRuntimeHook(
-		"tool.execute.after",
-		() =>
-			async (
-				input: {
-					tool: string;
-					sessionID: string;
-					callID: string;
-					args?: unknown;
-				},
-				output: { title: string; output: string; metadata: unknown },
-			) => {
-				const toolName = input.tool.toLowerCase();
-
-				if (
-					toolName === "plan_save" ||
-					toolName === "plan_set_active" ||
-					toolName === "plan_archive" ||
-					toolName === "plan_unarchive" ||
-					toolName === "notepad_write" ||
-					toolName === "todowrite" ||
-					toolName === "plan_doc_link"
-				) {
-					markCompactionStateDirty(input.sessionID);
-				}
-
-				// Dynamic context-window-aware truncation (falls back to static)
-				await handleToolOutputSafetyDynamic(input, output, ctx.client);
-
-				// Edit/read safety tracking and violation telemetry
-				if (editSafetyAfterHook) await editSafetyAfterHook(input, output);
-
-				// Optional LINE#ID read-output enhancement
-				if (hashAnchorReadEnhancerHook)
-					await hashAnchorReadEnhancerHook(input, output);
-
-				// ContextScout extraction + ranked, budgeted injection
-				if (contextScoutAfterHook) await contextScoutAfterHook(input, output);
-
-				// Phase-scoped idempotent rules injection
-				if (rulesInjectorLiteHook) await rulesInjectorLiteHook(input, output);
-
-				// Optional, deduplicated notification-channel events
-				if (notificationChannelsHook)
-					await notificationChannelsHook(input, output);
-
-				// Async: verification reminders after implementer agent tasks
-				await handleVerification(input, output, directory, {
-					enabled: hookConfig.verification.autopilot,
-					throttleMs: hookConfig.verification.throttleMs,
-				});
-
-				// Preemptive compaction at 78% token usage
-				await checkPreemptiveCompaction(
-					ctx.client as unknown as CompactionClient,
-					input.sessionID,
-					directory,
+	const getToolExecuteAfterHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		const momentumHandler = createSafeRuntimeHook(
+			"momentum",
+			() => createMomentumHook(momentumDeps),
+			hookConfig,
+		);
+		const completionPromiseHandler = createSafeRuntimeHook(
+			"completionPromise",
+			() =>
+				createCompletionPromiseHook({
+					getJoinBlockers: getCompletionJoinBlockers,
+				}),
+			hookConfig,
+		);
+		const writePolicyHandler = createSafeRuntimeHook(
+			"writePolicy",
+			() => createWritePolicyHook(),
+			hookConfig,
+		);
+		const taskReminderHandler = createSafeRuntimeHook(
+			"taskReminder",
+			() => createTaskReminderHook(hookConfig.thresholds.taskReminderThreshold),
+			hookConfig,
+		);
+		const autonomyPolicyHandler = createSafeRuntimeHook(
+			"autonomyPolicy",
+			() => createAutonomyPolicyHook(),
+			hookConfig,
+		);
+		const editSafetyAfterHook = createSafeRuntimeHook(
+			"tool.execute.after.editSafetyGuard",
+			() => createEditSafetyAfterHook(directory),
+			hookConfig,
+		);
+		const rulesInjectorLiteHook = createSafeRuntimeHook(
+			"tool.execute.after.rulesInjectorLite",
+			() =>
+				createRulesInjectorLiteHook({ getCurrentPhase: getActivePlanPhase }),
+			hookConfig,
+		);
+		const notificationChannelsHook = createSafeRuntimeHook(
+			"tool.execute.after.notificationChannels",
+			() =>
+				createNotificationChannelsHook(
+					ctx.client as unknown as NotificationClient,
 					{
-						contextLimit: hookConfig.thresholds.contextLimit,
-						thresholdRatio: hookConfig.thresholds.compactionThreshold,
+						enabled: hookConfig.notifications.enabled,
+						desktop: hookConfig.notifications.desktop,
+						quietHours: hookConfig.notifications.quietHours,
+						timezone: hookConfig.notifications.timezone,
+						privacy: hookConfig.notifications.privacy,
 					},
-				);
+				),
+			hookConfig,
+		);
+		const hashAnchorReadEnhancerHook = createSafeRuntimeHook(
+			"tool.execute.after.hashAnchorReadEnhancer",
+			() =>
+				createHashAnchorReadEnhancerHook({
+					enabled: hookConfig.features.hashAnchoredEdit,
+				}),
+			hookConfig,
+		);
+		const contextScoutAfterHook = createSafeRuntimeHook(
+			"tool.execute.after.contextScout",
+			() =>
+				createContextScoutHook({
+					enabled: hookConfig.features.contextScout,
+					stateManager: contextScoutState,
+					workspaceRoot: directory,
+				}),
+			hookConfig,
+		);
 
-				// Phase 3: Continuation & enforcement hooks
-				if (momentumHandler) await momentumHandler(input, output);
-				if (completionPromiseHandler)
-					await completionPromiseHandler(input, output);
-				if (writePolicyHandler) await writePolicyHandler(input, output);
-				if (taskReminderHandler) await taskReminderHandler(input, output);
-				if (autonomyPolicyHandler) await autonomyPolicyHandler(input, output);
-			},
-		hookConfig,
-	);
+		return createSafeRuntimeHook(
+			"tool.execute.after",
+			() =>
+				async (
+					input: {
+						tool: string;
+						sessionID: string;
+						callID: string;
+						args?: unknown;
+					},
+					output: { title: string; output: string; metadata: unknown },
+				) => {
+					const toolName = input.tool.toLowerCase();
 
-	const shellEnvHook = createSafeRuntimeHook(
-		"shell.env",
-		() => createShellEnvHook(),
-		hookConfig,
-	);
+					if (
+						toolName === "plan_save" ||
+						toolName === "plan_set_active" ||
+						toolName === "plan_archive" ||
+						toolName === "plan_unarchive" ||
+						toolName === "notepad_write" ||
+						toolName === "todowrite" ||
+						toolName === "plan_doc_link"
+					) {
+						markCompactionStateDirty(input.sessionID);
+					}
+
+					// Dynamic context-window-aware truncation (falls back to static)
+					await handleToolOutputSafetyDynamic(input, output, ctx.client);
+
+					// Edit/read safety tracking and violation telemetry
+					if (editSafetyAfterHook) await editSafetyAfterHook(input, output);
+
+					// Optional LINE#ID read-output enhancement
+					if (hashAnchorReadEnhancerHook)
+						await hashAnchorReadEnhancerHook(input, output);
+
+					// ContextScout extraction + ranked, budgeted injection
+					if (contextScoutAfterHook) await contextScoutAfterHook(input, output);
+
+					// Phase-scoped idempotent rules injection
+					if (rulesInjectorLiteHook) await rulesInjectorLiteHook(input, output);
+
+					// Optional, deduplicated notification-channel events
+					if (notificationChannelsHook)
+						await notificationChannelsHook(input, output);
+
+					// Async: verification reminders after implementer agent tasks
+					await handleVerification(input, output, directory, {
+						enabled: hookConfig.verification.autopilot,
+						throttleMs: hookConfig.verification.throttleMs,
+					});
+
+					// Preemptive compaction at 78% token usage
+					await checkPreemptiveCompaction(
+						ctx.client as unknown as CompactionClient,
+						input.sessionID,
+						directory,
+						{
+							contextLimit: hookConfig.thresholds.contextLimit,
+							thresholdRatio: hookConfig.thresholds.compactionThreshold,
+						},
+					);
+
+					// Phase 3: Continuation & enforcement hooks
+					if (momentumHandler) await momentumHandler(input, output);
+					if (completionPromiseHandler)
+						await completionPromiseHandler(input, output);
+					if (writePolicyHandler) await writePolicyHandler(input, output);
+					if (taskReminderHandler) await taskReminderHandler(input, output);
+					if (autonomyPolicyHandler) await autonomyPolicyHandler(input, output);
+				},
+			hookConfig,
+		);
+	});
+
+	const getShellEnvHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		return createSafeRuntimeHook(
+			"shell.env",
+			() => createShellEnvHook(),
+			hookConfig,
+		);
+	});
 
 	const compactionDeps: CompactionDeps = {
 		readActivePlanState: sm.readActivePlanState,
@@ -779,15 +843,21 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		getPlanDocLinks: sm.getPlanDocLinks,
 	};
 
-	const compactionHook = createSafeRuntimeHook(
-		"experimental.session.compacting",
-		() => createCompactionHook(compactionDeps),
-		hookConfig,
-	);
+	const getCompactionHook = createLazyGetter(async () => {
+		const hookConfig = await getResolvedHookConfig();
+		return createSafeRuntimeHook(
+			"experimental.session.compacting",
+			() => createCompactionHook(compactionDeps),
+			hookConfig,
+		);
+	});
 
 	// ── Worktree tools ─────────────────────────────────────
-	const worktreeTools = createWorktreeTools(directory, projectId, {
-		tmuxOrchestration: hookConfig.features.tmuxOrchestration,
+	const worktreeTools = createWorktreeTools(directory, getResolvedProjectId, {
+		resolveTmuxOrchestration: async () => {
+			const hookConfig = await getResolvedHookConfig();
+			return hookConfig.features.tmuxOrchestration;
+		},
 		onTerminalSpawn: async (input) => {
 			if (input.terminal !== "tmux") return;
 			await continuationState.setSessionTmuxMetadata({
@@ -799,47 +869,60 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		},
 	});
 
-	// ── Build hook map (only include non-null hooks) ───────
+	// ── Build hook map (lazy runtime hook resolution) ───────
 
-	const hook: Record<string, unknown> = {};
-	if (toolExecuteBeforeHook)
-		hook["tool.execute.before"] = toolExecuteBeforeHook;
-	if (toolExecuteAfterHook) hook["tool.execute.after"] = toolExecuteAfterHook;
-	if (shellEnvHook) hook["shell.env"] = shellEnvHook;
-	if (compactionHook) hook["experimental.session.compacting"] = compactionHook;
-	const sessionReadyNotificationHook = createSafeRuntimeHook(
-		"event.notificationChannels",
-		() =>
-			createSessionReadyNotificationHook(
-				ctx.client as unknown as NotificationClient,
-				{
-					enabled: hookConfig.notifications.enabled,
-					desktop: hookConfig.notifications.desktop,
-					quietHours: hookConfig.notifications.quietHours,
-					timezone: hookConfig.notifications.timezone,
-					privacy: hookConfig.notifications.privacy,
-				},
-			),
-		hookConfig,
-	);
-	const inputNeededNotificationHook = createSafeRuntimeHook(
-		"event.notificationChannels.inputNeeded",
-		() =>
-			createInputNeededNotificationHook(
-				ctx.client as unknown as NotificationClient,
-				{
-					enabled: hookConfig.notifications.enabled,
-					desktop: hookConfig.notifications.desktop,
-					quietHours: hookConfig.notifications.quietHours,
-					timezone: hookConfig.notifications.timezone,
-					privacy: hookConfig.notifications.privacy,
-				},
-			),
-		hookConfig,
-	);
+	const hook: Record<string, unknown> = {
+		"tool.execute.before": async (
+			input: { tool: string; sessionID: string; callID: string },
+			output: { args: Record<string, unknown> },
+		) => {
+			const toolExecuteBeforeHook = await getToolExecuteBeforeHook();
+			if (toolExecuteBeforeHook) {
+				await toolExecuteBeforeHook(input, output);
+			}
+		},
+		"tool.execute.after": async (
+			input: {
+				tool: string;
+				sessionID: string;
+				callID: string;
+				args?: unknown;
+			},
+			output: { title: string; output: string; metadata: unknown },
+		) => {
+			const toolExecuteAfterHook = await getToolExecuteAfterHook();
+			if (toolExecuteAfterHook) {
+				await toolExecuteAfterHook(input, output);
+			}
+		},
+		"shell.env": async (
+			input: { cwd: string },
+			output: { env: Record<string, string> },
+		) => {
+			const shellEnvHook = await getShellEnvHook();
+			if (shellEnvHook) {
+				await shellEnvHook(input, output);
+			}
+		},
+		"experimental.session.compacting": async (
+			input: { sessionID: string },
+			output: { context: string[]; prompt?: string },
+		) => {
+			const compactionHook = await getCompactionHook();
+			if (compactionHook) {
+				await compactionHook(input, output);
+			}
+		},
+	};
 
 	const eventHook = async (payload: { event?: unknown }) => {
-		if (sessionReadyNotificationHook && isSessionIdleEvent(payload.event)) {
+		if (isSessionIdleEvent(payload.event)) {
+			const sessionReadyNotificationHook =
+				await getSessionReadyNotificationHook();
+			if (!sessionReadyNotificationHook) {
+				return;
+			}
+
 			const sessionID = payload.event.properties.sessionID;
 			if (!sessionID) return;
 			createLogger("workspace.completion-guard").debug(
@@ -884,7 +967,13 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			return;
 		}
 
-		if (inputNeededNotificationHook && isPermissionEvent(payload.event)) {
+		if (isPermissionEvent(payload.event)) {
+			const inputNeededNotificationHook =
+				await getInputNeededNotificationHook();
+			if (!inputNeededNotificationHook) {
+				return;
+			}
+
 			const sessionID = getEventSessionID(payload.event.properties);
 			if (!sessionID) return;
 
@@ -962,6 +1051,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe("Replacement content for the anchored line range."),
 				},
 				async execute(args) {
+					const hookConfig = await getResolvedHookConfig();
 					const anchors = args.anchors
 						.split(/[,\n]/)
 						.map((value) => value.trim())
@@ -1362,6 +1452,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 					// 2. Fall back to legacy session-scoped plan
 					const rootID = await getRootSessionID(toolCtx.sessionID);
+					const legacyBaseDir = await getLegacyBaseDir();
 					const legacyPlanPath = join(legacyBaseDir, rootID, "plan.md");
 					try {
 						const legacyFile = Bun.file(legacyPlanPath);
@@ -2074,6 +2165,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						),
 				},
 				async execute(args, toolCtx) {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.continuationCommands) {
 						return "❌ continuation_status is disabled. Enable features.continuationCommands in workspace.json.";
 					}
@@ -2112,6 +2204,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe("Optional idempotency key for safe retries."),
 				},
 				async execute(args, toolCtx) {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.continuationCommands) {
 						return "❌ continuation_continue is disabled. Enable features.continuationCommands in workspace.json.";
 					}
@@ -2157,6 +2250,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe("Optional idempotency key for safe retries."),
 				},
 				async execute(args, toolCtx) {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.continuationCommands) {
 						return "❌ continuation_handoff is disabled. Enable features.continuationCommands in workspace.json.";
 					}
@@ -2202,6 +2296,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe("Optional idempotency key for safe retries."),
 				},
 				async execute(args, toolCtx) {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.continuationCommands) {
 						return "❌ continuation_stop is disabled. Enable features.continuationCommands in workspace.json.";
 					}
@@ -2236,6 +2331,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe("Optional MCP server ID filter."),
 				},
 				async execute(args) {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.mcpOAuthHelper) {
 						return "❌ mcp_oauth_helper is disabled. Enable features.mcpOAuthHelper in workspace.json.";
 					}
@@ -2255,6 +2351,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					"Inspect mcp0 facade configuration and report readiness/fallback guidance.",
 				args: {},
 				async execute() {
+					const hookConfig = await getResolvedHookConfig();
 					if (!hookConfig.features.mcpOAuthHelper) {
 						return "❌ mcp0_health is disabled. Enable features.mcpOAuthHelper in workspace.json.";
 					}
