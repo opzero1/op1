@@ -86,6 +86,7 @@ import {
 	PLAN_CONTEXT_PRIMARY_KINDS,
 	type PlanContextPatch,
 	type PlanDocType,
+	type PlanFileChangeItem,
 	type PlanQuestionAnswer,
 } from "./plan/state.js";
 import { autoUpdatePlanStatus, calculatePlanStatus } from "./plan/status.js";
@@ -448,6 +449,46 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		};
 	}
 
+	function parsePlanFileChangeInput(value: unknown): PlanFileChangeItem | null {
+		if (!value || typeof value !== "object") return null;
+
+		const raw = value as Record<string, unknown>;
+		if (typeof raw.path !== "string" || raw.path.trim().length === 0) {
+			return null;
+		}
+		if (
+			raw.operation !== "add" &&
+			raw.operation !== "edit" &&
+			raw.operation !== "delete"
+		) {
+			return null;
+		}
+
+		const reasonCandidate =
+			typeof raw.reason === "string"
+				? raw.reason
+				: typeof raw.why === "string"
+					? raw.why
+					: undefined;
+		if (!reasonCandidate || reasonCandidate.trim().length === 0) {
+			return null;
+		}
+
+		return {
+			path: raw.path.trim(),
+			operation: raw.operation,
+			reason: reasonCandidate.trim(),
+			pattern:
+				typeof raw.pattern === "string" && raw.pattern.trim().length > 0
+					? raw.pattern.trim()
+					: undefined,
+			source:
+				typeof raw.source === "string" && raw.source.trim().length > 0
+					? raw.source.trim()
+					: undefined,
+		};
+	}
+
 	function formatPlanContextBlock(
 		context: PlanContextPatch & { plan_name?: string },
 	): string {
@@ -539,6 +580,24 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					sections.push(
 						...pattern.code_example.split("\n").map((line) => `    ${line}`),
 					);
+				}
+			}
+		}
+
+		const fileChangeMap = context.file_change_map ?? [];
+		if (fileChangeMap.length > 0) {
+			sections.push("", "File operation map:");
+			for (const item of fileChangeMap) {
+				sections.push(`- [${item.operation}] ${item.path}: ${item.reason}`);
+				const details: string[] = [];
+				if (item.source) {
+					details.push(`source: ${item.source}`);
+				}
+				if (item.pattern) {
+					details.push(`pattern: ${item.pattern}`);
+				}
+				if (details.length > 0) {
+					sections.push(`  ${details.join("; ")}`);
 				}
 			}
 		}
@@ -1785,6 +1844,12 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						.describe(
 							"JSON array of approved pattern example objects, including optional source_type and code_example guidance.",
 						),
+					file_change_map_json: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"JSON array of file-operation items with path, operation (add/edit/delete), and reason/why.",
+						),
 				},
 				async execute(args, toolCtx) {
 					if (!toolCtx?.sessionID) {
@@ -1810,6 +1875,11 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 							value: args.pattern_examples_json,
 							label: "pattern_examples_json",
 							mapper: parsePatternExampleInput,
+						});
+						const fileChangeMap = parseJsonArrayArg({
+							value: args.file_change_map_json,
+							label: "file_change_map_json",
+							mapper: parsePlanFileChangeInput,
 						});
 
 						const patch: PlanContextPatch = {
@@ -1839,6 +1909,8 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 								questionAnswers.length > 0 ? questionAnswers : undefined,
 							pattern_examples:
 								patternExamples.length > 0 ? patternExamples : undefined,
+							file_change_map:
+								fileChangeMap.length > 0 ? fileChangeMap : undefined,
 						};
 
 						const context = await sm.syncPlanContext(planName, patch);

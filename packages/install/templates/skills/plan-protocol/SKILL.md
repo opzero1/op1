@@ -14,6 +14,8 @@ When creating or updating a plan, ensure:
 - [ ] YAML frontmatter with `status`, `phase`, `updated`
 - [ ] `## Goal` section (one sentence)
 - [ ] `## Context & Decisions` table with citations (`ref:delegation-id`)
+- [ ] `## Execution Contract` section with the chosen pattern, approved implementation reference, and handoff rules
+- [ ] `## File Change Map` section with explicit add/edit/delete intent (or `none`)
 - [ ] Phases with status markers: `[COMPLETE]`, `[IN PROGRESS]`, `[PENDING]`
 - [ ] Tasks with hierarchical numbering (1.1, 1.2, 2.1)
 - [ ] Only ONE task marked `← CURRENT`
@@ -57,6 +59,19 @@ ONE_SENTENCE_DESCRIBING_OUTCOME
 | Decision | Rationale | Source |
 |----------|-----------|--------|
 | CHOICE | WHY | `ref:DELEGATION_ID` |
+
+## Execution Contract
+- **Primary kind:** KIND
+- **Active overlays:** OVERLAYS_OR_NONE
+- **Chosen pattern:** PATTERN_SUMMARY
+- **Approved implementation reference:** FILES_OR_SYMBOLS
+- **Missing-context behavior:** WHAT_/WORK_DOES_IF_BLOCKED
+
+## File Change Map
+- **EDIT** `path/to/file.ts` — WHY_THIS_FILE_CHANGES
+- **ADD** `path/to/new-file.ts` — WHY_IT_IS_NEW
+- **DELETE** `path/to/old-file.ts` — WHY_IT_CAN_BE_REMOVED
+- **NONE** — use this when no file additions, edits, or deletions are planned yet
 
 ## Phase 1: NAME [STATUS_MARKER]
 - [x] 1.1 Completed task
@@ -175,6 +190,18 @@ Add JWT authentication with refresh token support
 | Use bcrypt (12 rounds) | Industry standard, balance of security/speed | `ref:swift-amber-falcon` |
 | JWT with refresh tokens | Stateless auth, mobile-friendly | `ref:calm-jade-owl` |
 
+## Execution Contract
+- **Primary kind:** implementation
+- **Active overlays:** deep-grill
+- **Chosen pattern:** Follow the existing auth module layout and extend token persistence in-place
+- **Approved implementation reference:** `src/auth/module.ts`, `src/auth/service.ts`, `issueRefreshToken`
+- **Missing-context behavior:** Stop and ask one targeted question before saving the plan
+
+## File Change Map
+- **EDIT** `src/auth/service.ts` — add refresh-token issuance to the existing login flow
+- **EDIT** `src/auth/module.ts` — wire the refresh-token dependency through the current auth module
+- **ADD** `src/auth/refresh-token.repository.ts` — isolate refresh-token persistence behind the existing auth package boundary
+
 ## Phase 1: Research [COMPLETE]
 - [x] 1.1 Research auth patterns → `ref:swift-amber-falcon`
 - [x] 1.2 Evaluate token strategies → `ref:calm-jade-owl`
@@ -254,6 +281,8 @@ Before calling `plan_save`, verify:
 - [ ] **Frontmatter:** Has status, phase, and updated date?
 - [ ] **Goal:** Is there a clear, one-sentence goal?
 - [ ] **Citations:** Are all research-based decisions cited with `ref:id`?
+- [ ] **Execution Contract:** Does the plan name the chosen pattern, approved reference, and missing-context behavior?
+- [ ] **File Change Map:** Does it say what is added, edited, deleted, or explicitly `none`?
 - [ ] **Single CURRENT:** Is exactly one task marked `← CURRENT`?
 - [ ] **Valid markers:** Do all phases use valid status markers?
 - [ ] **Hierarchical IDs:** Are tasks numbered correctly (1.1, 1.2, 2.1)?
