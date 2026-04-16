@@ -5,6 +5,15 @@
  */
 
 export {
+	executeWorktreeCleanup,
+	isDirtyWorktree,
+	parseWorktreeList,
+	type WorktreeBranchAction,
+	type WorktreeCleanupInput,
+	type WorktreeCleanupResult,
+	type WorktreeListEntry,
+} from "./operations.js";
+export {
 	escapeAppleScript,
 	escapeShell,
 	FileMutex,

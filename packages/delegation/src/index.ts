@@ -1,6 +1,10 @@
 import { copyFile, lstat, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { type Plugin, tool } from "@opencode-ai/plugin";
+import {
+	executeWorktreeCleanup,
+	type WorktreeBranchAction,
+} from "../../workspace/src/worktree/index.js";
 import { summarizeAgentStatus } from "./agent-status.js";
 import { join, mkdir } from "./bun-compat.js";
 import { generateTaskID } from "./ids.js";
@@ -876,6 +880,15 @@ async function buildDiffSummary(task: TaskRecord): Promise<string> {
 	if (!execution) return "Diff summary unavailable.";
 
 	if (execution.mode === "worktree") {
+		if (
+			execution.worktree_path &&
+			!(await pathExists(execution.worktree_path))
+		) {
+			return task.result?.trim()
+				? "Diff summary unavailable; inspect the task result for details."
+				: "Diff summary unavailable.";
+		}
+
 		const changedFiles = await listChangedFilesAgainstBase(execution);
 		if (changedFiles.length > 0) {
 			const visibleFiles = changedFiles.slice(0, 5).join(", ");
@@ -1520,6 +1533,97 @@ function appendResultNote(result: string | undefined, note: string): string {
 	return base && base.length > 0 ? `${base}\n\n${note}` : note;
 }
 
+function isWorktreeExecution(
+	execution: TaskExecutionRecord | undefined,
+): execution is TaskExecutionRecord & {
+	mode: "worktree";
+	branch: string;
+	worktree_path: string;
+} {
+	return (
+		execution?.mode === "worktree" &&
+		typeof execution.branch === "string" &&
+		execution.branch.length > 0 &&
+		typeof execution.worktree_path === "string" &&
+		execution.worktree_path.length > 0
+	);
+}
+
+function buildCleanupSuccessNote(
+	branchAction: WorktreeBranchAction,
+	cleanup: Awaited<ReturnType<typeof executeWorktreeCleanup>>,
+): string {
+	const location =
+		cleanup.relativePath ?? cleanup.worktreePath ?? cleanup.branch;
+	const parts = [`Automatic cleanup removed worktree ${location}.`];
+	if (cleanup.snapshotCommitted) {
+		parts.push(
+			"Uncommitted worktree changes were snapshot-committed before deletion.",
+		);
+	} else if (cleanup.snapshotRequested && !cleanup.hadDirtyChanges) {
+		parts.push("No worktree changes needed snapshotting.");
+	}
+
+	if (branchAction === "delete_safe") {
+		if (cleanup.branchDeleted) {
+			parts.push(`Deleted branch ${cleanup.branch}.`);
+		} else if (cleanup.branchDeleteError) {
+			parts.push(
+				`Preserved branch ${cleanup.branch}: ${cleanup.branchDeleteError}`,
+			);
+		}
+	} else {
+		parts.push(`Preserved branch ${cleanup.branch} for inspection.`);
+	}
+
+	return parts.join(" ");
+}
+
+function buildCleanupFailureNote(
+	task: TaskRecord,
+	cleanup: Awaited<ReturnType<typeof executeWorktreeCleanup>>,
+): string {
+	const location =
+		cleanup.worktreePath ??
+		task.execution?.worktree_path ??
+		"the worker worktree";
+	return `Automatic cleanup could not remove ${location}: ${cleanup.error ?? "unknown cleanup error"} Worktree and branch were preserved.`;
+}
+
+async function settleWorktreeCleanup(
+	primaryDirectory: string,
+	state: TaskStateManager,
+	task: TaskRecord,
+	branchAction: WorktreeBranchAction,
+): Promise<TaskRecord> {
+	if (!isWorktreeExecution(task.execution)) {
+		return task;
+	}
+
+	const cleanup = await executeWorktreeCleanup({
+		directory: primaryDirectory,
+		branch: task.execution.branch,
+		worktreePath: task.execution.worktree_path,
+		snapshot: true,
+		branchAction,
+	});
+	const note = cleanup.ok
+		? buildCleanupSuccessNote(branchAction, cleanup)
+		: buildCleanupFailureNote(task, cleanup);
+	const nextExecution =
+		cleanup.ok && task.execution
+			? {
+					...task.execution,
+					effective_root_path: primaryDirectory,
+				}
+			: task.execution;
+
+	return state.updateTask(task.id, {
+		execution: nextExecution,
+		result: appendResultNote(task.result, note),
+	});
+}
+
 async function integrateWorktreeTask(
 	primaryDirectory: string,
 	state: TaskStateManager,
@@ -1592,12 +1696,18 @@ async function integrateWorktreeTask(
 			execution: nextExecution,
 			assignment: nextVerificationAssignment,
 		});
-		return state.transitionTask(task.id, "succeeded", {
+		const succeeded = await state.transitionTask(task.id, "succeeded", {
 			result: appendResultNote(
 				resultText,
 				"No worktree edits were produced; verification and merge were skipped.",
 			),
 		});
+		return settleWorktreeCleanup(
+			primaryDirectory,
+			state,
+			succeeded,
+			"delete_safe",
+		);
 	}
 
 	if (!verificationCommand) {
@@ -1617,13 +1727,14 @@ async function integrateWorktreeTask(
 			execution: nextExecution,
 			assignment: nextVerificationAssignment,
 		});
-		return state.transitionTask(task.id, "failed", {
+		const failed = await state.transitionTask(task.id, "failed", {
 			result: appendResultNote(
 				resultText,
 				"Worktree integration failed: no default verification command could be derived.",
 			),
 			error: "No default verification command could be derived.",
 		});
+		return settleWorktreeCleanup(primaryDirectory, state, failed, "keep");
 	}
 
 	const worktreeDirty = await hasUncommittedChanges(execution.worktree_path);
@@ -1633,13 +1744,14 @@ async function integrateWorktreeTask(
 			execution.worktree_path,
 		);
 		if (snapshot.code !== 0) {
-			return state.transitionTask(task.id, "failed", {
+			const failed = await state.transitionTask(task.id, "failed", {
 				result: appendResultNote(
 					resultText,
 					"Worktree integration failed: unable to stage worker changes.",
 				),
 				error: snapshot.stderr.trim() || "Failed to stage worker changes.",
 			});
+			return settleWorktreeCleanup(primaryDirectory, state, failed, "keep");
 		}
 
 		const commit = await runGitCommand(
@@ -1655,13 +1767,14 @@ async function integrateWorktreeTask(
 			execution.worktree_path,
 		);
 		if (commit.code !== 0) {
-			return state.transitionTask(task.id, "failed", {
+			const failed = await state.transitionTask(task.id, "failed", {
 				result: appendResultNote(
 					resultText,
 					"Worktree integration failed: unable to snapshot worker changes.",
 				),
 				error: commit.stderr.trim() || "Failed to snapshot worker changes.",
 			});
+			return settleWorktreeCleanup(primaryDirectory, state, failed, "keep");
 		}
 	}
 
@@ -1688,13 +1801,14 @@ async function integrateWorktreeTask(
 			execution: nextExecution,
 			assignment: nextVerificationAssignment,
 		});
-		return state.transitionTask(task.id, "failed", {
+		const failed = await state.transitionTask(task.id, "failed", {
 			result: appendResultNote(
 				resultText,
 				`Verification failed in worktree using \`${verificationCommand}\`.`,
 			),
 			error: verification.stderr.trim() || "Verification failed.",
 		});
+		return settleWorktreeCleanup(primaryDirectory, state, failed, "keep");
 	}
 
 	const repoRoot = primaryDirectory;
@@ -1817,21 +1931,33 @@ async function integrateWorktreeTask(
 	});
 
 	if (isManagerOwnedCAIDTask(task)) {
-		return state.transitionTask(task.id, "blocked", {
+		const blocked = await state.transitionTask(task.id, "blocked", {
 			result: appendResultNote(
 				resultText,
 				`Verified with \`${verificationCommand}\` and merged branch ${execution.branch} into ${execution.base_branch}. Formal manager review is now pending. Continue the same task with the reviewer agent to complete the workflow.`,
 			),
 			error: "Manager review pending.",
 		});
+		return settleWorktreeCleanup(
+			primaryDirectory,
+			state,
+			blocked,
+			"delete_safe",
+		);
 	}
 
-	return state.transitionTask(task.id, "succeeded", {
+	const succeeded = await state.transitionTask(task.id, "succeeded", {
 		result: appendResultNote(
 			resultText,
 			`Verified with \`${verificationCommand}\` and merged branch ${execution.branch} into ${execution.base_branch}.`,
 		),
 	});
+	return settleWorktreeCleanup(
+		primaryDirectory,
+		state,
+		succeeded,
+		"delete_safe",
+	);
 }
 
 function getToolCallID(toolCtx: DelegationToolContext): string | null {
@@ -2484,11 +2610,17 @@ export const DelegationPlugin: Plugin = async (ctx: {
 				const terminal = await state.transitionTask(task.id, "failed", {
 					error: getEventError(runtimeEvent),
 				});
+				const cleaned = await settleWorktreeCleanup(
+					ctx.directory,
+					state,
+					terminal,
+					"keep",
+				);
 				await handleRootFollowThrough(
 					client,
 					state,
 					workspaceDir,
-					terminal,
+					cleaned,
 					logger,
 				);
 				await queuePromotionPass();
@@ -2501,11 +2633,17 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						? "Task session interrupted."
 						: "Task session deleted.",
 			});
+			const cleaned = await settleWorktreeCleanup(
+				ctx.directory,
+				state,
+				terminal,
+				"keep",
+			);
 			await handleRootFollowThrough(
 				client,
 				state,
 				workspaceDir,
-				terminal,
+				cleaned,
 				logger,
 			);
 			await queuePromotionPass();

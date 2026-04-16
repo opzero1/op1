@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstat } from "node:fs/promises";
 import { join, mkdir, mkdtemp, rm, stat, tmpdir } from "../bun-compat";
 import { runCommand } from "../utils";
+import { executeWorktreeCleanup } from "../worktree/operations";
 import { createWorktreeTools } from "../worktree/tools";
 
 const tempRoots: string[] = [];
@@ -115,6 +116,9 @@ describe("worktree delete safety", () => {
 		);
 		expect(forced).toContain("✅ Worktree deleted");
 		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "branch", "--list", branch], repo),
+		).toContain(branch);
 	});
 
 	test("blocks deletion when only ignored files exist unless force=true", async () => {
@@ -142,6 +146,57 @@ describe("worktree delete safety", () => {
 		);
 		expect(forced).toContain("✅ Worktree deleted");
 		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "branch", "--list", branch], repo),
+		).toContain(branch);
+	});
+
+	test("safely deletes no-op branches when cleanup requests branch removal", async () => {
+		const { root, repo } = await createRepositoryFixture();
+		const branch = "feature/no-op-auto-clean";
+		const worktreePath = join(root, "wt-no-op-auto-clean");
+		await runCommand(
+			["git", "worktree", "add", "-b", branch, worktreePath],
+			repo,
+		);
+
+		const result = await executeWorktreeCleanup({
+			directory: repo,
+			branch,
+			branchAction: "delete_safe",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.branchDeleted).toBe(true);
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(await runCommand(["git", "branch", "--list", branch], repo)).toBe(
+			"",
+		);
+	});
+
+	test("preserves unmerged branches when safe branch deletion refuses them", async () => {
+		const { root, repo } = await createRepositoryFixture();
+		const branch = "feature/preserve-unmerged";
+		const worktreePath = await createDirtyWorktree({
+			repo,
+			root,
+			branch,
+			marker: "wt-preserve-unmerged",
+		});
+
+		const result = await executeWorktreeCleanup({
+			directory: repo,
+			branch,
+			branchAction: "delete_safe",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.branchDeleted).toBe(false);
+		expect(result.branchDeleteError).toBeDefined();
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "branch", "--list", branch], repo),
+		).toContain(branch);
 	});
 
 	test("rejects nested worktree creation from an already-linked worktree root", async () => {

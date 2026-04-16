@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "bun:test";
 import { join, mkdir, mkdtemp, rm, tmpdir } from "../bun-compat.js";
 import { DelegationPlugin } from "../index.js";
@@ -469,7 +470,6 @@ describe("delegation plugin", () => {
 			tool?: Record<string, { execute: ToolExecute }>;
 			event?: (input: { event: unknown }) => Promise<void>;
 		};
-
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
@@ -1105,6 +1105,7 @@ describe("delegation plugin", () => {
 			tool?: Record<string, { execute: ToolExecute }>;
 			event?: (input: { event: unknown }) => Promise<void>;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
@@ -1134,8 +1135,8 @@ describe("delegation plugin", () => {
 		const worktreePath = client.getCreatedSessionDirectories()[0];
 		expect(taskID).toBeDefined();
 		expect(worktreePath).toBeDefined();
-		if (!worktreePath) {
-			throw new Error("Expected worktree path");
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
 		}
 
 		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
@@ -1147,6 +1148,16 @@ describe("delegation plugin", () => {
 			},
 		});
 
+		const updated = await state.getTask(taskID);
+		const branch = updated?.execution?.branch;
+		expect(branch).toBeDefined();
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "worktree", "list", "--porcelain"], root),
+		).not.toContain(worktreePath);
+		expect(await runCommand(["git", "branch", "--list", branch!], root)).toBe(
+			"",
+		);
 		expect(await runCommand(["git", "show", "HEAD:feature.txt"], root)).toBe(
 			"new feature",
 		);
@@ -1156,6 +1167,76 @@ describe("delegation plugin", () => {
 		);
 		expect(output).toContain("Task completed.");
 		expect(output).toContain("Verified with `npm test` and merged branch");
+		expect(output).toContain("Automatic cleanup removed worktree");
+	});
+
+	test("cleans up no-op worktrees and deletes no-op branches on session idle", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-no-op-cleanup-"));
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "no-op-cleanup-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Implement the helper if needed.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const updated = await state.getTask(taskID);
+		const branch = updated?.execution?.branch;
+		expect(updated?.status).toBe("succeeded");
+		expect(branch).toBeDefined();
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "worktree", "list", "--porcelain"], root),
+		).not.toContain(worktreePath);
+		expect(await runCommand(["git", "branch", "--list", branch!], root)).toBe(
+			"",
+		);
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("No worktree edits were produced");
+		expect(output).toContain("Automatic cleanup removed worktree");
 	});
 
 	test("keeps tiny frontend tasks running while the child session is still active", async () => {
@@ -1253,6 +1334,7 @@ describe("delegation plugin", () => {
 			tool?: Record<string, { execute: ToolExecute }>;
 			event?: (input: { event: unknown }) => Promise<void>;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
@@ -1321,6 +1403,7 @@ describe("delegation plugin", () => {
 			tool?: Record<string, { execute: ToolExecute }>;
 			event?: (input: { event: unknown }) => Promise<void>;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
@@ -1378,6 +1461,7 @@ describe("delegation plugin", () => {
 			tool?: Record<string, { execute: ToolExecute }>;
 			event?: (input: { event: unknown }) => Promise<void>;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const taskTool = plugin.tool?.task as { execute: ToolExecute };
 		const backgroundOutputTool = plugin.tool?.background_output as {
@@ -1396,8 +1480,8 @@ describe("delegation plugin", () => {
 		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
 		const worktreePath = client.getCreatedSessionDirectories()[0];
 		expect(taskID).toBeDefined();
-		if (!worktreePath) {
-			throw new Error("Expected worktree path");
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
 		}
 
 		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
@@ -1409,6 +1493,14 @@ describe("delegation plugin", () => {
 			},
 		});
 
+		const updated = await state.getTask(taskID);
+		const branch = updated?.execution?.branch;
+		expect(branch).toBeDefined();
+		expect(updated?.result).toContain("Preserved branch");
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "branch", "--list", branch!], root),
+		).toContain(branch!);
 		expect(await Bun.file(join(root, "feature.txt")).exists()).toBe(false);
 		const output = await backgroundOutputTool.execute(
 			{ task_id: taskID, full_session: false },
@@ -1416,6 +1508,75 @@ describe("delegation plugin", () => {
 		);
 		expect(output).toContain("Status: failed");
 		expect(output).toContain("Verification failed");
+	});
+
+	test("cleans up interrupted worktree sessions while preserving forensic branches", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-interrupt-cleanup-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "interrupt-cleanup-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{ sessionID: "parent-session", ask: async () => {} },
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		await Bun.write(join(worktreePath, "feature.txt"), "interrupted change\n");
+		await plugin.event?.({
+			event: {
+				type: "session.interrupt",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const updated = await state.getTask(taskID);
+		const branch = updated?.execution?.branch;
+		expect(updated?.status).toBe("cancelled");
+		expect(branch).toBeDefined();
+		expect(updated?.result).toContain("Automatic cleanup removed worktree");
+		expect(updated?.result).toContain("Preserved branch");
+		await expect(stat(worktreePath)).rejects.toBeTruthy();
+		expect(
+			await runCommand(["git", "branch", "--list", branch!], root),
+		).toContain(branch!);
+
+		const output = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(output).toContain("Status: cancelled");
 	});
 
 	test("routes merge conflicts back to blocked task state for retry", async () => {
@@ -1457,6 +1618,7 @@ describe("delegation plugin", () => {
 		const backgroundOutputTool = plugin.tool?.background_output as {
 			execute: ToolExecute;
 		};
+		const state = createTaskStateManager(join(root, ".opencode", "workspace"));
 
 		const launch = await taskTool.execute(
 			{
@@ -1470,8 +1632,8 @@ describe("delegation plugin", () => {
 		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
 		const worktreePath = client.getCreatedSessionDirectories()[0];
 		expect(taskID).toBeDefined();
-		if (!worktreePath) {
-			throw new Error("Expected worktree path");
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
 		}
 
 		await Bun.write(join(worktreePath, "conflict.txt"), "worker change\n");
@@ -1503,6 +1665,9 @@ describe("delegation plugin", () => {
 			{ task_id: taskID, full_session: false },
 			{ sessionID: "parent-session" },
 		);
+		const updated = await state.getTask(taskID);
+		expect(updated?.execution?.worktree_path).toBe(worktreePath);
+		expect((await stat(worktreePath)).isDirectory()).toBe(true);
 		expect(output).toContain("Status: blocked");
 		expect(output).toContain("Merge conflict");
 	});

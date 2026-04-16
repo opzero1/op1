@@ -18,6 +18,11 @@ import {
 } from "../bun-compat.js";
 
 import { runCommand } from "../utils.js";
+import {
+	executeWorktreeCleanup,
+	isDirtyWorktree,
+	parseWorktreeList,
+} from "./operations.js";
 import { sanitizeBranchName, withTimeout } from "./primitives.js";
 import { createWorktreeDB, type WorktreeDB } from "./state.js";
 import { spawnTerminal, type TerminalKind } from "./terminal.js";
@@ -110,50 +115,6 @@ async function getUnsafeDependencyBootstrapMessage(
 	}
 
 	return undefined;
-}
-
-function parseWorktreeList(output: string): Array<{
-	path: string;
-	head: string;
-	branch: string;
-}> {
-	const worktrees: Array<{ path: string; head: string; branch: string }> = [];
-	let current: Partial<{ path: string; head: string; branch: string }> = {};
-
-	for (const line of output.split("\n")) {
-		if (line.startsWith("worktree ")) {
-			if (current.path) {
-				worktrees.push(
-					current as { path: string; head: string; branch: string },
-				);
-			}
-			current = { path: line.slice(9) };
-			continue;
-		}
-
-		if (line.startsWith("HEAD ")) {
-			current.head = line.slice(5, 12);
-			continue;
-		}
-
-		if (line.startsWith("branch ")) {
-			current.branch = line.slice(7).replace("refs/heads/", "");
-		}
-	}
-
-	if (current.path) {
-		worktrees.push(current as { path: string; head: string; branch: string });
-	}
-
-	return worktrees;
-}
-
-async function isDirtyWorktree(worktreePath: string): Promise<boolean> {
-	const status = await runCommand(
-		["git", "status", "--porcelain"],
-		worktreePath,
-	);
-	return status.trim().length > 0;
 }
 
 async function isLinkedWorktree(directory: string): Promise<boolean> {
@@ -509,120 +470,27 @@ export function createWorktreeTools(
 			async execute(args, _toolCtx) {
 				const branch = args.branch.trim();
 				const shouldSnapshot = args.snapshot !== false;
-				const force = args.force === true;
-				let snapshotCommitted = false;
-				let hadDirtyChanges = false;
 
 				try {
-					// Find the worktree path
-					const output = await runCommand(
-						["git", "worktree", "list", "--porcelain"],
+					const result = await executeWorktreeCleanup({
 						directory,
-					);
+						branch,
+						snapshot: shouldSnapshot,
+						force: args.force === true,
+						branchAction: "keep",
+						stateDB: await getDB(),
+					});
 
-					const worktrees = parseWorktreeList(output);
-					const matched = worktrees.find((item) => item.branch === branch);
-					const worktreePath = matched?.path ?? null;
-
-					if (!worktreePath) {
-						return `❌ No worktree found for branch "${branch}".`;
+					if (!result.ok) {
+						return `❌ ${result.error}`;
 					}
 
-					// Don't allow deleting the main worktree
-					const relPath = relative(directory, worktreePath);
-					if (relPath === "" || relPath === ".") {
-						return "❌ Cannot delete the main worktree.";
-					}
-
-					const stateDB = await getDB();
-					const lifecycle = stateDB.getLifecycleState();
-					if (lifecycle?.current_worktree_path === worktreePath && !force) {
-						return "❌ Cannot delete currently entered worktree context. Leave it first or use force=true.";
-					}
-
-					// Snapshot uncommitted changes before deletion.
-					if (shouldSnapshot) {
-						const statusWithIgnored = await runCommand(
-							["git", "status", "--porcelain", "--ignored"],
-							worktreePath,
-						);
-						const statusLines = statusWithIgnored
-							.split("\n")
-							.map((line) => line.trim())
-							.filter((line) => line.length > 0);
-						const ignoredEntries = statusLines.filter((line) =>
-							line.startsWith("!! "),
-						);
-						const snapshotCandidates = statusLines.filter(
-							(line) => !line.startsWith("!! "),
-						);
-						hadDirtyChanges = snapshotCandidates.length > 0;
-
-						if (ignoredEntries.length > 0 && !force) {
-							return "❌ Worktree has ignored files that cannot be snapshotted. Deletion aborted. Use force=true to delete anyway.";
-						}
-
-						if (hadDirtyChanges) {
-							try {
-								await runCommand(["git", "add", "-A"], worktreePath);
-								await runCommand(
-									[
-										"git",
-										"commit",
-										"-m",
-										`snapshot: auto-save before worktree deletion [${branch}]`,
-									],
-									worktreePath,
-								);
-
-								snapshotCommitted = true;
-							} catch (error) {
-								const message =
-									error instanceof Error ? error.message : String(error);
-								return `❌ Failed to snapshot changes before deletion: ${message}`;
-							}
-
-							const postCommitStatus = await runCommand(
-								["git", "status", "--porcelain"],
-								worktreePath,
-							);
-							if (postCommitStatus.trim().length > 0) {
-								return "❌ Snapshot verification failed: worktree still has pending changes. Deletion aborted.";
-							}
-						}
-					}
-
-					// Remove worktree
-					const removeArgs = ["git", "worktree", "remove"];
-					if (force) {
-						removeArgs.push("--force");
-					}
-					removeArgs.push(worktreePath);
-
-					await withTimeout(
-						runCommand(removeArgs, directory),
-						15_000,
-						"git worktree remove",
-					);
-
-					// Clean up DB
-					const sessions = stateDB.listActive();
-					for (const session of sessions) {
-						if (session.branch === branch) {
-							stateDB.removeSession(session.id);
-						}
-					}
-
-					if (lifecycle?.current_worktree_path === worktreePath) {
-						stateDB.leaveSession(lifecycle.current_session_id || "", true);
-					}
-
-					const snapshotNote = snapshotCommitted
+					const snapshotNote = result.snapshotCommitted
 						? " (changes snapshot-committed)"
-						: shouldSnapshot && !hadDirtyChanges
+						: shouldSnapshot && !result.hadDirtyChanges
 							? " (no changes to snapshot)"
 							: "";
-					return `✅ Worktree deleted: ${relPath}${snapshotNote}\n📌 Branch "${branch}" still exists. Delete it with \`git branch -D ${branch}\` if no longer needed.`;
+					return `✅ Worktree deleted: ${result.relativePath}${snapshotNote}\n📌 Branch "${branch}" still exists. Delete it with \`git branch -D ${branch}\` if no longer needed.`;
 				} catch (error) {
 					const msg = error instanceof Error ? error.message : String(error);
 					return `❌ Failed to delete worktree: ${msg}`;
