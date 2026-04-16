@@ -9,12 +9,12 @@ import {
 } from "../config.js";
 import { applyFastModeServiceTier, shouldApplyFastMode } from "../runtime.js";
 import {
-	disableAllAgentFastMode,
-	getEnabledAgents,
+	disableAllFastMode,
+	getEnabledModelTargets,
 	loadFastModeState,
 	parseFastModeState,
 	saveFastModeState,
-	setAgentFastModeEnabled,
+	setModelFastModeEnabled,
 } from "../state.js";
 
 const tempRoots: string[] = [];
@@ -149,29 +149,43 @@ describe("fast mode state", () => {
 
 		const workspaceRoot = join(root, "workspace");
 		const initial = await loadFastModeState(workspaceRoot);
-		expect(initial.agents).toEqual({});
+		expect(initial.providers).toEqual({});
 
-		const enabled = setAgentFastModeEnabled(initial, "Coder", true);
+		const enabled = setModelFastModeEnabled(initial, "OpenAI", "gpt-5.4", true);
 		await saveFastModeState(workspaceRoot, enabled);
 
 		const reloaded = await loadFastModeState(workspaceRoot);
-		expect(reloaded.agents).toEqual({ coder: true });
-		expect(getEnabledAgents(reloaded)).toEqual(["coder"]);
+		expect(reloaded.providers).toEqual({
+			openai: { models: { "gpt-5.4": true } },
+		});
+		expect(getEnabledModelTargets(reloaded)).toEqual(["openai/gpt-5.4"]);
 
-		const disabled = setAgentFastModeEnabled(reloaded, "coder", false);
-		expect(disabled.agents).toEqual({});
+		const disabled = setModelFastModeEnabled(
+			reloaded,
+			"openai",
+			"gpt-5.4",
+			false,
+		);
+		expect(disabled.providers).toEqual({});
 	});
 
-	test("clears all enabled agents", () => {
+	test("clears all enabled model targets", () => {
 		const state = parseFastModeState({
-			agents: {
-				build: true,
-				coder: true,
+			providers: {
+				openai: {
+					models: {
+						"gpt-5.4": true,
+						"gpt-5.3-codex": true,
+					},
+				},
 			},
 		});
 
-		expect(disableAllAgentFastMode()).toEqual({ agents: {} });
-		expect(getEnabledAgents(state)).toEqual(["build", "coder"]);
+		expect(disableAllFastMode()).toEqual({ providers: {} });
+		expect(getEnabledModelTargets(state)).toEqual([
+			"openai/gpt-5.3-codex",
+			"openai/gpt-5.4",
+		]);
 	});
 });
 
@@ -187,8 +201,12 @@ describe("fast mode request mutation", () => {
 			},
 		});
 		const state = parseFastModeState({
-			agents: {
-				coder: true,
+			providers: {
+				openai: {
+					models: {
+						"gpt-5.3-codex": true,
+					},
+				},
 			},
 		});
 
@@ -211,7 +229,7 @@ describe("fast mode request mutation", () => {
 		expect(output.options).toEqual({ serviceTier: "priority" });
 	});
 
-	test("fails closed for disallowed model, provider, or agent toggle", () => {
+	test("fails closed for disallowed model, provider, or disabled model toggle", () => {
 		const config = parseFastModeConfig({
 			enabled: true,
 			providers: {
@@ -221,7 +239,7 @@ describe("fast mode request mutation", () => {
 				},
 			},
 		});
-		const disabledState = parseFastModeState({ agents: {} });
+		const disabledState = parseFastModeState({ providers: {} });
 
 		expect(
 			shouldApplyFastMode({
@@ -238,7 +256,11 @@ describe("fast mode request mutation", () => {
 		expect(
 			shouldApplyFastMode({
 				config,
-				state: parseFastModeState({ agents: { coder: true } }),
+				state: parseFastModeState({
+					providers: {
+						openai: { models: { "gpt-5.3-codex": true } },
+					},
+				}),
 				request: {
 					providerID: "openai",
 					modelID: "gpt-5.4",
@@ -250,7 +272,11 @@ describe("fast mode request mutation", () => {
 		expect(
 			shouldApplyFastMode({
 				config,
-				state: parseFastModeState({ agents: { coder: true } }),
+				state: parseFastModeState({
+					providers: {
+						openai: { models: { "gpt-5.3-codex": true } },
+					},
+				}),
 				request: {
 					providerID: "anthropic",
 					modelID: "gpt-5.3-codex",

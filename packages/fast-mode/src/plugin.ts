@@ -1,43 +1,66 @@
 import { type Hooks, type Plugin, tool } from "@opencode-ai/plugin";
 import { loadFastModeConfig } from "./config.js";
-import { normalizeAgentName } from "./normalize.js";
+import { normalizeModelID, normalizeProviderID } from "./normalize.js";
 import { applyFastModeServiceTier, shouldApplyFastMode } from "./runtime.js";
 import {
-	disableAllAgentFastMode,
+	disableAllFastMode,
 	type FastModeState,
-	getEnabledAgents,
-	isAgentFastModeEnabled,
+	getEnabledModelTargets,
+	isModelFastModeEnabled,
 	loadFastModeState,
+	normalizeFastModeModelTarget,
 	saveFastModeState,
-	setAgentFastModeEnabled,
+	setModelFastModeEnabled,
 } from "./state.js";
 
-function resolveToolTarget(input: {
-	target?: string;
-	fallbackAgent: string;
-}): string {
-	const target = input.target ?? input.fallbackAgent;
-	const normalized = normalizeAgentName(target);
-	if (normalized.length === 0) {
-		throw new Error("Target agent is required.");
+function parseToolTarget(
+	target: string | undefined,
+): { providerID: string; modelID: string } | undefined {
+	if (!target) return undefined;
+	const separatorIndex = target.indexOf("/");
+	if (separatorIndex <= 0 || separatorIndex === target.length - 1) {
+		throw new Error(
+			"Target must use 'provider/model' format, for example 'openai/gpt-5.4'.",
+		);
 	}
-	return normalized;
+
+	const normalizedTarget = normalizeFastModeModelTarget({
+		providerID: normalizeProviderID(target.slice(0, separatorIndex)),
+		modelID: normalizeModelID(target.slice(separatorIndex + 1)),
+	});
+
+	if (
+		normalizedTarget.providerID.length === 0 ||
+		normalizedTarget.modelID.length === 0
+	) {
+		throw new Error(
+			"Target must use 'provider/model' format, for example 'openai/gpt-5.4'.",
+		);
+	}
+
+	return normalizedTarget;
 }
 
 function formatToolStatus(input: {
 	configEnabled: boolean;
 	target?: string;
-	currentAgent: string;
 	state: FastModeState;
 }): string {
-	const enabledAgents = getEnabledAgents(input.state);
+	const enabledTargets = getEnabledModelTargets(input.state);
 	if (input.target && input.target !== "all") {
+		const target = parseToolTarget(input.target);
 		return JSON.stringify(
 			{
 				action: "status",
 				configEnabled: input.configEnabled,
 				target: input.target,
-				enabled: isAgentFastModeEnabled(input.state, input.target),
+				enabled: target
+					? isModelFastModeEnabled(
+							input.state,
+							target.providerID,
+							target.modelID,
+						)
+					: false,
 			},
 			null,
 			2,
@@ -48,12 +71,7 @@ function formatToolStatus(input: {
 		{
 			action: "status",
 			configEnabled: input.configEnabled,
-			currentAgent: input.currentAgent,
-			currentAgentEnabled: isAgentFastModeEnabled(
-				input.state,
-				input.currentAgent,
-			),
-			enabledAgents,
+			enabledTargets,
 		},
 		null,
 		2,
@@ -77,7 +95,7 @@ export const FastModePlugin: Plugin = async (ctx) => {
 
 	const fast_mode = tool({
 		description:
-			"Toggle or inspect fast mode state by agent for provider/model guarded request mutation.",
+			"Toggle or inspect fast mode state by provider/model target for guarded request mutation.",
 		args: {
 			action: tool.schema
 				.enum(["status", "on", "off"])
@@ -86,30 +104,28 @@ export const FastModePlugin: Plugin = async (ctx) => {
 				.string()
 				.optional()
 				.describe(
-					"Optional agent name. Defaults to current agent for on/off. Supports 'all' for status/off.",
+					"Optional provider/model target like 'openai/gpt-5.4'. Supports 'all' for status/off.",
 				),
 		},
-		async execute(args, toolCtx) {
+		async execute(args, _toolCtx) {
 			const config = await loadFastModeConfig(workspaceRoot);
 			const state = await readState();
-			const target = args.target ? normalizeAgentName(args.target) : undefined;
+			const target = args.target ? args.target.trim() : undefined;
 
 			if (args.action === "status") {
 				return formatToolStatus({
 					configEnabled: config.enabled,
 					target,
-					currentAgent: toolCtx.agent,
 					state,
 				});
 			}
 
 			if (args.action === "off" && target === "all") {
-				const cleared = disableAllAgentFastMode();
+				const cleared = disableAllFastMode();
 				await writeState(cleared);
 				return formatToolStatus({
 					configEnabled: config.enabled,
 					target: "all",
-					currentAgent: toolCtx.agent,
 					state: cleared,
 				});
 			}
@@ -118,13 +134,17 @@ export const FastModePlugin: Plugin = async (ctx) => {
 				return "fast_mode refused: target 'all' is only valid for status/off.";
 			}
 
-			const resolvedTarget = resolveToolTarget({
-				target,
-				fallbackAgent: toolCtx.agent,
-			});
-			const nextState = setAgentFastModeEnabled(
+			const resolvedTarget = parseToolTarget(target);
+			if (!resolvedTarget) {
+				throw new Error(
+					"Target is required for on/off and must use 'provider/model' format.",
+				);
+			}
+
+			const nextState = setModelFastModeEnabled(
 				state,
-				resolvedTarget,
+				resolvedTarget.providerID,
+				resolvedTarget.modelID,
 				args.action === "on",
 			);
 			await writeState(nextState);
@@ -132,9 +152,13 @@ export const FastModePlugin: Plugin = async (ctx) => {
 			return JSON.stringify(
 				{
 					action: args.action,
-					target: resolvedTarget,
-					enabled: isAgentFastModeEnabled(nextState, resolvedTarget),
-					enabledAgents: getEnabledAgents(nextState),
+					target: `${resolvedTarget.providerID}/${resolvedTarget.modelID}`,
+					enabled: isModelFastModeEnabled(
+						nextState,
+						resolvedTarget.providerID,
+						resolvedTarget.modelID,
+					),
+					enabledTargets: getEnabledModelTargets(nextState),
 				},
 				null,
 				2,

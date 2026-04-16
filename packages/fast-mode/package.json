@@ -9,10 +9,14 @@
 		".": {
 			"import": "./dist/fast-mode.js",
 			"types": "./dist/index.d.ts"
+		},
+		"./tui": {
+			"import": "./dist/tui.js",
+			"types": "./dist/tui/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/fast-mode.js --target bun --format esm --external @opencode-ai/plugin --external zod",
+		"build": "bun build src/index.ts --outfile dist/fast-mode.js --target bun --format esm --external @opencode-ai/plugin --external zod && bun build src/tui/index.ts --outfile dist/tui.js --target bun --format esm --external @opencode-ai/plugin --external zod && tsc --emitDeclarationOnly --declaration --declarationMap false --outDir dist",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun run build --watch"
 	},

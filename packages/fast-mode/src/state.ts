@@ -1,31 +1,63 @@
 import { join } from "node:path";
 import { z } from "zod";
-import { normalizeAgentName } from "./normalize.js";
+import { normalizeModelID, normalizeProviderID } from "./normalize.js";
 
 const fastModeStateSchema = z.object({
-	agents: z.record(z.string(), z.boolean()).optional(),
+	providers: z
+		.record(
+			z.string(),
+			z.object({
+				models: z.record(z.string(), z.boolean()).optional(),
+			}),
+		)
+		.optional(),
 });
 
 export interface FastModeState {
-	agents: Record<string, boolean>;
+	providers: Record<string, { models: Record<string, boolean> }>;
 }
 
 const fastModeStateDefaults: FastModeState = {
-	agents: {},
+	providers: {},
 };
+
+export interface FastModeModelTarget {
+	providerID: string;
+	modelID: string;
+}
+
+export function normalizeFastModeModelTarget(input: FastModeModelTarget) {
+	return {
+		providerID: normalizeProviderID(input.providerID),
+		modelID: normalizeModelID(input.modelID),
+	};
+}
 
 export function parseFastModeState(input: unknown): FastModeState {
 	const parsed = fastModeStateSchema.parse(input);
-	const agents: Record<string, boolean> = {};
+	const providers: FastModeState["providers"] = {};
 
-	for (const [agentName, enabled] of Object.entries(parsed.agents ?? {})) {
-		if (!enabled) continue;
-		const normalized = normalizeAgentName(agentName);
-		if (normalized.length === 0) continue;
-		agents[normalized] = true;
+	for (const [providerID, providerState] of Object.entries(
+		parsed.providers ?? {},
+	)) {
+		const normalizedProviderID = normalizeProviderID(providerID);
+		if (normalizedProviderID.length === 0) continue;
+
+		const models: Record<string, boolean> = {};
+		for (const [modelID, enabled] of Object.entries(
+			providerState.models ?? {},
+		)) {
+			if (!enabled) continue;
+			const normalizedModelID = normalizeModelID(modelID);
+			if (normalizedModelID.length === 0) continue;
+			models[normalizedModelID] = true;
+		}
+
+		if (Object.keys(models).length === 0) continue;
+		providers[normalizedProviderID] = { models };
 	}
 
-	return { agents };
+	return { providers };
 }
 
 export function getFastModeStatePath(directory: string): string {
@@ -37,13 +69,13 @@ export async function loadFastModeState(
 ): Promise<FastModeState> {
 	const file = Bun.file(getFastModeStatePath(directory));
 	if (!(await file.exists())) {
-		return { agents: { ...fastModeStateDefaults.agents } };
+		return { providers: { ...fastModeStateDefaults.providers } };
 	}
 
 	try {
 		return parseFastModeState(await file.json());
 	} catch {
-		return { agents: { ...fastModeStateDefaults.agents } };
+		return { providers: { ...fastModeStateDefaults.providers } };
 	}
 }
 
@@ -58,45 +90,95 @@ export async function saveFastModeState(
 	);
 }
 
-export function isAgentFastModeEnabled(
+export function isModelFastModeEnabled(
 	state: FastModeState,
-	agentName: string,
+	providerID: string,
+	modelID: string,
 ): boolean {
-	const normalized = normalizeAgentName(agentName);
-	if (normalized.length === 0) return false;
-	return state.agents[normalized] === true;
+	const normalizedTarget = normalizeFastModeModelTarget({
+		providerID,
+		modelID,
+	});
+	if (
+		normalizedTarget.providerID.length === 0 ||
+		normalizedTarget.modelID.length === 0
+	) {
+		return false;
+	}
+
+	return (
+		state.providers[normalizedTarget.providerID]?.models[
+			normalizedTarget.modelID
+		] === true
+	);
 }
 
-export function setAgentFastModeEnabled(
+export function setModelFastModeEnabled(
 	state: FastModeState,
-	agentName: string,
+	providerID: string,
+	modelID: string,
 	enabled: boolean,
 ): FastModeState {
-	const normalized = normalizeAgentName(agentName);
-	if (normalized.length === 0) {
-		throw new Error("Agent name is required for fast mode state updates.");
+	const normalizedTarget = normalizeFastModeModelTarget({
+		providerID,
+		modelID,
+	});
+	if (
+		normalizedTarget.providerID.length === 0 ||
+		normalizedTarget.modelID.length === 0
+	) {
+		throw new Error(
+			"Provider ID and model ID are required for fast mode state updates.",
+		);
 	}
+
+	const currentProvider = state.providers[normalizedTarget.providerID] ?? {
+		models: {},
+	};
 
 	if (enabled) {
 		return {
-			agents: {
-				...state.agents,
-				[normalized]: true,
+			providers: {
+				...state.providers,
+				[normalizedTarget.providerID]: {
+					models: {
+						...currentProvider.models,
+						[normalizedTarget.modelID]: true,
+					},
+				},
 			},
 		};
 	}
 
-	const nextAgents = { ...state.agents };
-	delete nextAgents[normalized];
-	return { agents: nextAgents };
+	const nextModels = { ...currentProvider.models };
+	delete nextModels[normalizedTarget.modelID];
+
+	if (Object.keys(nextModels).length === 0) {
+		const nextProviders = { ...state.providers };
+		delete nextProviders[normalizedTarget.providerID];
+		return { providers: nextProviders };
+	}
+
+	return {
+		providers: {
+			...state.providers,
+			[normalizedTarget.providerID]: {
+				models: nextModels,
+			},
+		},
+	};
 }
 
-export function disableAllAgentFastMode(): FastModeState {
-	return { agents: {} };
+export function disableAllFastMode(): FastModeState {
+	return { providers: {} };
 }
 
-export function getEnabledAgents(state: FastModeState): string[] {
-	return Object.keys(state.agents)
-		.filter((agentName) => state.agents[agentName])
+export function getEnabledModelTargets(state: FastModeState): string[] {
+	return Object.entries(state.providers)
+		.flatMap(([providerID, providerState]) =>
+			Object.keys(providerState.models)
+				.filter((modelID) => providerState.models[modelID])
+				.map((modelID) => `${providerID}/${modelID}`),
+		)
 		.sort();
 }

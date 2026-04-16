@@ -4,7 +4,7 @@ import {
 	normalizeModelID,
 	normalizeProviderID,
 } from "./normalize.js";
-import { type FastModeState, isAgentFastModeEnabled } from "./state.js";
+import { type FastModeState, isModelFastModeEnabled } from "./state.js";
 
 export interface FastModeRequest {
 	providerID: string;
@@ -35,7 +35,7 @@ export function shouldApplyFastMode(input: {
 		return false;
 	}
 
-	return isAgentFastModeEnabled(input.state, agentName);
+	return isModelFastModeEnabled(input.state, providerID, modelID);
 }
 
 export function applyFastModeServiceTier(output: {
