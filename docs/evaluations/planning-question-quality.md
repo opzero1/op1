@@ -1,10 +1,10 @@
 # Planning Question Quality Evaluation
 
-This benchmark compares planning behavior before and after the adaptive primary-kind + overlay upgrade, with extra focus on question prioritization and concrete handoff specificity.
+This benchmark compares planning behavior before and after the adaptive primary-kind + overlay upgrade, with extra focus on rich question quality, explicit pattern approvals, and concrete handoff specificity.
 
 ## Goal
 
-Measure whether `/plan` detects the right planning shape earlier, asks the right forward-facing question instead of generic planner chatter, deep-grills execution-critical gaps without showing a questionnaire, and leaves `/work` with no need to rediscover the approved contract.
+Measure whether `/plan` detects the right planning shape earlier, asks a strong set of forward-facing questions instead of a thin generic prompt, explicitly asks the human to confirm each pattern it wants to use, deep-grills execution-critical gaps without becoming lazy or generic, and leaves `/work` with no need to rediscover the approved contract.
 
 ## Evaluation Inputs
 
@@ -20,12 +20,14 @@ For the planning run:
 - whether the planner detected the right `primary_kind`
 - whether it activated the right additive `overlays`
 - whether it ran a bounded repo scout before drafting
-- whether it deep-grilled unresolved execution branches internally while still asking one question at a time
-- whether the visible question is the highest-leverage forward-facing question instead of a generic planner prompt
+- whether it deep-grilled unresolved execution branches internally while still asking a thoughtful, prioritized question set
+- whether the visible questions are forward-facing, concrete, and worth the human thinking time instead of generic planner prompts
+- whether it asked enough important questions before saving instead of stopping after one thin question
 - whether it made missing-context behavior explicit instead of leaving `/work` to guess
 - whether it made state ownership explicit instead of leaving source-of-truth questions open
 - whether it surfaced a concrete pattern decision or a bounded best-practice fallback
-- whether the approval step included concrete file references and a minimal code example
+- whether every proposed pattern got explicit human confirmation with concrete file references and a minimal code example
+- whether context-heavy approval rounds used the native `question` tool well, including inline context such as file references or fenced code snippets when needed
 - whether the saved plan named a concrete file change map with explicit add/edit/delete intent
 - whether it resolved the execution contract branches (`non_goals`, `happy_path`, `expected_outcome`, `missing_context_behavior`, `approval_readiness_rules`, `state_ownership`, `dependencies`, `triggers`, `invariants`, `tests`)
 - whether approved guidance was persisted in plan context with `primary_kind`, `overlays`, `source_type`, `code_example`, and the detailed file change map
@@ -60,8 +62,8 @@ Score each case from 0-2 on each dimension:
 
 4. `approval_quality`
    - `0`: no explicit pattern approval question
-   - `1`: asks for approval but without a useful example
-   - `2`: asks for approval with concrete references and a minimal code example
+   - `1`: asks for approval for some patterns or without a useful example
+   - `2`: asks for approval for every proposed pattern with concrete references and a minimal code example
 
 5. `persistence_quality`
    - `0`: no canonical implementation reference or adaptive context persisted
@@ -69,14 +71,14 @@ Score each case from 0-2 on each dimension:
    - `2`: stores `primary_kind`, `overlays`, execution branches, `source_type`, and `code_example`
 
 6. `deep_grill_quality`
-    - `0`: stops after the first obvious gap or dumps a questionnaire
-    - `1`: partially probes deeper branches, but misses overlay-specific gaps
-    - `2`: deep-grills unresolved execution branches while still keeping one visible question at a time
+    - `0`: stops after the first obvious gap or dumps a lazy questionnaire
+    - `1`: partially probes deeper branches, but misses overlay-specific gaps or asks weak questions
+    - `2`: deep-grills unresolved execution branches and turns them into a thoughtful, prioritized question set
 
 7. `question_quality`
-   - `0`: asks a generic planner question or asks what it should ask
-   - `1`: asks a partially useful question, but the question is broad or weakly prioritized
-   - `2`: asks one forward-facing highest-leverage question that directly resolves the next execution branch
+   - `0`: asks generic, shallow, or low-value questions
+   - `1`: asks some useful questions, but misses depth, prioritization, or clarity
+   - `2`: asks multiple forward-facing, concrete, decision-shaping questions that help the human think through the plan
 
 8. `plan_specificity`
    - `0`: saved plan remains generic and does not map file operations
@@ -111,4 +113,4 @@ The change is a win when:
 
 - This benchmark stays lightweight and repo-grounded.
 - It is acceptable to run it manually at first; the artifact exists so the comparison stays repeatable.
-- The key regressions to catch are single-mode planning, shallow questioning, generic/non-forward-facing questions, vague file scope, lost overlay context, and `/work` re-asking already confirmed branches.
+- The key regressions to catch are single-mode planning, shallow questioning, missing pattern confirmations, vague file scope, lost overlay context, and `/work` re-asking already confirmed branches.

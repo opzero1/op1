@@ -21,6 +21,8 @@
 			"packages/workspace/src/index.ts",
 			"packages/workspace/src/plan/state.ts"
 		],
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Follow existing pattern?",
 		"must_persist": [
 			"primary_kind: implementation",
@@ -51,6 +53,8 @@
 			"tests"
 		],
 		"must_do_bounded_research": true,
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Approve recommended fallback?",
 		"must_persist": [
 			"primary_kind: implementation",
@@ -80,6 +84,8 @@
 			"dependencies",
 			"tests"
 		],
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Approve recommended fallback?",
 		"must_persist": [
 			"primary_kind: prd",
@@ -110,6 +116,8 @@
 			"invariants",
 			"tests"
 		],
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Follow existing pattern?",
 		"must_persist": [
 			"primary_kind: refactor",
@@ -134,6 +142,8 @@
 			"approval_readiness_rules",
 			"tests"
 		],
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Approve recommended fallback?",
 		"must_persist": [
 			"primary_kind: interface",
@@ -156,6 +166,8 @@
 			"approval_readiness_rules",
 			"tests"
 		],
+		"min_question_count": 3,
+		"must_confirm_patterns": true,
 		"must_ask": "Follow existing pattern?",
 		"must_persist": [
 			"primary_kind: tdd",
@@ -194,6 +206,8 @@
 			"packages/install/templates/agents/build.md",
 			"packages/delegation/src/index.ts"
 		],
+		"min_question_count": 4,
+		"must_confirm_patterns": true,
 		"must_ask": "Follow existing pattern?",
 		"must_persist": [
 			"primary_kind: implementation",

@@ -15,6 +15,8 @@ interface PlanningQuestionQualityEvalCase {
 	must_capture_branches?: string[];
 	must_surface_files?: string[];
 	must_do_bounded_research?: boolean;
+	min_question_count?: number;
+	must_confirm_patterns?: boolean;
 	must_ask: string;
 	must_persist: string[];
 	must_not_reask_in_work?: boolean;
@@ -43,6 +45,13 @@ describe("planning question quality evaluation", () => {
 		expect(content).toContain("code_example");
 		expect(content).toContain("file change map");
 		expect(content).toContain("forward-facing");
+		expect(content).toContain(
+			"asked enough important questions before saving instead of stopping after one thin question",
+		);
+		expect(content).toContain(
+			"every proposed pattern got explicit human confirmation",
+		);
+		expect(content).toContain("native `question` tool");
 		expect(content).toContain("primary_kind");
 		expect(content).toContain("overlays");
 		expect(content).toContain("deep_grill_quality");
@@ -50,7 +59,7 @@ describe("planning question quality evaluation", () => {
 		expect(content).toContain("plan_specificity");
 		expect(content).toContain("handoff_reuse");
 		expect(content).toContain("execution_clarification_load");
-		expect(content).toContain("one question at a time");
+		expect(content).not.toContain("one question at a time");
 		expect(content).toContain("missing-context behavior");
 		expect(content).toContain("dependencies");
 		expect(content).toContain("state ownership");
@@ -86,6 +95,8 @@ describe("planning question quality evaluation", () => {
 		expect(repoPattern?.must_capture_branches).toContain("dependencies");
 		expect(repoPattern?.must_capture_branches).toContain("triggers");
 		expect(repoPattern?.must_capture_branches).toContain("invariants");
+		expect(repoPattern?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(repoPattern?.must_confirm_patterns).toBe(true);
 		expect(repoPattern?.must_persist).toContain("primary_kind: implementation");
 		expect(repoPattern?.must_persist).toContain("overlays: deep-grill");
 		expect(repoPattern?.must_persist).toContain("source_type: repo");
@@ -105,6 +116,8 @@ describe("planning question quality evaluation", () => {
 		expect(fallback?.must_capture_branches).toContain("triggers");
 		expect(fallback?.must_capture_branches).toContain("invariants");
 		expect(fallback?.must_capture_branches).toContain("tests");
+		expect(fallback?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(fallback?.must_confirm_patterns).toBe(true);
 		expect(fallback?.must_ask).toBe("Approve recommended fallback?");
 		expect(fallback?.must_persist).toContain("primary_kind: implementation");
 		expect(fallback?.must_persist).toContain("overlays: deep-grill");
@@ -123,6 +136,8 @@ describe("planning question quality evaluation", () => {
 				"vertical-slices",
 			]),
 		);
+		expect(prdCase?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(prdCase?.must_confirm_patterns).toBe(true);
 		expect(prdCase?.must_persist).toContain("primary_kind: prd");
 		expect(prdCase?.must_persist).toContain("file_change_map_json");
 		expect(prdCase?.must_not_reask_in_work).toBe(true);
@@ -136,6 +151,8 @@ describe("planning question quality evaluation", () => {
 			expect.arrayContaining(["refactor-sequencing", "dependency-modeling"]),
 		);
 		expect(refactorCase?.must_capture_branches).toContain("dependencies");
+		expect(refactorCase?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(refactorCase?.must_confirm_patterns).toBe(true);
 		expect(refactorCase?.must_persist).toContain(
 			"overlays: refactor-sequencing",
 		);
@@ -147,6 +164,8 @@ describe("planning question quality evaluation", () => {
 		expect(interfaceCase).toBeDefined();
 		expect(interfaceCase?.expected_primary_kind).toBe("interface");
 		expect(interfaceCase?.expected_overlays).toContain("interface-review");
+		expect(interfaceCase?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(interfaceCase?.must_confirm_patterns).toBe(true);
 		expect(interfaceCase?.must_persist).toContain("file_change_map_json");
 
 		const tddCase = cases.find((item) => item.id === "tdd-planning");
@@ -155,6 +174,8 @@ describe("planning question quality evaluation", () => {
 		expect(tddCase?.expected_overlays).toEqual(
 			expect.arrayContaining(["deep-grill", "tdd"]),
 		);
+		expect(tddCase?.min_question_count).toBeGreaterThanOrEqual(3);
+		expect(tddCase?.must_confirm_patterns).toBe(true);
 		expect(tddCase?.must_persist).toContain("file_change_map_json");
 
 		const mixedCase = cases.find(
@@ -176,6 +197,8 @@ describe("planning question quality evaluation", () => {
 		expect(mixedCase?.must_surface_files).toContain(
 			"packages/delegation/src/index.ts",
 		);
+		expect(mixedCase?.min_question_count).toBeGreaterThanOrEqual(4);
+		expect(mixedCase?.must_confirm_patterns).toBe(true);
 		expect(mixedCase?.must_not_reask_in_work).toBe(true);
 		expect(mixedCase?.must_persist).toContain("file_change_map_json");
 		expect(mixedCase?.max_execution_follow_up_questions).toBe(0);

@@ -356,7 +356,7 @@ describe("workspace notification event hook", () => {
 		expect(client.getPromptAsyncRequests()[0]?.sessionID).toBe("root-session");
 	});
 
-	test("emits a question notification toast before question tool execution", async () => {
+	test("emits a question notification toast before namespaced question tool execution", async () => {
 		const root = await mkdtemp(join(tmpdir(), "op1-notification-question-"));
 		tempRoots.push(root);
 		const toasts: Array<{ title?: string; message?: string }> = [];
@@ -380,7 +380,7 @@ describe("workspace notification event hook", () => {
 
 		await beforeHook?.(
 			{
-				tool: "question",
+				tool: "functions.question",
 				sessionID: "foreground-session",
 				callID: "call-question",
 			},
@@ -395,6 +395,46 @@ describe("workspace notification event hook", () => {
 				},
 			},
 		);
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Question for You");
+	});
+
+	test("emits a fallback question notification for plain-text assistant questions on message updates", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-notification-message-question-"),
+		);
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				sessionMessages: {
+					"foreground-session": [
+						{
+							info: { role: "assistant" },
+							parts: [
+								{
+									type: "text",
+									text: "Please confirm these 3 choices:\n1. Scope?\n2. Overlay?\n3. Evaluation breadth?",
+								},
+							],
+						},
+					],
+				},
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "foreground-session" },
+			},
+		});
 
 		expect(toasts.length).toBe(1);
 		expect(toasts[0].title).toBe("Question for You");

@@ -686,12 +686,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				await editSafetyBeforeHook(input, output);
 			}
 
-			const toolName = input.tool.toLowerCase();
-			if (
-				toolName !== "question" &&
-				toolName !== "ask_user_question" &&
-				toolName !== "askuserquestion"
-			) {
+			if (!isQuestionToolName(input.tool)) {
 				return;
 			}
 
@@ -709,6 +704,10 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				source: "tool.execute.before",
 				questionText,
 			});
+			rememberRecentQuestionToolNotification(
+				recentQuestionToolNotifications,
+				input.sessionID,
+			);
 		};
 	});
 
@@ -719,6 +718,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			continuationState.isContinuationAllowed(sessionID),
 	};
 	const joinGuardPromptFingerprints = new Map<string, string>();
+	const recentQuestionToolNotifications = new Map<string, number>();
 
 	function buildJoinGuardFingerprint(input: {
 		sessionID: string;
@@ -1023,6 +1023,42 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				},
 			);
 			await enforceIdleCompletionJoinGuard(sessionID);
+
+			const inputNeededNotificationHook =
+				await getInputNeededNotificationHook();
+			if (!inputNeededNotificationHook) {
+				return;
+			}
+
+			if (
+				hasRecentQuestionToolNotification(
+					recentQuestionToolNotifications,
+					sessionID,
+				)
+			) {
+				return;
+			}
+
+			const latestAssistantText = await getLatestAssistantMessageText(
+				ctx.client as {
+					session: {
+						messages: (input: {
+							path: { id: string };
+							query: { limit: number };
+						}) => Promise<{ data: unknown }>;
+					};
+				},
+				sessionID,
+			);
+			if (!looksLikeAssistantNeedsInput(latestAssistantText)) {
+				return;
+			}
+
+			await inputNeededNotificationHook({
+				sessionID,
+				source: payload.event.type,
+				questionText: latestAssistantText ?? undefined,
+			});
 			return;
 		}
 
@@ -2650,6 +2686,54 @@ function getEventSessionID(
 	return undefined;
 }
 
+const RECENT_QUESTION_TOOL_NOTIFICATION_TTL_MS = 15_000;
+const ASSISTANT_INPUT_NEEDED_PATTERN =
+	/\b(please confirm|decisions? to confirm|which option|which path|please choose|is this pattern okay|approve recommended fallback|follow existing pattern|i need your input|i need your decision|which do you prefer)\b/i;
+
+function rememberRecentQuestionToolNotification(
+	recentNotifications: Map<string, number>,
+	sessionID: string,
+	now: number = Date.now(),
+): void {
+	recentNotifications.set(sessionID, now);
+}
+
+function hasRecentQuestionToolNotification(
+	recentNotifications: Map<string, number>,
+	sessionID: string,
+	now: number = Date.now(),
+): boolean {
+	const timestamp = recentNotifications.get(sessionID);
+	if (timestamp === undefined) {
+		return false;
+	}
+
+	if (now - timestamp > RECENT_QUESTION_TOOL_NOTIFICATION_TTL_MS) {
+		recentNotifications.delete(sessionID);
+		return false;
+	}
+
+	return true;
+}
+
+function looksLikeAssistantNeedsInput(text: string | null): boolean {
+	if (!text) return false;
+
+	const normalized = text.trim();
+	if (!normalized) return false;
+	if (ASSISTANT_INPUT_NEEDED_PATTERN.test(normalized)) {
+		return true;
+	}
+
+	const numberedQuestions = normalized.match(/^\s*\d+\.\s+.*\?$/gm);
+	if ((numberedQuestions?.length ?? 0) > 0) {
+		return true;
+	}
+
+	const bulletedQuestions = normalized.match(/^\s*[-*]\s+.*\?$/gm);
+	return (bulletedQuestions?.length ?? 0) > 0;
+}
+
 function getFirstQuestionText(
 	args: Record<string, unknown>,
 ): string | undefined {
@@ -2663,6 +2747,22 @@ function getFirstQuestionText(
 	return typeof question === "string" && question.trim().length > 0
 		? question.trim()
 		: undefined;
+}
+
+const QUESTION_TOOL_NAMES = new Set([
+	"question",
+	"ask_user_question",
+	"askuserquestion",
+]);
+
+function isQuestionToolName(toolName: string): boolean {
+	const normalized = toolName.trim().toLowerCase();
+	if (QUESTION_TOOL_NAMES.has(normalized)) {
+		return true;
+	}
+
+	const leafName = normalized.split(".").pop();
+	return leafName ? QUESTION_TOOL_NAMES.has(leafName) : false;
 }
 
 interface DelegationTaskEventRecord {

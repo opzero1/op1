@@ -28,8 +28,9 @@ Validate that the GPT-5.4 prompt harness stays concise, grounded, and completion
   - Runs a bounded internal pattern-scout pass before drafting
   - Detects a primary kind plus any relevant overlays instead of treating planning as single-mode
   - Deep-grills unresolved execution branches internally before surfacing the next visible question
-  - Asks one question at a time when repo evidence does not settle a required branch
-  - Surfaces a concrete `follow existing pattern?` decision when a close repo match exists
+  - Uses the native `question` tool for the real multi-question round when repo evidence does not settle required branches
+  - Surfaces concrete pattern approval questions when a close repo match exists
+  - Includes short fenced code examples directly in the question text when code context helps
   - Falls back to bounded research plus one recommended example only when repo precedent is weak
   - Uses `plan-protocol`
   - Produces a compact plan with primary kind, overlays, goal, decisions, phases, blockers, testing, approved implementation reference, and explicit execution-contract branches
