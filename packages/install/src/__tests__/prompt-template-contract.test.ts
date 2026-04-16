@@ -111,6 +111,7 @@ describe("prompt template contracts", () => {
 
 	test("key commands preload skills and avoid duplicated autonomy policy text", async () => {
 		const planCommand = await readTemplate("commands", "plan.md");
+		const compactCommand = await readTemplate("commands", "compact.md");
 		const reviewCommand = await readTemplate("commands", "review.md");
 		const workCommand = await readTemplate("commands", "work.md");
 		const deslopCommand = await readTemplate("commands", "deslop.md");
@@ -160,6 +161,9 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain(
 			"planning-question-quality evaluation artifact",
 		);
+		expect(compactCommand).toContain("context-engineering");
+		expect(compactCommand).toContain("session_compact");
+		expect(compactCommand).toContain("agent: build");
 		expect(reviewCommand).toContain("code-review");
 		expect(workCommand).toContain("plan_context_read");
 		expect(workCommand).toContain("If `plan_context_read` is unavailable");
@@ -191,6 +195,7 @@ describe("prompt template contracts", () => {
 	test("command templates avoid echoing raw $ARGUMENTS in prose", async () => {
 		const commands = await Promise.all([
 			readTemplate("commands", "plan.md"),
+			readTemplate("commands", "compact.md"),
 			readTemplate("commands", "deslop.md"),
 			readTemplate("commands", "oracle.md"),
 			readTemplate("commands", "understand.md"),

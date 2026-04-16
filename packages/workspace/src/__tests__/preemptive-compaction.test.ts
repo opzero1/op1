@@ -3,6 +3,7 @@ import {
 	checkPreemptiveCompaction,
 	markCompactionStateDirty,
 	resetCompactionState,
+	runManualCompaction,
 } from "../hooks/preemptive-compaction";
 
 afterEach(() => {
@@ -105,5 +106,34 @@ describe("preemptive compaction", () => {
 			await checkPreemptiveCompaction(client, "session-dirty", "/tmp"),
 		).toBe(true);
 		expect(summarizeCount).toBe(2);
+	});
+
+	test("manual compaction starts cooldown for follow-up threshold checks", async () => {
+		let summarizeCount = 0;
+		const client = createClient({
+			messages: [
+				{
+					info: {
+						role: "assistant",
+						tokens: { input: 160_000, output: 20_000 },
+					},
+				},
+			],
+			onSummarize: () => {
+				summarizeCount += 1;
+			},
+		});
+
+		const manual = await runManualCompaction(client, "session-manual", "/tmp");
+		expect(manual.compacted).toBe(true);
+
+		const triggered = await checkPreemptiveCompaction(
+			client,
+			"session-manual",
+			"/tmp",
+		);
+
+		expect(triggered).toBe(false);
+		expect(summarizeCount).toBe(1);
 	});
 });

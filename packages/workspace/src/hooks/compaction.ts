@@ -17,6 +17,16 @@ import type {
 	PlanDocLink,
 } from "../plan/state.js";
 
+export const CODEX_COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
+
+Include:
+- Current progress and key decisions made
+- Important context, constraints, or user preferences
+- What remains to be done (clear next steps)
+- Any critical data, examples, or references needed to continue
+
+Be concise, structured, and focused on helping the next LLM seamlessly continue the work.`;
+
 // ==========================================
 // CONSTANTS
 // ==========================================
@@ -238,7 +248,7 @@ async function buildCompactionContext(
 
 /**
  * Create the experimental.session.compacting hook handler.
- * Injects active plan and notepad context into the compaction summary.
+ * Injects the codex compaction prompt plus active plan/notepad context.
  */
 export function createCompactionHook(
 	deps: CompactionDeps,
@@ -247,6 +257,7 @@ export function createCompactionHook(
 	output: { context: string[]; prompt?: string },
 ) => Promise<void> {
 	return async (_input, output) => {
+		output.prompt = CODEX_COMPACTION_PROMPT;
 		const context = await buildCompactionContext(deps);
 		if (context) {
 			output.context.push(context);

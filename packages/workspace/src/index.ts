@@ -54,6 +54,7 @@ import {
 	type CompactionClient,
 	checkPreemptiveCompaction,
 	markCompactionStateDirty,
+	runManualCompaction,
 } from "./hooks/preemptive-compaction.js";
 import { createRulesInjectorLiteHook } from "./hooks/rules-injector-lite.js";
 // ── Modules ────────────────────────────────────────────────
@@ -1336,6 +1337,40 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 						if (error instanceof Error) return `❌ ${error.message}`;
 						throw error;
 					}
+				},
+			}),
+
+			session_compact: tool({
+				description:
+					"Manually compact the current session through the existing summarization flow.",
+				args: {
+					session_id: tool.schema
+						.string()
+						.optional()
+						.describe(
+							"Optional target session ID. Defaults to the current session.",
+						),
+				},
+				async execute(args, toolCtx) {
+					const sessionID = args.session_id ?? toolCtx?.sessionID;
+					if (!sessionID) {
+						return "❌ session_compact requires sessionID. This is a system error.";
+					}
+
+					const result = await runManualCompaction(
+						ctx.client as unknown as CompactionClient,
+						sessionID,
+						directory,
+					);
+
+					return JSON.stringify(
+						{
+							session_id: sessionID,
+							...result,
+						},
+						null,
+						2,
+					);
 				},
 			}),
 

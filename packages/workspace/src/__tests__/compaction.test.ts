@@ -2,6 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { join, mkdir, mkdtemp, rm, tmpdir } from "../bun-compat";
 import { createCompactionHook } from "../hooks/compaction";
 
+const EXPECTED_CODEX_COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
+
+Include:
+- Current progress and key decisions made
+- Important context, constraints, or user preferences
+- What remains to be done (clear next steps)
+- Any critical data, examples, or references needed to continue
+
+Be concise, structured, and focused on helping the next LLM seamlessly continue the work.`;
+
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -62,6 +72,7 @@ describe("compaction hook", () => {
 		await hook({ sessionID: "session-a" }, output);
 
 		expect(output.context).toHaveLength(1);
+		expect(output.prompt).toBe(EXPECTED_CODEX_COMPACTION_PROMPT);
 		expect(output.context[0]).toContain("<workspace-context>");
 		expect(output.context[0]).toContain("Workflow Plan");
 		expect(output.context[0]).toContain(
@@ -84,5 +95,6 @@ describe("compaction hook", () => {
 		await hook({ sessionID: "session-b" }, output);
 
 		expect(output.context).toHaveLength(0);
+		expect(output.prompt).toBe(EXPECTED_CODEX_COMPACTION_PROMPT);
 	});
 });

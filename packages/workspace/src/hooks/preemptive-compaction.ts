@@ -155,6 +155,45 @@ export async function checkPreemptiveCompaction(
 	}
 }
 
+export async function runManualCompaction(
+	client: CompactionClient,
+	sessionID: string,
+	directory: string,
+): Promise<{ compacted: boolean; message: string }> {
+	if (compactionInProgress.has(sessionID)) {
+		return {
+			compacted: false,
+			message: "Compaction is already in progress for this session.",
+		};
+	}
+
+	compactionInProgress.add(sessionID);
+
+	try {
+		await client.session.summarize({
+			path: { id: sessionID },
+			query: { directory },
+		});
+
+		lastCompactionAt.set(sessionID, Date.now());
+		return {
+			compacted: true,
+			message: "Session compaction completed.",
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		logger.error(
+			`[workspace] Manual compaction failed for session ${sessionID}: ${message}`,
+		);
+		return {
+			compacted: false,
+			message: `Manual compaction failed: ${message}`,
+		};
+	} finally {
+		compactionInProgress.delete(sessionID);
+	}
+}
+
 /**
  * Mark session context as changed (plan/todo/notepad updates).
  * This clears cooldown so compaction can run again immediately if needed.
