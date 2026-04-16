@@ -1,5 +1,25 @@
 import type { FullSessionFormatOptions, SessionMessage } from "./types.js";
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object"
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function readStringField(
+	record: Record<string, unknown>,
+	keys: string[],
+): string | undefined {
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === "string" && value.trim().length > 0) {
+			return value.trim();
+		}
+	}
+
+	return undefined;
+}
+
 export interface SessionActivitySummary {
 	read_count: number;
 	search_count: number;
@@ -55,6 +75,47 @@ function parseIso(input: unknown): string | undefined {
 		: undefined;
 }
 
+function readSessionMessageModel(
+	info: Record<string, unknown>,
+): Pick<SessionMessage, "providerID" | "modelID" | "variant"> {
+	const nestedModel = asRecord(info.model);
+	if (nestedModel) {
+		const providerID = readStringField(nestedModel, [
+			"providerID",
+			"providerId",
+			"provider_id",
+		]);
+		const modelID = readStringField(nestedModel, [
+			"modelID",
+			"modelId",
+			"model_id",
+		]);
+		if (providerID && modelID) {
+			return {
+				providerID,
+				modelID,
+				variant:
+					readStringField(nestedModel, ["variant"]) ??
+					readStringField(info, ["variant"]),
+			};
+		}
+	}
+
+	const providerID = readStringField(info, [
+		"providerID",
+		"providerId",
+		"provider_id",
+	]);
+	const modelID = readStringField(info, ["modelID", "modelId", "model_id"]);
+	if (!providerID || !modelID) return {};
+
+	return {
+		providerID,
+		modelID,
+		variant: readStringField(info, ["variant"]),
+	};
+}
+
 function normalizeMessages(data: unknown): SessionMessage[] {
 	if (!Array.isArray(data)) return [];
 
@@ -64,14 +125,12 @@ function normalizeMessages(data: unknown): SessionMessage[] {
 				typeof entry === "object" && entry !== null,
 		)
 		.map((entry) => {
-			const info =
-				typeof entry.info === "object" && entry.info !== null
-					? (entry.info as Record<string, unknown>)
-					: {};
+			const info = asRecord(entry.info) ?? {};
 			const time =
 				typeof info.time === "object" && info.time !== null
 					? (info.time as Record<string, unknown>)
 					: {};
+			const model = readSessionMessageModel(info);
 
 			return {
 				id: typeof entry.id === "string" ? entry.id : undefined,
@@ -79,6 +138,9 @@ function normalizeMessages(data: unknown): SessionMessage[] {
 				created_at:
 					parseIso(time.created) ??
 					parseIso((entry as { created_at?: unknown }).created_at),
+				providerID: model.providerID,
+				modelID: model.modelID,
+				variant: model.variant,
 				parts: Array.isArray(entry.parts)
 					? entry.parts.filter(
 							(part): part is Record<string, unknown> =>
@@ -87,6 +149,21 @@ function normalizeMessages(data: unknown): SessionMessage[] {
 					: [],
 			};
 		});
+}
+
+function getLatestSessionModel(
+	messages: SessionMessage[],
+): Pick<SessionMessage, "providerID" | "modelID" | "variant"> | undefined {
+	for (const message of [...messages].reverse()) {
+		if (!message.providerID || !message.modelID) continue;
+		return {
+			providerID: message.providerID,
+			modelID: message.modelID,
+			variant: message.variant,
+		};
+	}
+
+	return undefined;
 }
 
 function normalizeToolName(part: Record<string, unknown>): string | null {
@@ -240,6 +317,7 @@ export function formatFullSession(
 	options: FullSessionFormatOptions,
 ): string {
 	const messages = normalizeMessages(data);
+	const sessionModel = getLatestSessionModel(messages);
 	const latestAssistantText = extractLatestAssistantText(data)?.trim();
 	const resultText = options.task.result?.trim();
 	const limited =
@@ -254,8 +332,27 @@ export function formatFullSession(
 		`Session ID: ${options.task.child_session_id}`,
 		`Status: ${options.task.status}`,
 		`Agent: ${options.task.agent}`,
-		"",
 	];
+
+	if (options.task.root_model) {
+		lines.push(
+			`Root model: ${options.task.root_model.providerID}/${options.task.root_model.modelID}`,
+		);
+		if (options.task.root_model.variant) {
+			lines.push(`Root variant: ${options.task.root_model.variant}`);
+		}
+	}
+
+	if (sessionModel?.providerID && sessionModel.modelID) {
+		lines.push(
+			`Session model: ${sessionModel.providerID}/${sessionModel.modelID}`,
+		);
+		if (sessionModel.variant) {
+			lines.push(`Session variant: ${sessionModel.variant}`);
+		}
+	}
+
+	lines.push("");
 
 	if (
 		resultText &&

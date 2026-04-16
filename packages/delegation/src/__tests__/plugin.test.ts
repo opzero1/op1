@@ -60,10 +60,12 @@ function createMockClient(options?: {
 	createResponseShape?: "flat" | "nested-session" | "session-id";
 	statusResponseShape?: "indexed-type" | "direct-type" | "direct-status";
 	sessionParentKey?: "parentID" | "parentId" | "parent_id";
+	sessionParents?: Record<string, string | undefined>;
 	sessionMessages?: Record<string, unknown[]>;
 }) {
 	const sessionParents: Record<string, string | undefined> = {
 		"parent-session": undefined,
+		...(options?.sessionParents ?? {}),
 	};
 	const sessionStatuses: Record<string, string> = {};
 	const promptAsyncSessionCounts: Record<string, number> = {};
@@ -85,9 +87,12 @@ function createMockClient(options?: {
 	const promptAsyncRequests: Array<{
 		sessionID: string;
 		agent?: string;
+		model?: { providerID: string; modelID: string };
+		variant?: string;
 		text?: string;
 	}> = [];
 	const createdSessionDirectories: Array<string | undefined> = [];
+	const messageRequests: string[] = [];
 	const sessionMessages: Record<string, unknown[]> = {
 		...(options?.sessionMessages ?? {}),
 	};
@@ -142,6 +147,8 @@ function createMockClient(options?: {
 				path: { id: string };
 				body?: {
 					agent?: string;
+					model?: { providerID: string; modelID: string };
+					variant?: string;
 					parts?: Array<{ type?: string; text?: string }>;
 				};
 			}) => {
@@ -157,6 +164,8 @@ function createMockClient(options?: {
 				promptAsyncRequests.push({
 					sessionID,
 					agent: input.body?.agent,
+					model: input.body?.model,
+					variant: input.body?.variant,
 					text:
 						firstPart?.type === "text" && typeof firstPart.text === "string"
 							? firstPart.text
@@ -166,7 +175,10 @@ function createMockClient(options?: {
 				return { data: {} };
 			},
 			messages: async (input: { path: { id: string } }) => ({
-				data: sessionMessages[input.path.id] ?? [],
+				data: (() => {
+					messageRequests.push(input.path.id);
+					return sessionMessages[input.path.id] ?? [];
+				})(),
 			}),
 			abort: async () => ({}),
 			status: async (input: { path: { id: string } }) => {
@@ -215,6 +227,9 @@ function createMockClient(options?: {
 		},
 		getCreatedSessionDirectories() {
 			return [...createdSessionDirectories];
+		},
+		getMessageRequests() {
+			return [...messageRequests];
 		},
 		setMessages(sessionID: string, messages: unknown[]) {
 			sessionMessages[sessionID] = messages;
@@ -431,6 +446,157 @@ describe("delegation plugin", () => {
 		expect(output).toContain("background result");
 		expect(completedOutput.metadata.task?.task_id).toBe(taskID);
 		expect(completedOutput.metadata.task?.status).toBe("succeeded");
+	});
+
+	test("persists root model selection and reuses it for root follow-through", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-delegation-root-model-"));
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		await mkdir(workspaceDir, { recursive: true });
+		await initializeGitRepo(root, {
+			packageJson: JSON.stringify({
+				name: "root-model-follow-through-test",
+				private: true,
+				scripts: { test: 'node -e "process.exit(0)"' },
+			}),
+		});
+
+		const client = createMockClient();
+		const plugin = (await DelegationPlugin({
+			directory: root,
+			client,
+		} as never)) as unknown as {
+			tool?: Record<string, { execute: ToolExecute }>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const backgroundOutputTool = plugin.tool?.background_output as {
+			execute: ToolExecute;
+		};
+		const state = createTaskStateManager(workspaceDir);
+
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{
+				sessionID: "parent-session",
+				model: {
+					providerID: "openai",
+					modelID: "gpt-5.4",
+				},
+				variant: "xhigh",
+				ask: async () => {},
+			},
+		);
+		const taskID = launch.match(/Task ID: ([a-z]+-[a-z]+-[a-z]+)/)?.[1];
+		const worktreePath = client.getCreatedSessionDirectories()[0];
+		if (!taskID || !worktreePath) {
+			throw new Error("Expected task id and worktree path");
+		}
+
+		const persisted = await state.getTask(taskID);
+		expect(launch).toContain("Root model: openai/gpt-5.4");
+		expect(launch).toContain("Root variant: xhigh");
+		expect(persisted?.root_model).toEqual({
+			providerID: "openai",
+			modelID: "gpt-5.4",
+			variant: "xhigh",
+		});
+		const childLaunchRequest = client
+			.getPromptAsyncRequests()
+			.filter((request) => request.sessionID === "child-session-1")
+			.at(-1);
+		expect(childLaunchRequest?.model).toBeUndefined();
+		expect(childLaunchRequest?.variant).toBeUndefined();
+
+		await Bun.write(join(worktreePath, "feature.txt"), "new feature\n");
+		client.setStatus("idle");
+		await plugin.event?.({
+			event: {
+				type: "session.idle",
+				properties: { sessionID: "child-session-1" },
+			},
+		});
+
+		const rootFollowThroughRequest = client
+			.getPromptAsyncRequests()
+			.filter((request) => request.sessionID === "parent-session")
+			.at(-1);
+		expect(rootFollowThroughRequest?.model).toEqual({
+			providerID: "openai",
+			modelID: "gpt-5.4",
+		});
+		expect(rootFollowThroughRequest?.variant).toBe("xhigh");
+
+		const status = await backgroundOutputTool.execute(
+			{ task_id: taskID, full_session: false },
+			{ sessionID: "parent-session" },
+		);
+		expect(status).toContain("Root model: openai/gpt-5.4");
+		expect(status).toContain("Root variant: xhigh");
+	});
+
+	test("prefers the actual root session model over a child caller model", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-delegation-root-model-scope-"),
+		);
+		tempRoots.push(root);
+		await mkdir(join(root, ".opencode", "workspace"), { recursive: true });
+
+		const client = createMockClient({
+			sessionParents: { "child-caller": "parent-session" },
+			sessionMessages: {
+				"parent-session": [
+					{
+						id: "root-user-1",
+						info: {
+							role: "user",
+							time: { created: "2026-04-06T00:00:00.000Z" },
+							model: {
+								providerID: "openai",
+								modelID: "gpt-5.4",
+								variant: "xhigh",
+							},
+						},
+						parts: [{ type: "text", text: "Continue the plan." }],
+					},
+				],
+			},
+		});
+		const plugin = await DelegationPlugin({
+			directory: root,
+			client,
+		} as never);
+
+		const taskTool = plugin.tool?.task as { execute: ToolExecute };
+		const launch = await taskTool.execute(
+			{
+				description: "Implement helper",
+				prompt: "Add the helper and tests.",
+				subagent_type: "coder",
+				run_in_background: true,
+			},
+			{
+				sessionID: "child-caller",
+				model: {
+					providerID: "openai",
+					modelID: "gpt-5.3-codex",
+				},
+				variant: "high",
+				ask: async () => {},
+			},
+		);
+
+		expect(launch).toContain("Root model: openai/gpt-5.4");
+		expect(launch).toContain("Root variant: xhigh");
+		expect(launch).not.toContain("Root model: openai/gpt-5.3-codex");
+		expect(client.getMessageRequests()).toContain("parent-session");
+		expect(client.getMessageRequests()).not.toContain("child-caller");
 	});
 
 	test("uses caller-provided task_id for a fresh task launch", async () => {

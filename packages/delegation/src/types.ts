@@ -27,6 +27,8 @@ export interface DelegationClient {
 			path: { id: string };
 			body: {
 				agent?: string;
+				model?: { providerID: string; modelID: string };
+				variant?: string;
 				parts: Array<{ type: "text"; text: string }>;
 				tools?: Record<string, boolean>;
 			};
@@ -35,6 +37,8 @@ export interface DelegationClient {
 			path: { id: string };
 			body: {
 				agent?: string;
+				model?: { providerID: string; modelID: string };
+				variant?: string;
 				parts: Array<{ type: "text"; text: string }>;
 				tools?: Record<string, boolean>;
 			};
@@ -57,6 +61,21 @@ export interface DelegationToolContext {
 	callId?: string;
 	call_id?: string;
 	agent?: string;
+	model?: {
+		providerID?: string;
+		modelID?: string;
+		providerId?: string;
+		modelId?: string;
+		provider_id?: string;
+		model_id?: string;
+	};
+	providerID?: string;
+	modelID?: string;
+	providerId?: string;
+	modelId?: string;
+	provider_id?: string;
+	model_id?: string;
+	variant?: string;
 	abort?: AbortSignal;
 	ask?: (input: {
 		permission: string;
@@ -122,6 +141,9 @@ export interface SessionMessage {
 	id?: string;
 	role: string;
 	created_at?: string;
+	providerID?: string;
+	modelID?: string;
+	variant?: string;
 	parts: Array<Record<string, unknown>>;
 }
 

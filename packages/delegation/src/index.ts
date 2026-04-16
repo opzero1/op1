@@ -23,6 +23,7 @@ import {
 	isManagerOwnedCAIDTask,
 	type TaskAssignmentRecord,
 	type TaskExecutionRecord,
+	type TaskModelSelection,
 	type TaskRecord,
 	type TaskStateManager,
 	type TaskStatus,
@@ -169,6 +170,109 @@ function getSessionIDFromCreateResponse(data: unknown): string | null {
 			"session_id",
 		]) ?? null
 	);
+}
+
+function readTaskModelSelection(
+	record: Record<string, unknown>,
+): TaskModelSelection | undefined {
+	const nestedModel = asRecord(record.model);
+	if (nestedModel) {
+		const providerID = readStringField(nestedModel, [
+			"providerID",
+			"providerId",
+			"provider_id",
+		]);
+		const modelID = readStringField(nestedModel, [
+			"modelID",
+			"modelId",
+			"model_id",
+		]);
+		if (providerID && modelID) {
+			return {
+				providerID,
+				modelID,
+				variant:
+					readStringField(nestedModel, ["variant"]) ??
+					readStringField(record, ["variant"]),
+			};
+		}
+	}
+
+	const providerID = readStringField(record, [
+		"providerID",
+		"providerId",
+		"provider_id",
+	]);
+	const modelID = readStringField(record, ["modelID", "modelId", "model_id"]);
+	if (!providerID || !modelID) return undefined;
+
+	return {
+		providerID,
+		modelID,
+		variant: readStringField(record, ["variant"]),
+	};
+}
+
+function extractLatestSessionModelSelection(
+	data: unknown,
+): TaskModelSelection | undefined {
+	if (!Array.isArray(data)) return undefined;
+
+	for (const entry of [...data].reverse()) {
+		const record = asRecord(entry);
+		if (!record) continue;
+		const info = asRecord(record.info);
+		if (!info) continue;
+		const model = readTaskModelSelection(info);
+		if (model) return model;
+	}
+
+	return undefined;
+}
+
+async function resolveRootModelSelection(
+	client: DelegationClient,
+	sessionID: string,
+): Promise<TaskModelSelection | undefined> {
+	try {
+		const response = await client.session.messages({
+			path: { id: sessionID },
+			query: { limit: 40 },
+		});
+		return extractLatestSessionModelSelection(response.data);
+	} catch {
+		return undefined;
+	}
+}
+
+async function resolveTaskRootModelSelection(
+	client: DelegationClient,
+	rootSessionID: string,
+	toolCtx: DelegationToolContext,
+): Promise<TaskModelSelection | undefined> {
+	if (toolCtx.sessionID !== rootSessionID) {
+		return resolveRootModelSelection(client, rootSessionID);
+	}
+
+	return (
+		readTaskModelSelection(asRecord(toolCtx) ?? {}) ??
+		(await resolveRootModelSelection(client, rootSessionID))
+	);
+}
+
+function buildPromptModelOverrides(task: TaskRecord): {
+	model?: { providerID: string; modelID: string };
+	variant?: string;
+} {
+	if (!task.root_model) return {};
+
+	return {
+		model: {
+			providerID: task.root_model.providerID,
+			modelID: task.root_model.modelID,
+		},
+		...(task.root_model.variant ? { variant: task.root_model.variant } : {}),
+	};
 }
 
 async function createChildSessionForTask(
@@ -893,6 +997,15 @@ function buildRootFollowThroughPrompt(task: TaskRecord): string {
 		`Verification summary: ${verificationSummary}`,
 	];
 
+	if (task.root_model) {
+		lines.push(
+			`Root model: ${task.root_model.providerID}/${task.root_model.modelID}`,
+		);
+		if (task.root_model.variant) {
+			lines.push(`Root variant: ${task.root_model.variant}`);
+		}
+	}
+
 	if (blockerSummary) {
 		lines.push(`Unresolved blocker: ${blockerSummary}`);
 	}
@@ -949,6 +1062,7 @@ async function handleRootFollowThrough(
 	const response = await client.session.promptAsync({
 		path: { id: prepared.root_session_id },
 		body: {
+			...buildPromptModelOverrides(prepared),
 			parts: [{ type: "text", text: buildRootFollowThroughPrompt(prepared) }],
 		},
 	});
@@ -1786,6 +1900,14 @@ function formatTaskMetadata(payload: CanonicalTaskPayload): string {
 		`reference: ${payload.reference}`,
 		`session_id: ${payload.session_id}`,
 	];
+	if (payload.root_model) {
+		lines.push(
+			`root_model: ${payload.root_model.provider_id}/${payload.root_model.model_id}`,
+		);
+		if (payload.root_model.variant) {
+			lines.push(`root_variant: ${payload.root_model.variant}`);
+		}
+	}
 
 	if (payload.execution.mode) {
 		lines.push(`execution_mode: ${payload.execution.mode}`);
@@ -1864,6 +1986,15 @@ function formatTaskSummaryLines(payload: CanonicalTaskPayload): string[] {
 		`Execution: ${payload.execution.mode}`,
 		`Status: ${payload.status}`,
 	];
+
+	if (payload.root_model) {
+		lines.push(
+			`Root model: ${payload.root_model.provider_id}/${payload.root_model.model_id}`,
+		);
+		if (payload.root_model.variant) {
+			lines.push(`Root variant: ${payload.root_model.variant}`);
+		}
+	}
 
 	if (payload.execution.branch) {
 		lines.push(`Branch: ${payload.execution.branch}`);
@@ -2563,6 +2694,11 @@ export const DelegationPlugin: Plugin = async (ctx: {
 						client,
 						toolCtx.sessionID,
 					);
+					const rootModel = await resolveTaskRootModelSelection(
+						client,
+						rootSessionID,
+						toolCtx,
+					);
 					const concurrencyKey = agent;
 
 					let childSessionID: string | null = null;
@@ -2682,6 +2818,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							task = await state.restartTask({
 								id: existing.id,
 								child_session_id: childSessionID,
+								root_model: rootModel,
 								description,
 								prompt,
 								authoritative_context: authoritativeContext,
@@ -2736,6 +2873,7 @@ export const DelegationPlugin: Plugin = async (ctx: {
 							root_session_id: rootSessionID,
 							parent_session_id: toolCtx.sessionID,
 							child_session_id: childSessionID,
+							root_model: rootModel,
 							description,
 							agent,
 							prompt,

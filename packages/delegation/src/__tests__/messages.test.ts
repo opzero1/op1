@@ -66,3 +66,37 @@ test("formatFullSession skips latest result duplication when it matches the assi
 
 	expect(output).not.toContain("Latest result:");
 });
+
+test("formatFullSession includes root and session model variants when available", () => {
+	const output = formatFullSession(
+		[
+			{
+				id: "msg-1",
+				info: {
+					role: "user",
+					time: { created: "2026-03-19T00:00:00.000Z" },
+					model: {
+						providerID: "openai",
+						modelID: "gpt-5.3-codex",
+						variant: "high",
+					},
+				},
+				parts: [{ type: "text", text: "Implement the fix." }],
+			},
+		],
+		{
+			task: createTask({
+				root_model: {
+					providerID: "openai",
+					modelID: "gpt-5.4",
+					variant: "xhigh",
+				},
+			}),
+		},
+	);
+
+	expect(output).toContain("Root model: openai/gpt-5.4");
+	expect(output).toContain("Root variant: xhigh");
+	expect(output).toContain("Session model: openai/gpt-5.3-codex");
+	expect(output).toContain("Session variant: high");
+});

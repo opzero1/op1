@@ -105,6 +105,38 @@ describe("task state manager", () => {
 		expect(persisted?.authoritative_context).toContain("Target files");
 	});
 
+	test("persists root model selection metadata", async () => {
+		const env = await createTempWorkspace();
+		tempRoots.push(env.root);
+
+		const state = createTaskStateManager(env.workspaceDir);
+		await state.createTask({
+			id: "model-selection-task",
+			root_session_id: "root-1",
+			parent_session_id: "parent-1",
+			child_session_id: "child-1",
+			root_model: {
+				providerID: "openai",
+				modelID: "gpt-5.4",
+				variant: "xhigh",
+			},
+			description: "Implement helper",
+			agent: "coder",
+			prompt: "Add the helper",
+			run_in_background: true,
+		});
+
+		const persisted = await createTaskStateManager(env.workspaceDir).getTask(
+			"model-selection-task",
+		);
+
+		expect(persisted?.root_model).toEqual({
+			providerID: "openai",
+			modelID: "gpt-5.4",
+			variant: "xhigh",
+		});
+	});
+
 	test("persists frontend reroute routing telemetry", async () => {
 		const env = await createTempWorkspace();
 		tempRoots.push(env.root);

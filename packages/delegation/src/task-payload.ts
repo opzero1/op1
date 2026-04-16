@@ -11,6 +11,11 @@ export interface CanonicalTaskPayload {
 	session_id: string;
 	description: string;
 	agent: string;
+	root_model?: {
+		provider_id: string;
+		model_id: string;
+		variant?: string;
+	};
 	status: TaskStatus;
 	run_in_background: boolean;
 	authoritative_context?: boolean;
@@ -78,6 +83,17 @@ export function buildTaskPayload(task: TaskRecord): CanonicalTaskPayload {
 		session_id: task.child_session_id,
 		description: task.description,
 		agent: task.agent,
+		...(task.root_model
+			? {
+					root_model: {
+						provider_id: task.root_model.providerID,
+						model_id: task.root_model.modelID,
+						...(task.root_model.variant
+							? { variant: task.root_model.variant }
+							: {}),
+					},
+				}
+			: {}),
 		status: task.status,
 		run_in_background: task.run_in_background,
 		...(task.authoritative_context ? { authoritative_context: true } : {}),
@@ -157,6 +173,17 @@ export function buildTaskToolMetadata(
 		runInBackground: payload.run_in_background,
 		executionMode: payload.execution.mode,
 		status: payload.status,
+		...(payload.root_model
+			? {
+					rootModel: {
+						providerID: payload.root_model.provider_id,
+						modelID: payload.root_model.model_id,
+						...(payload.root_model.variant
+							? { variant: payload.root_model.variant }
+							: {}),
+					},
+				}
+			: {}),
 		...(payload.execution.branch ? { branch: payload.execution.branch } : {}),
 		...(payload.execution.worktree_path
 			? { worktreePath: payload.execution.worktree_path }

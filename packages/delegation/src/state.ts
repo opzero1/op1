@@ -37,6 +37,12 @@ export type TaskVerificationStatus =
 export type TaskVerificationStrategy = "targeted" | "fallback" | "not_required";
 export type TaskRootFollowThroughStatus = "pending" | "delivered" | "waived";
 
+export interface TaskModelSelection {
+	providerID: string;
+	modelID: string;
+	variant?: string;
+}
+
 export type TaskAssignmentOwner = "manager";
 export type TaskAssignmentWorkflow = "caid";
 export type TaskRetryReason = "merge_conflict" | "dirty_root";
@@ -116,6 +122,7 @@ export interface TaskRecord {
 	root_session_id: string;
 	parent_session_id: string;
 	child_session_id: string;
+	root_model?: TaskModelSelection;
 	description: string;
 	agent: string;
 	prompt: string;
@@ -638,6 +645,38 @@ function normalizeTaskExecution(
 	};
 }
 
+function normalizeTaskModelSelection(
+	value: unknown,
+): TaskModelSelection | undefined {
+	if (!value || typeof value !== "object") return undefined;
+
+	const raw = value as Record<string, unknown>;
+	const providerID =
+		typeof raw.providerID === "string"
+			? raw.providerID
+			: typeof raw.providerId === "string"
+				? raw.providerId
+				: typeof raw.provider_id === "string"
+					? raw.provider_id
+					: undefined;
+	const modelID =
+		typeof raw.modelID === "string"
+			? raw.modelID
+			: typeof raw.modelId === "string"
+				? raw.modelId
+				: typeof raw.model_id === "string"
+					? raw.model_id
+					: undefined;
+
+	if (!providerID || !modelID) return undefined;
+
+	return {
+		providerID,
+		modelID,
+		variant: typeof raw.variant === "string" ? raw.variant : undefined,
+	};
+}
+
 function normalizeTaskRecord(value: unknown): TaskRecord | null {
 	if (!value || typeof value !== "object") return null;
 
@@ -663,6 +702,7 @@ function normalizeTaskRecord(value: unknown): TaskRecord | null {
 		root_session_id: raw.root_session_id,
 		parent_session_id: raw.parent_session_id,
 		child_session_id: raw.child_session_id,
+		root_model: normalizeTaskModelSelection(raw.root_model ?? raw.model),
 		description: raw.description,
 		agent: raw.agent,
 		prompt: raw.prompt,
@@ -935,6 +975,7 @@ export function createTaskStateManager(
 		root_session_id: string;
 		parent_session_id: string;
 		child_session_id: string;
+		root_model?: TaskModelSelection;
 		description: string;
 		agent: string;
 		prompt: string;
@@ -997,6 +1038,7 @@ export function createTaskStateManager(
 				root_session_id: input.root_session_id,
 				parent_session_id: input.parent_session_id,
 				child_session_id: input.child_session_id,
+				root_model: input.root_model,
 				description: input.description,
 				agent: input.agent,
 				prompt: input.prompt,
@@ -1072,6 +1114,7 @@ export function createTaskStateManager(
 	async function restartTask(input: {
 		id: string;
 		child_session_id?: string;
+		root_model?: TaskModelSelection;
 		description?: string;
 		prompt: string;
 		authoritative_context?: string;
@@ -1107,6 +1150,7 @@ export function createTaskStateManager(
 			const nextRecord: TaskRecord = {
 				...current,
 				child_session_id: input.child_session_id ?? current.child_session_id,
+				root_model: input.root_model ?? current.root_model,
 				description: input.description ?? current.description,
 				prompt: input.prompt,
 				authoritative_context:
@@ -1137,6 +1181,7 @@ export function createTaskStateManager(
 		id: string,
 		patch: {
 			command?: string;
+			root_model?: TaskModelSelection;
 			assignment?: TaskAssignmentRecord;
 			execution?: TaskExecutionRecord;
 			result?: string;
@@ -1151,6 +1196,7 @@ export function createTaskStateManager(
 				...current,
 				command:
 					typeof patch.command === "string" ? patch.command : current.command,
+				root_model: patch.root_model ?? current.root_model,
 				assignment:
 					patch.assignment === undefined
 						? current.assignment
