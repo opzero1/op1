@@ -407,6 +407,21 @@ describe("plan state manager", () => {
 					confirmed_by_user: true,
 				},
 			],
+			file_change_map: [
+				{
+					path: "packages/workspace/src/plan/state.ts",
+					operation: "edit",
+					reason:
+						"Persist structured file-level add/edit/delete intent for /work.",
+					source: "authoritative_context",
+					pattern: "repo-first plan context persistence",
+				},
+				{
+					path: "packages/workspace/src/__tests__/plan-state.test.ts",
+					operation: "edit",
+					reason: "Cover save/read/merge behavior for plan context updates.",
+				},
+			],
 		});
 
 		const promoted = await sm.promotePlan("100-alpha", {
@@ -452,6 +467,21 @@ describe("plan state manager", () => {
 		expect(context?.pattern_examples[0]?.code_example).toContain(
 			"syncPlanContext",
 		);
+		expect(context?.file_change_map).toEqual([
+			{
+				path: "packages/workspace/src/plan/state.ts",
+				operation: "edit",
+				reason:
+					"Persist structured file-level add/edit/delete intent for /work.",
+				source: "authoritative_context",
+				pattern: "repo-first plan context persistence",
+			},
+			{
+				path: "packages/workspace/src/__tests__/plan-state.test.ts",
+				operation: "edit",
+				reason: "Cover save/read/merge behavior for plan context updates.",
+			},
+		]);
 
 		const registry = await sm.readPlanRegistry();
 		expect(registry.plans["100-alpha"]?.lifecycle).toBe("active");
@@ -536,6 +566,14 @@ describe("plan state manager", () => {
 					confirmed_by_user: true,
 				},
 			],
+			file_change_map: [
+				{
+					path: "packages/workspace/src/plan/state.ts",
+					operation: "add",
+					reason: "Create canonical file-operation map persistence field.",
+					source: "plan-state",
+				},
+			],
 		});
 
 		await sm.syncPlanContext("100-alpha", {
@@ -569,6 +607,18 @@ describe("plan state manager", () => {
 					blast_radius: ["plan-context rendering"],
 					test_implications: ["plan-tools tests"],
 					confirmed_by_user: true,
+				},
+			],
+			file_change_map: [
+				{
+					path: "packages/workspace/src/plan/state.ts",
+					operation: "edit",
+					reason: "Align merge logic with explicit file-operation map updates.",
+				},
+				{
+					path: "packages/workspace/src/index.ts",
+					operation: "edit",
+					reason: "Expose file-operation map via plan_context_write/read.",
 				},
 			],
 		});
@@ -611,6 +661,19 @@ describe("plan state manager", () => {
 		expect(context?.pattern_examples[0].symbols).toEqual([
 			"syncPlanContext",
 			"plan_context_write",
+		]);
+		expect(context?.file_change_map).toEqual([
+			{
+				path: "packages/workspace/src/plan/state.ts",
+				operation: "edit",
+				reason: "Align merge logic with explicit file-operation map updates.",
+				source: "plan-state",
+			},
+			{
+				path: "packages/workspace/src/index.ts",
+				operation: "edit",
+				reason: "Expose file-operation map via plan_context_write/read.",
+			},
 		]);
 	});
 

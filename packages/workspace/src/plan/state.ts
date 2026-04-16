@@ -192,6 +192,16 @@ export interface ConfirmedPatternExample {
 	confirmed_by_user: boolean;
 }
 
+export type PlanFileChangeOperation = "add" | "edit" | "delete";
+
+export interface PlanFileChangeItem {
+	path: string;
+	operation: PlanFileChangeOperation;
+	reason: string;
+	pattern?: string;
+	source?: string;
+}
+
 export interface PlanContextRecord {
 	version: 1;
 	plan_name: string;
@@ -219,6 +229,7 @@ export interface PlanContextRecord {
 	oracle_summary?: string;
 	question_answers: PlanQuestionAnswer[];
 	pattern_examples: ConfirmedPatternExample[];
+	file_change_map: PlanFileChangeItem[];
 	updated_at: string;
 }
 
@@ -247,6 +258,7 @@ export interface PlanContextPatch {
 	oracle_summary?: string;
 	question_answers?: PlanQuestionAnswer[];
 	pattern_examples?: ConfirmedPatternExample[];
+	file_change_map?: PlanFileChangeItem[];
 }
 
 // ==========================================
@@ -534,6 +546,49 @@ function normalizePatternExample(
 	};
 }
 
+function normalizePlanFileChangeItem(
+	value: unknown,
+): PlanFileChangeItem | null {
+	if (!value || typeof value !== "object") return null;
+
+	const raw = value as Record<string, unknown>;
+	if (typeof raw.path !== "string" || raw.path.trim().length === 0) {
+		return null;
+	}
+
+	if (
+		raw.operation !== "add" &&
+		raw.operation !== "edit" &&
+		raw.operation !== "delete"
+	) {
+		return null;
+	}
+
+	const reasonCandidate =
+		typeof raw.reason === "string"
+			? raw.reason
+			: typeof raw.why === "string"
+				? raw.why
+				: undefined;
+	if (!reasonCandidate || reasonCandidate.trim().length === 0) {
+		return null;
+	}
+
+	return {
+		path: raw.path.trim(),
+		operation: raw.operation,
+		reason: reasonCandidate.trim(),
+		pattern:
+			typeof raw.pattern === "string" && raw.pattern.trim().length > 0
+				? raw.pattern.trim()
+				: undefined,
+		source:
+			typeof raw.source === "string" && raw.source.trim().length > 0
+				? raw.source.trim()
+				: undefined,
+	};
+}
+
 function getQuestionAnswerMergeKey(item: PlanQuestionAnswer): string {
 	return [
 		item.question.trim().toLowerCase(),
@@ -642,6 +697,46 @@ function mergePatternExamples(
 	return [...merged.values()];
 }
 
+function getPlanFileChangeMergeKey(item: PlanFileChangeItem): string {
+	return item.path.trim().toLowerCase();
+}
+
+function mergePlanFileChanges(
+	existing: PlanFileChangeItem[],
+	incoming: PlanFileChangeItem[],
+): PlanFileChangeItem[] {
+	const merged = new Map<string, PlanFileChangeItem>();
+
+	for (const item of existing) {
+		const normalized = normalizePlanFileChangeItem(item);
+		if (!normalized) continue;
+		merged.set(getPlanFileChangeMergeKey(normalized), normalized);
+	}
+
+	for (const item of incoming) {
+		const normalized = normalizePlanFileChangeItem(item);
+		if (!normalized) continue;
+
+		const key = getPlanFileChangeMergeKey(normalized);
+		const previous = merged.get(key);
+		if (!previous) {
+			merged.set(key, normalized);
+			continue;
+		}
+
+		merged.set(key, {
+			...previous,
+			path: normalized.path,
+			operation: normalized.operation,
+			reason: normalized.reason,
+			pattern: normalized.pattern ?? previous.pattern,
+			source: normalized.source ?? previous.source,
+		});
+	}
+
+	return [...merged.values()];
+}
+
 function createEmptyPlanContext(planName: string): PlanContextRecord {
 	return {
 		version: 1,
@@ -665,6 +760,7 @@ function createEmptyPlanContext(planName: string): PlanContextRecord {
 		open_risks: [],
 		question_answers: [],
 		pattern_examples: [],
+		file_change_map: [],
 		updated_at: nowIso(),
 	};
 }
@@ -687,6 +783,11 @@ function normalizePlanContextRecord(
 		? raw.pattern_examples
 				.map((item) => normalizePatternExample(item))
 				.filter((item): item is ConfirmedPatternExample => item !== null)
+		: [];
+	const fileChangeMap = Array.isArray(raw.file_change_map)
+		? raw.file_change_map
+				.map((item) => normalizePlanFileChangeItem(item))
+				.filter((item): item is PlanFileChangeItem => item !== null)
 		: [];
 
 	return {
@@ -777,6 +878,7 @@ function normalizePlanContextRecord(
 				: undefined,
 		question_answers: questionAnswers,
 		pattern_examples: patternExamples,
+		file_change_map: fileChangeMap,
 		updated_at:
 			typeof raw.updated_at === "string" && raw.updated_at.trim().length > 0
 				? raw.updated_at
@@ -1827,6 +1929,13 @@ export function createStateManager(
 							patch.pattern_examples,
 						)
 					: existing.pattern_examples;
+			const nextFileChangeMap =
+				patch.file_change_map !== undefined
+					? mergePlanFileChanges(
+							existing.file_change_map,
+							patch.file_change_map,
+						)
+					: existing.file_change_map;
 			const next: PlanContextRecord = {
 				...existing,
 				plan_name: planName,
@@ -1880,6 +1989,7 @@ export function createStateManager(
 				oracle_summary: patch.oracle_summary ?? existing.oracle_summary,
 				question_answers: nextQuestionAnswers,
 				pattern_examples: nextPatternExamples,
+				file_change_map: nextFileChangeMap,
 				updated_at: nowIso(),
 			};
 

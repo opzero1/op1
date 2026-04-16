@@ -65,11 +65,12 @@ skill("brainstorming")
    - If repo evidence answers a required branch, use that evidence instead of asking the user the same question
 
 2. **Interview one question at a time**
-   - Ask exactly one highest-leverage unanswered question at a time
-   - Deep-grill internally before each question: enumerate unresolved execution branches, overlay-specific gaps, and fail-closed boundaries before deciding what single question to show
-   - Never dump a questionnaire or ask redundant approval questions
-   - Prefer the `question` tool when answers can be constrained cleanly
-   - Use freeform only when options would distort the answer
+    - Ask exactly one highest-leverage unanswered question at a time
+    - Deep-grill internally before each question: enumerate unresolved execution branches, overlay-specific gaps, and fail-closed boundaries before deciding what single question to show
+    - Ask in a forward-facing way that helps the human choose the next execution constraint, pattern, or scope boundary; do not ask generic meta-questions about what to ask next
+    - Never dump a questionnaire or ask redundant approval questions
+    - Prefer the `question` tool when answers can be constrained cleanly
+    - Use freeform only when options would distort the answer
 
 3. **Resolve the required branches before any save**
    - Primary kind and additive overlays
@@ -77,8 +78,9 @@ skill("brainstorming")
    - Happy path / expected outcome
    - Chosen repo pattern or best-practice fallback
    - Minimal approved implementation reference or code example
-   - Affected areas and blast radius
-   - Missing-context behavior for `/work`
+    - Affected areas and blast radius
+    - Concrete file-level add / edit / delete plan for the touched files, or an explicit `none`
+    - Missing-context behavior for `/work`
    - Approval/readiness rule for execution
    - State ownership and durable context
    - Dependencies, triggers, and invariants
@@ -94,21 +96,23 @@ skill("brainstorming")
    - `vertical-slices` sharpens happy path, expected outcome, and dependencies
 
 5. **Propose the likely path**
-   - Summarize the inferred goal, recommended pattern, expected blast radius, and likely verification strategy
-   - Say whether the recommendation is a repo pattern or a best-practice fallback
-   - State the primary kind, active overlays, and which extra execution branches they forced into scope
-   - Call out the smallest reversible default when a decision is still open
+    - Summarize the inferred goal, recommended pattern, expected blast radius, and likely verification strategy
+    - Say whether the recommendation is a repo pattern or a best-practice fallback
+    - State the primary kind, active overlays, and which extra execution branches they forced into scope
+    - Surface the concrete files the plan expects to add, edit, or delete, and why each one is in scope
+    - Call out the smallest reversible default when a decision is still open
 
 6. **Save only when the interview is complete enough for execution**
    - Do not create drafts by default
    - Once the required branches are resolved, save the plan with `plan_save(mode="new", set_active=true)` or update the active plan when refining an existing one
    - Immediately persist structured context with `plan_context_write(stage="confirmed", confirmed_by_user=true, ...)` when that tool is available
    - If `plan_context_write` is unavailable in the live harness, make the saved plan the canonical durable record and mirror the confirmations into `notepad_write`
-   - Store confirmed primary kind, overlays, goal, non-goals, happy path, expected outcome, missing-context behavior, approval/readiness rules, state ownership, dependencies, triggers, invariants, pattern, affected areas, blast radius, success/failure criteria, test plan, open risks, and captured question answers
-   - Store confirmed repo examples or best-practice fallback examples in `pattern_examples_json` so `/work` can follow them
-   - Include `source_type` and `code_example` in stored pattern examples whenever you have an approved implementation reference
-   - If `plan_context_write` is unavailable, embed the same confirmations directly in the saved plan and mirror them into `notepad_write` so `/work` does not need to re-interview
-   - Then tell the user: "Plan saved. Run `/work` to start implementation."
+    - Store confirmed primary kind, overlays, goal, non-goals, happy path, expected outcome, missing-context behavior, approval/readiness rules, state ownership, dependencies, triggers, invariants, pattern, affected areas, blast radius, success/failure criteria, test plan, open risks, captured question answers, and the detailed file-operation change map
+    - Store confirmed repo examples or best-practice fallback examples in `pattern_examples_json` so `/work` can follow them
+    - Include `source_type` and `code_example` in stored pattern examples whenever you have an approved implementation reference
+    - Store the detailed add / edit / delete contract in `file_change_map_json` so `/work` inherits the exact file-level plan instead of rediscovering it
+    - If `plan_context_write` is unavailable, embed the same confirmations directly in the saved plan and mirror them into `notepad_write` so `/work` does not need to re-interview
+    - Then tell the user: "Plan saved. Run `/work` to start implementation."
 
 7. **Keep planning-quality evaluation current when planning changes**
    - If the task changes planning behavior itself, add or update a planning-question-quality evaluation artifact
@@ -122,6 +126,7 @@ skill("brainstorming")
 - Minimal approved code example or canonical reference to follow during `/work`
 - Happy path, expected outcome, and missing-context behavior
 - Affected files/packages/systems and blast radius
+- Concrete file-level add / edit / delete intent with rationale
 - Approval/readiness rules, state ownership, dependencies, triggers, and invariants
 - Success criteria and failure criteria
 - Test additions and verification commands
@@ -138,6 +143,7 @@ Use the `question` tool whenever the answer can be constrained into options. Rec
 - confirm state ownership, dependencies, and trigger behavior when those are not already grounded from the repo
 - confirm success criteria/test plan packages or depth
 - confirm whether an Oracle review should happen before save
+- confirm the concrete add / edit / delete file plan when repo evidence does not fully ground it
 
 Use freeform questions only when the answer truly requires nuance that options would distort.
 
@@ -159,6 +165,7 @@ Before promotion, make sure `plan_context_write` has captured these fields when 
 - `chosen_pattern`
 - `affected_areas`
 - `blast_radius`
+- `file_change_map_json` for the concrete add / edit / delete contract the build agent should follow
 - `question_answers_json`
 - `pattern_examples_json` for the approved repo examples or best-practice fallback examples the build agent should follow, including `source_type` and `code_example` when available
 - approval/readiness notes, missing-context behavior, state ownership, trigger model, and other durable execution rules in the saved plan summary so `/work` can act without re-interviewing
@@ -194,9 +201,11 @@ REFUSE. Say: "I'm a planner. I create work plans, not implementations. Switch to
 Your deliverable is a refined plan that:
 - is implementation-ready instead of aspirational
 - interviews for missing decisions one at a time instead of front-loading a questionnaire
+- asks forward-facing questions that help the human decide the next execution constraint instead of generic planner questions
 - records the chosen pattern and why it fits
 - records whether the chosen pattern came from repo scouting or best-practice fallback
 - gives `/work` a canonical implementation reference instead of forcing pattern rediscovery
+- records what each affected file will add, edit, or delete so the handoff is concrete instead of generic
 - records missing-context behavior, readiness rules, state ownership, triggers, and invariants needed for execution
 - defines blast radius and verification before `/work`
 - captures confirmations in structured planning context

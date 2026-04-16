@@ -276,6 +276,21 @@ describe("plan tools", () => {
 						confirmed_by_user: true,
 					},
 				]),
+				file_change_map_json: JSON.stringify([
+					{
+						path: "packages/workspace/src/plan/state.ts",
+						operation: "edit",
+						reason:
+							"Persist explicit file add/edit/delete intent in plan context state.",
+						source: "authoritative_context",
+						pattern: "repo-first /plan flow",
+					},
+					{
+						path: "packages/workspace/src/index.ts",
+						operation: "edit",
+						reason: "Expose file map via plan_context_write/read output.",
+					},
+				]),
 			},
 			{ sessionID },
 		);
@@ -311,6 +326,13 @@ describe("plan tools", () => {
 		expect(planReadResult).toContain("Approved implementation references:");
 		expect(planReadResult).toContain("Workspace plan save flow [repo]");
 		expect(planReadResult).toContain("code example:");
+		expect(planReadResult).toContain("File operation map:");
+		expect(planReadResult).toContain(
+			"- [edit] packages/workspace/src/plan/state.ts: Persist explicit file add/edit/delete intent in plan context state.",
+		);
+		expect(planReadResult).toContain(
+			"source: authoritative_context; pattern: repo-first /plan flow",
+		);
 	});
 
 	test("plan_context_write merges iterative confirmations", async () => {
@@ -378,6 +400,14 @@ describe("plan tools", () => {
 						test_implications: ["plan-state tests"],
 					},
 				]),
+				file_change_map_json: JSON.stringify([
+					{
+						path: "packages/workspace/src/plan/state.ts",
+						operation: "add",
+						why: "Add a persisted field for explicit file operation intent.",
+						source: "state-model",
+					},
+				]),
 			},
 			{ sessionID },
 		);
@@ -409,6 +439,18 @@ describe("plan tools", () => {
 						test_implications: ["plan-tools tests"],
 					},
 				]),
+				file_change_map_json: JSON.stringify([
+					{
+						path: "packages/workspace/src/plan/state.ts",
+						operation: "edit",
+						reason: "Align merge logic with iterative map updates.",
+					},
+					{
+						path: "packages/workspace/src/index.ts",
+						operation: "edit",
+						reason: "Render file map in plan_context_read and plan_read.",
+					},
+				]),
 			},
 			{ sessionID },
 		);
@@ -429,6 +471,12 @@ describe("plan tools", () => {
 			pattern_examples: Array<{
 				example_files: string[];
 				symbols: string[];
+			}>;
+			file_change_map: Array<{
+				path: string;
+				operation: string;
+				reason: string;
+				source?: string;
 			}>;
 		};
 
@@ -458,6 +506,19 @@ describe("plan tools", () => {
 		expect(persisted.pattern_examples[0].symbols).toEqual([
 			"syncPlanContext",
 			"plan_context_write",
+		]);
+		expect(persisted.file_change_map).toEqual([
+			{
+				path: "packages/workspace/src/plan/state.ts",
+				operation: "edit",
+				reason: "Align merge logic with iterative map updates.",
+				source: "state-model",
+			},
+			{
+				path: "packages/workspace/src/index.ts",
+				operation: "edit",
+				reason: "Render file map in plan_context_read and plan_read.",
+			},
 		]);
 	});
 

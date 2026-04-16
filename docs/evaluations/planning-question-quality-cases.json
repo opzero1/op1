@@ -26,7 +26,8 @@
 			"primary_kind: implementation",
 			"overlays: deep-grill",
 			"source_type: repo",
-			"code_example"
+			"code_example",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
@@ -55,7 +56,8 @@
 			"primary_kind: implementation",
 			"overlays: deep-grill",
 			"source_type: best-practice",
-			"code_example"
+			"code_example",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": false,
 		"max_execution_follow_up_questions": 1
@@ -83,7 +85,8 @@
 			"primary_kind: prd",
 			"overlays: user-story-mapping",
 			"overlays: vertical-slices",
-			"code_example"
+			"code_example",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
@@ -112,7 +115,8 @@
 			"primary_kind: refactor",
 			"overlays: refactor-sequencing",
 			"overlays: dependency-modeling",
-			"source_type: repo"
+			"source_type: repo",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
@@ -134,7 +138,8 @@
 		"must_persist": [
 			"primary_kind: interface",
 			"overlays: interface-review",
-			"code_example"
+			"code_example",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
@@ -152,7 +157,12 @@
 			"tests"
 		],
 		"must_ask": "Follow existing pattern?",
-		"must_persist": ["primary_kind: tdd", "overlays: tdd", "source_type: repo"],
+		"must_persist": [
+			"primary_kind: tdd",
+			"overlays: tdd",
+			"source_type: repo",
+			"file_change_map_json"
+		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0
 	},
@@ -190,7 +200,8 @@
 			"overlays: refactor-sequencing",
 			"overlays: tdd",
 			"overlays: dependency-modeling",
-			"code_example"
+			"code_example",
+			"file_change_map_json"
 		],
 		"must_not_reask_in_work": true,
 		"max_execution_follow_up_questions": 0

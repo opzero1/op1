@@ -63,6 +63,9 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("deep-grill");
 		expect(prompt).toContain("dependencies");
 		expect(prompt).toContain("code_example");
+		expect(prompt).toContain("forward-facing");
+		expect(prompt).toContain("add / edit / delete");
+		expect(prompt).toContain("file_change_map_json");
 		expect(prompt).toContain("one question at a time");
 		expect(prompt).toContain("missing-context behavior");
 		expect(prompt).toContain("planning-question-quality evaluation artifact");
@@ -107,6 +110,9 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain("overlays");
 		expect(planCommand).toContain("deep-grill");
 		expect(planCommand).toContain("dependencies");
+		expect(planCommand).toContain("forward-facing");
+		expect(planCommand).toContain("file-operation change map");
+		expect(planCommand).toContain("file_change_map_json");
 		expect(planCommand).toContain("one question at a time");
 		expect(planCommand).toContain("state ownership");
 		expect(planCommand).toContain("Do not save any plan until");
@@ -128,6 +134,7 @@ describe("prompt template contracts", () => {
 		expect(workCommand).toContain(
 			"do not execute that frontend implementation directly in `build`",
 		);
+		expect(workCommand).toContain("saved file change map");
 		expect(workCommand).not.toContain('Do NOT say "I can continue"');
 		expect(workCommand).not.toContain("plan_promote");
 		expect(workCommand).not.toContain("/continue");

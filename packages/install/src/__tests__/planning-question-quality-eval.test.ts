@@ -41,9 +41,13 @@ describe("planning question quality evaluation", () => {
 
 		expect(content).toContain("source_type");
 		expect(content).toContain("code_example");
+		expect(content).toContain("file change map");
+		expect(content).toContain("forward-facing");
 		expect(content).toContain("primary_kind");
 		expect(content).toContain("overlays");
 		expect(content).toContain("deep_grill_quality");
+		expect(content).toContain("question_quality");
+		expect(content).toContain("plan_specificity");
 		expect(content).toContain("handoff_reuse");
 		expect(content).toContain("execution_clarification_load");
 		expect(content).toContain("one question at a time");
@@ -86,6 +90,7 @@ describe("planning question quality evaluation", () => {
 		expect(repoPattern?.must_persist).toContain("overlays: deep-grill");
 		expect(repoPattern?.must_persist).toContain("source_type: repo");
 		expect(repoPattern?.must_persist).toContain("code_example");
+		expect(repoPattern?.must_persist).toContain("file_change_map_json");
 		expect(repoPattern?.must_not_reask_in_work).toBe(true);
 		expect(repoPattern?.max_execution_follow_up_questions).toBe(0);
 
@@ -105,6 +110,7 @@ describe("planning question quality evaluation", () => {
 		expect(fallback?.must_persist).toContain("overlays: deep-grill");
 		expect(fallback?.must_persist).toContain("source_type: best-practice");
 		expect(fallback?.must_persist).toContain("code_example");
+		expect(fallback?.must_persist).toContain("file_change_map_json");
 		expect(fallback?.max_execution_follow_up_questions).toBe(1);
 
 		const prdCase = cases.find((item) => item.id === "prd-vertical-slices");
@@ -118,6 +124,7 @@ describe("planning question quality evaluation", () => {
 			]),
 		);
 		expect(prdCase?.must_persist).toContain("primary_kind: prd");
+		expect(prdCase?.must_persist).toContain("file_change_map_json");
 		expect(prdCase?.must_not_reask_in_work).toBe(true);
 
 		const refactorCase = cases.find(
@@ -132,6 +139,7 @@ describe("planning question quality evaluation", () => {
 		expect(refactorCase?.must_persist).toContain(
 			"overlays: refactor-sequencing",
 		);
+		expect(refactorCase?.must_persist).toContain("file_change_map_json");
 
 		const interfaceCase = cases.find(
 			(item) => item.id === "interface-comparison",
@@ -139,6 +147,7 @@ describe("planning question quality evaluation", () => {
 		expect(interfaceCase).toBeDefined();
 		expect(interfaceCase?.expected_primary_kind).toBe("interface");
 		expect(interfaceCase?.expected_overlays).toContain("interface-review");
+		expect(interfaceCase?.must_persist).toContain("file_change_map_json");
 
 		const tddCase = cases.find((item) => item.id === "tdd-planning");
 		expect(tddCase).toBeDefined();
@@ -146,6 +155,7 @@ describe("planning question quality evaluation", () => {
 		expect(tddCase?.expected_overlays).toEqual(
 			expect.arrayContaining(["deep-grill", "tdd"]),
 		);
+		expect(tddCase?.must_persist).toContain("file_change_map_json");
 
 		const mixedCase = cases.find(
 			(item) => item.id === "mixed-overlay-no-reask",
@@ -167,6 +177,7 @@ describe("planning question quality evaluation", () => {
 			"packages/delegation/src/index.ts",
 		);
 		expect(mixedCase?.must_not_reask_in_work).toBe(true);
+		expect(mixedCase?.must_persist).toContain("file_change_map_json");
 		expect(mixedCase?.max_execution_follow_up_questions).toBe(0);
 	});
 });
