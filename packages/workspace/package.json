@@ -1,6 +1,6 @@
 {
 	"name": "@op1/workspace",
-	"version": "0.5.7",
+	"version": "0.5.8",
 	"description": "Project-scoped plan management plugin for OpenCode - plans, notepads, verification hooks",
 	"type": "module",
 	"main": "dist/workspace.js",
@@ -12,7 +12,7 @@
 		}
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outfile dist/workspace.js --target bun --format esm --external zod --external node-notifier",
+		"build": "bun build src/index.ts --outfile dist/workspace.js --target bun --format esm --external zod --external node-notifier && tsc --emitDeclarationOnly --declaration --declarationMap false --outDir dist",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun run build --watch"
 	},

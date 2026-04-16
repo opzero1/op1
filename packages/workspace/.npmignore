@@ -1,0 +1,3 @@
+# Intentionally empty.
+# Use package.json "files" allowlist without inheriting the repo root .gitignore
+# rules that exclude generated *.d.ts files.
