@@ -365,28 +365,31 @@ describe("prompt template contracts", () => {
 		}
 	});
 
-	test("agent-browser skill replaces chrome-devtools", async () => {
-		const agentBrowser = await readTemplate(
-			"skills",
-			"agent-browser",
-			"SKILL.md",
-		);
-
-		expect(agentBrowser).toContain("name: agent-browser");
-		expect(agentBrowser).toContain("Bash(agent-browser:*)");
-		expect(agentBrowser).toContain("snapshot -i");
-		expect(agentBrowser).toContain("auth login");
-
-		const chromeDevtoolsExists = await pathExists(
+	test("chrome-devtools skill replaces vendored agent-browser skill", async () => {
+		const chromeDevtools = await readTemplate(
 			"skills",
 			"chrome-devtools",
 			"SKILL.md",
 		);
-		expect(chromeDevtoolsExists).toBe(false);
+
+		expect(chromeDevtools).toContain("name: chrome-devtools");
+		expect(chromeDevtools).toContain("brew tap aeroxy/chrome-devtools-cli");
+		expect(chromeDevtools).toContain("cargo install chrome-devtools-cli");
+		expect(chromeDevtools).toContain("[target:word-pair]");
+		expect(chromeDevtools).toContain("--target <name>");
+		expect(chromeDevtools).not.toContain("name: agent-browser");
+		expect(chromeDevtools).not.toContain("auth login");
+
+		const agentBrowserExists = await pathExists(
+			"skills",
+			"agent-browser",
+			"SKILL.md",
+		);
+		expect(agentBrowserExists).toBe(false);
 	});
 
-	test("agent-browser skill ships all referenced support assets", async () => {
-		const prompt = await readTemplate("skills", "agent-browser", "SKILL.md");
+	test("chrome-devtools skill ships all referenced support assets", async () => {
+		const prompt = await readTemplate("skills", "chrome-devtools", "SKILL.md");
 		const referencedAssets = [
 			...prompt.matchAll(/\((references\/[^)]+|templates\/[^)]+)\)/g),
 		].map((match) => match[1]);
@@ -396,7 +399,7 @@ describe("prompt template contracts", () => {
 		for (const relativePath of new Set(referencedAssets)) {
 			const exists = await pathExists(
 				"skills",
-				"agent-browser",
+				"chrome-devtools",
 				...relativePath.split("/"),
 			);
 			expect(exists).toBe(true);
