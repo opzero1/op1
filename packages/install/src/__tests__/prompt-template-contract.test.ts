@@ -375,8 +375,11 @@ describe("prompt template contracts", () => {
 		expect(chromeDevtools).toContain("name: chrome-devtools");
 		expect(chromeDevtools).toContain("brew tap aeroxy/chrome-devtools-cli");
 		expect(chromeDevtools).toContain("cargo install chrome-devtools-cli");
-		expect(chromeDevtools).toContain("[target:word-pair]");
-		expect(chromeDevtools).toContain("--target <name>");
+		expect(chromeDevtools).toContain("--page <index>");
+		expect(chromeDevtools).toContain("--target <target-id>");
+		expect(chromeDevtools).toContain("capture it and reuse `--target`");
+		expect(chromeDevtools).not.toContain("[target:word-pair]");
+		expect(chromeDevtools).not.toContain("--target <name>");
 		expect(chromeDevtools).not.toContain("name: agent-browser");
 		expect(chromeDevtools).not.toContain("auth login");
 

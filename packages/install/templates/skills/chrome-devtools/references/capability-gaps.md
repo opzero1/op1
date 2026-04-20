@@ -20,7 +20,7 @@ This skill is intentionally current-state only. Do not claim unsupported feature
 Checkbox:
 
 ```bash
-chrome-devtools --target <name> evaluate "
+chrome-devtools --target <TARGET> evaluate "
   const el = document.querySelector('input[name=\"terms\"]');
   if (!el) throw new Error('checkbox not found');
   el.checked = true;
@@ -31,7 +31,7 @@ chrome-devtools --target <name> evaluate "
 Select:
 
 ```bash
-chrome-devtools --target <name> evaluate "
+chrome-devtools --target <TARGET> evaluate "
   const el = document.querySelector('select[name=\"country\"]');
   if (!el) throw new Error('select not found');
   el.value = 'US';

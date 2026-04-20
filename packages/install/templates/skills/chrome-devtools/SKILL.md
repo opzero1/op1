@@ -25,17 +25,29 @@ See [references/prerequisites.md](references/prerequisites.md).
 
 ## Core Workflow (Target-Aware)
 
-`navigate` prints a target handle in the form `[target:word-pair]`.
+Page-level commands support both `--page <index>` and `--target <target-id>`.
 
-Capture that target once, then pass `--target <name>` to every follow-up command so you keep operating on the same tab.
+For quick flows, `--page` is the simplest option. When a command emits a target marker, capture it and reuse `--target` for a stable multi-step flow.
 
 ```bash
-NAV_OUTPUT="$(chrome-devtools navigate https://example.com)"
+chrome-devtools list-pages
+chrome-devtools new-page https://example.com
+
+# Quick smoke-test path
+chrome-devtools --page 3 snapshot
+chrome-devtools --page 3 evaluate "document.title"
+chrome-devtools --page 3 screenshot --output /tmp/example.png
+```
+
+```bash
+NAV_OUTPUT="$(chrome-devtools new-page https://example.com)"
 
 if [[ "$NAV_OUTPUT" =~ \[target:([^]]+)\] ]]; then
   TARGET="${BASH_REMATCH[1]}"
+elif [[ "$NAV_OUTPUT" =~ \(target:[[:space:]]*([^)]*)\) ]]; then
+  TARGET="${BASH_REMATCH[1]}"
 else
-  echo "Failed to capture target from navigate output"
+  echo "Failed to capture target from command output"
   exit 1
 fi
 
