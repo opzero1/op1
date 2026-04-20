@@ -1,6 +1,6 @@
 {
 	"name": "@op1/fast-mode",
-	"version": "0.5.3",
+	"version": "0.5.4",
 	"description": "Fast mode plugin for OpenCode that enables priority service tier for approved provider/model/agent requests",
 	"type": "module",
 	"main": "dist/fast-mode.js",

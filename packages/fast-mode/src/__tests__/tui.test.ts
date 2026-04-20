@@ -143,6 +143,16 @@ describe("fast mode tui options", () => {
 });
 
 describe("fast mode tui module export", () => {
+	test("root export also exposes the tui entrypoint", async () => {
+		const mod = await import("../index.js");
+		const plugin = mod.default as TuiPluginModule;
+
+		expect(plugin).toBeDefined();
+		expect(plugin.id).toBe("@op1/fast-mode");
+		expect(typeof plugin.tui).toBe("function");
+		expect(mod.FastModePlugin).toBe(mod.default);
+	});
+
 	test("default export matches TuiPluginModule shape", async () => {
 		const mod = await import("../tui/index.js");
 		const plugin = mod.default as TuiPluginModule;
