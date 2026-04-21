@@ -23,11 +23,19 @@ For the planning run:
 - whether it used `grill-me` style branch-by-branch questioning and recommendations
 - whether it deep-grilled unresolved execution branches internally while still asking a thoughtful, prioritized question set
 - whether the visible questions are forward-facing, concrete, and worth the human thinking time instead of generic planner prompts
+- whether broad prompts are first narrowed through a repo-grounded default path and likely file scope before subjective quality-target questions
+- whether the planner explicitly separates repo-owned branches (structure, precedent, affected files) from human-owned branches (priority pain, trade-offs, anti-goals, success bar) on broad qualitative asks
+- whether the first visible question targets the next unresolved child branch instead of an umbrella approval gate
+- whether broad prompts keep grilling through branch frontiers until execution-critical branches are resolved (scope, blast radius, ownership, interfaces, sequencing, verification), not just until one quality axis is chosen
+- whether broad qualitative prompts continue past scope + one axis to resolve human-owned trade-off tolerance, unacceptable regressions, and success evidence (or explicit accepted defaults)
+- whether recommendations narrow the active branch without short-circuiting unresolved sibling branches
+- whether multiple unresolved child branches are handled one-at-a-time in dependency order instead of collapsed into one broad approval question
 - whether it asked enough important questions before saving instead of stopping after one thin question
 - whether it made missing-context behavior explicit instead of leaving `/work` to guess
 - whether it made state ownership explicit instead of leaving source-of-truth questions open
 - whether it surfaced a concrete pattern decision or a bounded best-practice fallback
 - whether fallback or non-obvious pattern choices got explicit human confirmation with concrete file references and a minimal code example
+- whether pattern approval was requested only when the interview had actually reached that fallback/risky/ambiguous pattern branch
 - whether context-heavy approval rounds used the native `question` tool well, including inline context such as file references or fenced code snippets when needed
 - whether the saved plan named a concrete file change map with explicit add/edit/delete intent
 - whether it resolved the execution contract branches required by the chosen kind/overlay (`non_goals`, `happy_path`, `expected_outcome`, `missing_context_behavior`, `approval_readiness_rules`, `state_ownership`, `dependencies`, `triggers`, `invariants`, `tests`)
@@ -69,17 +77,17 @@ Score each case from 0-2 on each dimension:
 5. `persistence_quality`
    - `0`: no canonical implementation reference or adaptive context persisted
    - `1`: stores some context, but misses key adaptive fields
-   - `2`: stores `primary_kind`, `overlays`, execution branches, `source_type`, and `code_example`
+   - `2`: stores `primary_kind`, `overlays`, execution branches, `source_type`, `code_example`, and `file_change_map_json`
 
 6. `deep_grill_quality`
-    - `0`: stops after the first obvious gap or dumps a lazy questionnaire
-    - `1`: partially probes deeper branches, but misses overlay-specific gaps or asks weak questions
-    - `2`: deep-grills unresolved execution branches and turns them into a thoughtful, prioritized question set
+      - `0`: stops after the first obvious gap or dumps a lazy questionnaire
+      - `1`: partially probes deeper branches, but misses overlay-specific gaps or asks weak questions
+      - `2`: deep-grills unresolved execution branches, asks the next unresolved child branch in dependency order, avoids umbrella approval gates while branches remain, and keeps unresolved human-owned branches explicit when they still affect execution
 
 7. `question_quality`
    - `0`: asks generic, shallow, or low-value questions
    - `1`: asks some useful questions, but misses depth, prioritization, or clarity
-   - `2`: asks the necessary forward-facing, concrete, decision-shaping questions to resolve the remaining branches without padding the interview
+     - `2`: asks the necessary forward-facing, concrete, decision-shaping next-child-branch questions, grounding broad asks in repo-default scope/blast radius before subjective preference branches, then resolving remaining human-owned trade-off/anti-goal/success branches before save while avoiding umbrella approvals or interview padding
 
 8. `plan_specificity`
    - `0`: saved plan remains generic and does not map file operations
@@ -87,9 +95,9 @@ Score each case from 0-2 on each dimension:
    - `2`: names concrete files and explicit add/edit/delete intent with rationale
 
 9. `execution_clarification_load`
-    - `0`: execution needs 3+ follow-up clarification questions
-    - `1`: execution needs 1-2 follow-up clarification questions
-    - `2`: execution starts coding with 0 follow-up clarification questions
+    - `0`: execution re-opens execution-critical branches or needs 3+ follow-up clarification questions
+    - `1`: execution needs 1-2 follow-up clarification questions, but they are not execution-critical branch resets
+    - `2`: execution needs at most 1 non-critical follow-up clarification question and does not re-interview execution-critical branches
 
 10. `handoff_reuse`
     - `0`: `/work` reclassifies the task or ignores the approved planning contract
@@ -108,6 +116,9 @@ The change is a win when:
 - mixed-overlay cases reach `2` for `handoff_reuse`
 - repo-pattern cases reach `2` for `repo_pattern_grounding`
 - fallback cases reach `2` for `approval_quality` and `persistence_quality`
+- `after` runs avoid umbrella approval questions while material child branches are still unresolved
+- `after` runs do not optimize for "0 follow-up questions" by saving before execution-critical branches are resolved
+- broad qualitative `after` runs do not save after scope + one axis when unresolved human-owned branches still materially affect execution
 - the median number of execution-time follow-up clarification questions drops versus `before`
 
 ## Notes

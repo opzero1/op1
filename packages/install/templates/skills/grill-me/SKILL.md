@@ -7,20 +7,11 @@ description: Interview the user relentlessly about a plan or design until branch
 
 Use this skill when a plan/design needs stress-testing or when the user asks to be grilled.
 
-## Core Behavior
-
-- Walk unresolved decision branches one-by-one until the plan is implementation-ready.
-- Resolve branch dependencies explicitly instead of leaving hidden assumptions.
-- Ask one focused question at a time.
-- For each question, provide your recommended answer first, then ask the user to confirm or override it.
-- Keep questions concrete, forward-facing, and specific to execution choices.
-
-## Repo-First Rule
-
-- If a question can be answered from the codebase, existing plans, or saved context, explore and resolve it directly.
-- Ask the user only for decisions the repo cannot answer.
-
-## Planning Handoff Rule (op1)
-
-- Do not stop at discussion quality alone; continue until `/work` can execute without re-interviewing the same branches.
-- Ensure confirmed answers are persisted through the normal planning path (`plan_save`, `plan_context_write` when available, otherwise saved plan + `notepad_write`).
+Ask questions until execution-critical branches are actually resolved, not just discussed.
+Drive one unresolved branch frontier at a time, and ask a small tightly-coupled set when one question cannot resolve that frontier.
+Stay repo-first: if the codebase or saved context answers a branch, resolve it directly and only ask the user for decisions the repo cannot answer.
+Keep a clear split between repo-owned branches (structure, precedent, affected files) and human-owned branches (priority pain, trade-offs, anti-goals, success bar).
+For broad qualitative asks (improve, simplify, clean up, make nicer), do not stop after scope + one quality axis; keep pressure-testing unresolved human-owned branches that can still change execution.
+If a human-owned branch is intentionally defaulted, state the default and rationale, then get explicit user acceptance before treating the interview as complete.
+When useful, offer a recommended path to speed decisions, but do not treat one broad answer as `/work` readiness.
+When the interview is complete, persist the resolved contract through the normal planning path (`plan_save`, `plan_context_write` when available, otherwise saved plan + `notepad_write`).

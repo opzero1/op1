@@ -58,7 +58,11 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("mirror the confirmations into `notepad_write`");
 		expect(prompt).toContain('plan_save(mode="new", set_active=true)');
 		expect(prompt).toContain("bounded pattern-scout pass");
-		expect(prompt).toContain("follow existing pattern?");
+		expect(prompt).toContain("next unresolved child branch");
+		expect(prompt).toContain("umbrella approval questions");
+		expect(prompt).toContain("resolved vs still unresolved");
+		expect(prompt).toContain("smallest reversible default");
+		expect(prompt).toContain("scope, blast radius, ownership, or sequencing");
 		expect(prompt).toContain("primary kind");
 		expect(prompt).toContain("overlays");
 		expect(prompt).toContain("deep-grill");
@@ -68,16 +72,23 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("add / edit / delete");
 		expect(prompt).toContain("file_change_map_json");
 		expect(prompt).toContain("Interview with grill-me discipline");
-		expect(prompt).toContain("one-by-one");
-		expect(prompt).toContain("recommended answer");
+		expect(prompt).toContain("branch frontiers");
+		expect(prompt).toContain("repo-owned branches");
+		expect(prompt).toContain("human-owned branches");
+		expect(prompt).toContain("minimum tightly-coupled question set");
+		expect(prompt).toContain("Recommendations are optional");
 		expect(prompt).toContain("native `question` tool");
 		expect(prompt).toContain("Use freeform when option lists would hide nuance");
 		expect(prompt).toContain("fallback, risky, or genuinely ambiguous pattern choices");
 		expect(prompt).toContain("explicit human confirmation");
+		expect(prompt).toContain("scope + one axis");
+		expect(prompt).toContain("internal completion gate");
+		expect(prompt).toContain("Required-branch answers are necessary but not sufficient");
 		expect(prompt).toContain("missing-context behavior");
 		expect(prompt).toContain("planning-question-quality evaluation artifact");
 		expect(prompt).not.toContain("3-7 questions");
 		expect(prompt).not.toContain("Example multi-question round");
+		expect(prompt).not.toContain("Propose the likely path");
 		expect(prompt).not.toContain("plan_promote");
 		expect(prompt).not.toContain("Use this exact structure:");
 	});
@@ -120,17 +131,31 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain("deep-grill");
 		expect(planCommand).toContain("dependencies");
 		expect(planCommand).toContain("forward-facing");
+		expect(planCommand).toContain("next unresolved child-branch");
+		expect(planCommand).toContain("umbrella approval questions");
+		expect(planCommand).toContain(
+			"scope, blast radius, ownership, interfaces, sequencing, or verification",
+		);
+		expect(planCommand).toContain("current repo-grounded default path");
+		expect(planCommand).toContain("resolved vs still unresolved");
+		expect(planCommand).toContain("smallest reversible default");
 		expect(planCommand).toContain("file-operation change map");
 		expect(planCommand).toContain("file_change_map_json");
 		expect(planCommand).toContain("Use `grill-me`");
-		expect(planCommand).toContain("one-by-one");
-		expect(planCommand).toContain("recommended answer");
+		expect(planCommand).toContain("branch frontiers");
+		expect(planCommand).toContain("repo-owned branches");
+		expect(planCommand).toContain("human-owned branches");
+		expect(planCommand).toContain("minimum tightly-coupled question set");
+		expect(planCommand).toContain("Recommendations are optional");
 		expect(planCommand).toContain("native `question` tool");
 		expect(planCommand).toContain("do not force a rigid payload shape");
+		expect(planCommand).toContain("trade-off tolerance");
 		expect(planCommand).toContain("explicit confirmation");
 		expect(planCommand).toContain("risky deviation");
 		expect(planCommand).toContain("state ownership");
-		expect(planCommand).toContain("Do not save any plan until");
+		expect(planCommand).toContain("internal completion gate");
+		expect(planCommand).toContain("required-branch answers are necessary but not sufficient");
+		expect(planCommand).toContain("Do not save any plan while any unresolved branch");
 		expect(planCommand).toContain(
 			"planning-question-quality evaluation artifact",
 		);
@@ -215,12 +240,19 @@ describe("prompt template contracts", () => {
 		const prompt = await readTemplate("skills", "grill-me", "SKILL.md");
 
 		expect(prompt).toContain("name: grill-me");
-		expect(prompt).toContain("one focused question at a time");
-		expect(prompt).toContain("recommended answer");
-		expect(prompt).toContain("If a question can be answered from the codebase");
+		expect(prompt).toContain("execution-critical branches");
+		expect(prompt).toContain("branch frontier");
+		expect(prompt).toContain("repo-first");
+		expect(prompt).toContain("repo-owned branches");
+		expect(prompt).toContain("human-owned branches");
+		expect(prompt).toContain("scope + one quality axis");
+		expect(prompt).toContain("explicit user acceptance");
+		expect(prompt).toContain("do not treat one broad answer as `/work` readiness");
 		expect(prompt).toContain("plan_save");
 		expect(prompt).toContain("plan_context_write");
 		expect(prompt).toContain("notepad_write");
+		expect(prompt).not.toContain("Core Behavior");
+		expect(prompt).not.toContain("one focused question at a time");
 	});
 
 	test("ulw defers detailed proof mechanics to verification-before-completion", async () => {

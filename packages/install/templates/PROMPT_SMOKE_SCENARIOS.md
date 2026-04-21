@@ -23,13 +23,19 @@ Validate that the GPT-5.4 prompt harness stays concise, grounded, and completion
   - Cites sources and avoids stale tool references
 
 ### 3. Planning
-- Prompt: `/plan tune the reviewer prompt for less verbosity and stronger evidence requirements`
+- Prompt: `/plan make the reviewer prompt better`
 - Expected behavior:
   - Runs a bounded internal pattern-scout pass before drafting
   - Detects a primary kind plus any relevant overlays instead of treating planning as single-mode
   - Deep-grills unresolved execution branches internally before surfacing the next visible question
-  - Uses the native `question` tool for the real multi-question round when repo evidence does not settle required branches
-  - Surfaces concrete pattern approval questions when a close repo match exists
+  - First visible question proposes the repo-grounded default path and concrete likely files in scope before asking the next unresolved child branch
+  - First visible question targets the next unresolved child branch, not an umbrella "should I lock this plan?" approval gate or a generic quality-target picker
+  - If multiple child branches remain, asks the minimum tightly-coupled set needed for the active branch frontier and keeps the rest queued by dependency
+  - Uses `grill-me` style branch-by-branch questioning and the native `question` tool only for the unresolved user decisions the repo cannot answer
+  - Separates repo-owned branches (structure/precedent/files) from human-owned branches (priority pain/trade-offs/anti-goals/success bar) for broad qualitative asks
+  - Continues grilling broad prompts until execution-critical branches (scope, blast radius, ownership, interfaces, sequencing, verification) are resolved before saving
+  - Does not save after only scope + one optimization axis while human-owned trade-off or success branches still affect execution
+  - Defers pattern approval questions until the interview has actually reached that fallback/risky/ambiguous pattern branch
   - Includes short fenced code examples directly in the question text when code context helps
   - Falls back to bounded research plus one recommended example only when repo precedent is weak
   - Uses `plan-protocol`

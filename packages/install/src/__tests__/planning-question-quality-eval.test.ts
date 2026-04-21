@@ -18,8 +18,14 @@ interface PlanningQuestionQualityEvalCase {
 	must_use_grill_me?: boolean;
 	must_confirm_non_default_patterns?: boolean;
 	must_ask: string;
+	must_ask_next_child_branch?: boolean;
+	must_avoid_umbrella_approval_before_branch_narrowing?: boolean;
+	must_continue_branch_frontier_until_execution_critical_resolved?: boolean;
+	must_capture_human_owned_branches?: string[];
+	must_not_save_after_scope_plus_axis?: boolean;
+	must_not_save_after_single_axis_answer?: boolean;
 	must_persist: string[];
-	must_not_reask_in_work?: boolean;
+	must_not_reopen_execution_critical_branches_in_work?: boolean;
 	max_execution_follow_up_questions: number;
 }
 
@@ -60,6 +66,15 @@ describe("planning question quality evaluation", () => {
 		expect(content).toContain("plan_specificity");
 		expect(content).toContain("handoff_reuse");
 		expect(content).toContain("execution_clarification_load");
+		expect(content).toContain("execution-critical branches are resolved");
+		expect(content).toContain('do not optimize for "0 follow-up questions"');
+		expect(content).toContain("repo-grounded default path");
+		expect(content).toContain("repo-owned branches");
+		expect(content).toContain("human-owned branches");
+		expect(content).toContain("scope + one axis");
+		expect(content).toContain("next unresolved child branch");
+		expect(content).toContain("umbrella approval");
+		expect(content).toContain("short-circuiting unresolved sibling branches");
 		expect(content).not.toContain("one question at a time");
 		expect(content).toContain("missing-context behavior");
 		expect(content).toContain("dependencies");
@@ -74,7 +89,56 @@ describe("planning question quality evaluation", () => {
 		const raw = await Bun.file(evalCasesPath).text();
 		const cases = JSON.parse(raw) as PlanningQuestionQualityEvalCase[];
 
-		expect(cases).toHaveLength(7);
+		expect(cases).toHaveLength(8);
+
+		for (const item of cases) {
+			expect(item.must_ask_next_child_branch).toBe(true);
+			expect(
+				item.must_avoid_umbrella_approval_before_branch_narrowing,
+			).toBe(true);
+			expect(
+				item.must_continue_branch_frontier_until_execution_critical_resolved,
+			).toBe(true);
+			expect(item.max_execution_follow_up_questions).toBeLessThanOrEqual(1);
+		}
+
+		const broadPrompt = cases.find((item) => item.id === "broad-reviewer-prompt");
+		expect(broadPrompt).toBeDefined();
+		expect(broadPrompt?.expected_mode).toBe("repo-pattern");
+		expect(broadPrompt?.expected_primary_kind).toBe("implementation");
+		expect(broadPrompt?.expected_overlays).toEqual(
+			expect.arrayContaining(["deep-grill", "interface-review"]),
+		);
+		expect(broadPrompt?.must_ask).toContain("scope boundary");
+		expect(broadPrompt?.must_surface_files).toContain(
+			"packages/install/templates/agents/reviewer.md",
+		);
+		expect(broadPrompt?.must_surface_files).toContain(
+			"packages/install/templates/commands/review.md",
+		);
+		expect(broadPrompt?.must_surface_files).toContain(
+			"packages/install/src/__tests__/prompt-template-contract.test.ts",
+		);
+		expect(broadPrompt?.must_use_grill_me).toBe(true);
+		expect(broadPrompt?.must_confirm_non_default_patterns).toBe(false);
+		expect(broadPrompt?.must_capture_human_owned_branches).toEqual(
+			expect.arrayContaining([
+				"priority pain",
+				"acceptable trade-off",
+				"unacceptable regression",
+				"success evidence",
+			]),
+		);
+		expect(broadPrompt?.must_not_save_after_scope_plus_axis).toBe(true);
+		expect(broadPrompt?.must_not_save_after_single_axis_answer).toBe(true);
+		expect(broadPrompt?.must_persist).toContain("overlays: deep-grill");
+		expect(broadPrompt?.must_persist).toContain("overlays: interface-review");
+		expect(broadPrompt?.must_persist).toContain("source_type: repo");
+		expect(broadPrompt?.must_persist).toContain("file_change_map_json");
+		expect(
+			broadPrompt?.must_not_reopen_execution_critical_branches_in_work,
+		).toBe(true);
+		expect(broadPrompt?.max_execution_follow_up_questions).toBe(1);
 
 		const repoPattern = cases.find((item) => item.id === "repo-pattern-follow");
 		expect(repoPattern).toBeDefined();
@@ -104,8 +168,10 @@ describe("planning question quality evaluation", () => {
 		expect(repoPattern?.must_persist).toContain("source_type: repo");
 		expect(repoPattern?.must_persist).toContain("code_example");
 		expect(repoPattern?.must_persist).toContain("file_change_map_json");
-		expect(repoPattern?.must_not_reask_in_work).toBe(true);
-		expect(repoPattern?.max_execution_follow_up_questions).toBe(0);
+		expect(
+			repoPattern?.must_not_reopen_execution_critical_branches_in_work,
+		).toBe(true);
+		expect(repoPattern?.max_execution_follow_up_questions).toBe(1);
 
 		const fallback = cases.find((item) => item.id === "best-practice-fallback");
 		expect(fallback).toBeDefined();
@@ -126,8 +192,10 @@ describe("planning question quality evaluation", () => {
 		expect(fallback?.must_persist).toContain("source_type: best-practice");
 		expect(fallback?.must_persist).toContain("code_example");
 		expect(fallback?.must_persist).toContain("file_change_map_json");
-		expect(fallback?.must_not_reask_in_work).toBe(true);
-		expect(fallback?.max_execution_follow_up_questions).toBe(0);
+		expect(
+			fallback?.must_not_reopen_execution_critical_branches_in_work,
+		).toBe(true);
+		expect(fallback?.max_execution_follow_up_questions).toBe(1);
 
 		const prdCase = cases.find((item) => item.id === "prd-vertical-slices");
 		expect(prdCase).toBeDefined();
@@ -149,9 +217,14 @@ describe("planning question quality evaluation", () => {
 		expect(prdCase?.must_confirm_non_default_patterns).toBe(true);
 		expect(prdCase?.must_ask).toContain("fallback");
 		expect(prdCase?.must_persist).toContain("primary_kind: prd");
+		expect(prdCase?.must_persist).toContain("overlays: deep-grill");
+		expect(prdCase?.must_persist).toContain("overlays: user-story-mapping");
+		expect(prdCase?.must_persist).toContain("overlays: vertical-slices");
 		expect(prdCase?.must_persist).toContain("source_type: best-practice");
 		expect(prdCase?.must_persist).toContain("file_change_map_json");
-		expect(prdCase?.must_not_reask_in_work).toBe(true);
+		expect(
+			prdCase?.must_not_reopen_execution_critical_branches_in_work,
+		).toBe(true);
 
 		const refactorCase = cases.find(
 			(item) => item.id === "refactor-small-commits",
@@ -171,8 +244,12 @@ describe("planning question quality evaluation", () => {
 		expect(refactorCase?.must_capture_branches).toContain("dependencies");
 		expect(refactorCase?.must_use_grill_me).toBe(true);
 		expect(refactorCase?.must_confirm_non_default_patterns).toBe(false);
+		expect(refactorCase?.must_persist).toContain("overlays: deep-grill");
 		expect(refactorCase?.must_persist).toContain(
 			"overlays: refactor-sequencing",
+		);
+		expect(refactorCase?.must_persist).toContain(
+			"overlays: dependency-modeling",
 		);
 		expect(refactorCase?.must_persist).toContain("file_change_map_json");
 
@@ -191,6 +268,8 @@ describe("planning question quality evaluation", () => {
 		expect(interfaceCase?.must_use_grill_me).toBe(true);
 		expect(interfaceCase?.must_confirm_non_default_patterns).toBe(true);
 		expect(interfaceCase?.must_ask).toContain("fallback");
+		expect(interfaceCase?.must_persist).toContain("overlays: deep-grill");
+		expect(interfaceCase?.must_persist).toContain("overlays: interface-review");
 		expect(interfaceCase?.must_persist).toContain(
 			"source_type: best-practice",
 		);
@@ -212,6 +291,8 @@ describe("planning question quality evaluation", () => {
 		expect(tddCase?.must_capture_branches).toContain("invariants");
 		expect(tddCase?.must_use_grill_me).toBe(true);
 		expect(tddCase?.must_confirm_non_default_patterns).toBe(false);
+		expect(tddCase?.must_persist).toContain("overlays: deep-grill");
+		expect(tddCase?.must_persist).toContain("overlays: tdd");
 		expect(tddCase?.must_persist).toContain("file_change_map_json");
 
 		const mixedCase = cases.find(
@@ -236,9 +317,19 @@ describe("planning question quality evaluation", () => {
 		expect(mixedCase?.must_ask).toContain("ownership");
 		expect(mixedCase?.must_use_grill_me).toBe(true);
 		expect(mixedCase?.must_confirm_non_default_patterns).toBe(false);
-		expect(mixedCase?.must_not_reask_in_work).toBe(true);
+		expect(
+			mixedCase?.must_not_reopen_execution_critical_branches_in_work,
+		).toBe(true);
+		expect(mixedCase?.must_persist).toContain("overlays: deep-grill");
+		expect(mixedCase?.must_persist).toContain(
+			"overlays: refactor-sequencing",
+		);
+		expect(mixedCase?.must_persist).toContain("overlays: tdd");
+		expect(mixedCase?.must_persist).toContain(
+			"overlays: dependency-modeling",
+		);
 		expect(mixedCase?.must_persist).toContain("source_type: repo");
 		expect(mixedCase?.must_persist).toContain("file_change_map_json");
-		expect(mixedCase?.max_execution_follow_up_questions).toBe(0);
+		expect(mixedCase?.max_execution_follow_up_questions).toBe(1);
 	});
 });

@@ -1,5 +1,53 @@
 [
 	{
+		"id": "broad-reviewer-prompt",
+		"prompt": "/plan make the reviewer prompt better",
+		"expected_mode": "repo-pattern",
+		"expected_primary_kind": "implementation",
+		"expected_overlays": ["deep-grill", "interface-review"],
+		"must_capture_branches": [
+			"non_goals",
+			"happy_path",
+			"expected_outcome",
+			"missing_context_behavior",
+			"approval_readiness_rules",
+			"state_ownership",
+			"dependencies",
+			"triggers",
+			"invariants",
+			"tests"
+		],
+		"must_surface_files": [
+			"packages/install/templates/agents/reviewer.md",
+			"packages/install/templates/commands/review.md",
+			"packages/install/src/__tests__/prompt-template-contract.test.ts"
+		],
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": false,
+		"must_ask": "Confirm the prompt-layer scope boundary",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
+		"must_capture_human_owned_branches": [
+			"priority pain",
+			"acceptable trade-off",
+			"unacceptable regression",
+			"success evidence"
+		],
+		"must_not_save_after_scope_plus_axis": true,
+		"must_not_save_after_single_axis_answer": true,
+		"must_persist": [
+			"primary_kind: implementation",
+			"overlays: deep-grill",
+			"overlays: interface-review",
+			"source_type: repo",
+			"code_example",
+			"file_change_map_json"
+		],
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
+	},
+	{
 		"id": "repo-pattern-follow",
 		"prompt": "/plan add a new workspace planning tool that persists approval metadata for implementation handoff",
 		"expected_mode": "repo-pattern",
@@ -24,6 +72,9 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": false,
 		"must_ask": "Confirm the proposed blast radius",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: implementation",
 			"overlays: deep-grill",
@@ -31,8 +82,8 @@
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "best-practice-fallback",
@@ -56,6 +107,9 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": true,
 		"must_ask": "Confirm the proposed fallback pattern",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: implementation",
 			"overlays: deep-grill",
@@ -63,8 +117,8 @@
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "prd-vertical-slices",
@@ -91,16 +145,20 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": true,
 		"must_ask": "Confirm the proposed fallback pattern",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: prd",
+			"overlays: deep-grill",
 			"overlays: user-story-mapping",
 			"overlays: vertical-slices",
 			"source_type: best-practice",
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "refactor-small-commits",
@@ -126,15 +184,19 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": false,
 		"must_ask": "Confirm the proposed sequencing boundary",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: refactor",
+			"overlays: deep-grill",
 			"overlays: refactor-sequencing",
 			"overlays: dependency-modeling",
 			"source_type: repo",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "interface-comparison",
@@ -156,15 +218,19 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": true,
 		"must_ask": "Confirm the proposed fallback pattern",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: interface",
+			"overlays: deep-grill",
 			"overlays: interface-review",
 			"source_type: best-practice",
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "tdd-planning",
@@ -186,14 +252,18 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": false,
 		"must_ask": "Confirm the readiness gate",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: tdd",
+			"overlays: deep-grill",
 			"overlays: tdd",
 			"source_type: repo",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	},
 	{
 		"id": "mixed-overlay-no-reask",
@@ -226,8 +296,12 @@
 		"must_use_grill_me": true,
 		"must_confirm_non_default_patterns": false,
 		"must_ask": "Confirm the ownership and sequencing boundary",
+		"must_ask_next_child_branch": true,
+		"must_avoid_umbrella_approval_before_branch_narrowing": true,
+		"must_continue_branch_frontier_until_execution_critical_resolved": true,
 		"must_persist": [
 			"primary_kind: implementation",
+			"overlays: deep-grill",
 			"overlays: refactor-sequencing",
 			"overlays: tdd",
 			"overlays: dependency-modeling",
@@ -235,7 +309,7 @@
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": true,
-		"max_execution_follow_up_questions": 0
+		"must_not_reopen_execution_critical_branches_in_work": true,
+		"max_execution_follow_up_questions": 1
 	}
 ]
