@@ -725,20 +725,6 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		};
 	});
 
-	// Phase 3 hook factories (created once, reused in tool.execute.after)
-	const momentumDeps: MomentumDeps = {
-		readActivePlanState: sm.readActivePlanState,
-		shouldContinue: async (sessionID: string) => {
-			const [continuationAllowed, isRootSession] = await Promise.all([
-				continuationState.isContinuationAllowed(sessionID),
-				isRootSession(sessionID),
-			]);
-			return continuationAllowed && isRootSession;
-		},
-	};
-	const joinGuardPromptFingerprints = new Map<string, string>();
-	const recentQuestionToolNotifications = new Map<string, number>();
-
 	const isRootSession = async (sessionID: string): Promise<boolean> => {
 		try {
 			return (await getRootSessionID(sessionID)) === sessionID;
@@ -746,6 +732,20 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			return true;
 		}
 	};
+
+	// Phase 3 hook factories (created once, reused in tool.execute.after)
+	const momentumDeps: MomentumDeps = {
+		readActivePlanState: sm.readActivePlanState,
+		shouldContinue: async (sessionID: string) => {
+			const [continuationAllowed, rootSession] = await Promise.all([
+				continuationState.isContinuationAllowed(sessionID),
+				isRootSession(sessionID),
+			]);
+			return continuationAllowed && rootSession;
+		},
+	};
+	const joinGuardPromptFingerprints = new Map<string, string>();
+	const recentQuestionToolNotifications = new Map<string, number>();
 
 	interface NotificationRoutingResolution {
 		notificationSessionID: string;
