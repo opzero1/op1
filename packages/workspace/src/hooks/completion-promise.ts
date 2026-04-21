@@ -21,6 +21,7 @@ interface CompletionJoinBlocker {
 
 interface CompletionPromiseConfig {
 	maxIterations?: number;
+	shouldEnforce?: (sessionID: string) => Promise<boolean>;
 	getJoinBlockers?: (sessionID: string) => Promise<{
 		rootSessionID: string;
 		blockers: CompletionJoinBlocker[];
@@ -85,6 +86,8 @@ export function createCompletionPromiseHook(
 		typeof config === "number"
 			? config
 			: (config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
+	const shouldEnforce =
+		typeof config === "number" ? undefined : config.shouldEnforce;
 	const getJoinBlockers =
 		typeof config === "number" ? undefined : config.getJoinBlockers;
 
@@ -94,6 +97,7 @@ export function createCompletionPromiseHook(
 	): Promise<void> => {
 		if (!CONTINUATION_TOOLS.has(input.tool.toLowerCase())) return;
 		if (typeof output.output !== "string") return;
+		if (shouldEnforce && !(await shouldEnforce(input.sessionID))) return;
 
 		const key = input.sessionID;
 		const current = (sessionIterations.get(key) ?? 0) + 1;

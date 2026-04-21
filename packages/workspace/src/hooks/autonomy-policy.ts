@@ -23,6 +23,10 @@ interface DecisionState {
 	updated_at: number;
 }
 
+interface AutonomyPolicyConfig {
+	shouldEnforce?: (sessionID: string) => Promise<boolean>;
+}
+
 const decisionRounds = new Map<string, DecisionState>();
 
 function getDecisionRounds(sessionID: string, now: number): number {
@@ -104,11 +108,15 @@ Only stop for an explicit user stop instruction, a real destructive or irreversi
 </system-reminder>`;
 }
 
-export function createAutonomyPolicyHook() {
+export function createAutonomyPolicyHook(config: AutonomyPolicyConfig = {}) {
 	return async (
 		input: { tool: string; sessionID: string; args?: unknown },
 		output: { output?: string },
 	): Promise<void> => {
+		if (config.shouldEnforce && !(await config.shouldEnforce(input.sessionID))) {
+			return;
+		}
+
 		const now = Date.now();
 		const isTask = input.tool.toLowerCase() === "task";
 		const isDecisionRound = isTask && isDecisionRoundCall(input.args);

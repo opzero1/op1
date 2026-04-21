@@ -98,4 +98,22 @@ describe("momentum hook", () => {
 
 		expect(output.output).toBe("base output");
 	});
+
+	test("skips reminder when delegated child sessions are disallowed", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-momentum-test-"));
+		tempRoots.push(root);
+
+		const planPath = join(root, "plan.md");
+		await Bun.write(planPath, "- [ ] pending root task\n");
+
+		const hook = createMomentumHook({
+			readActivePlanState: async () => ({ active_plan: planPath }),
+			shouldContinue: async (sessionID) => sessionID === "root-session",
+		});
+
+		const output = { output: "child finished assigned work" };
+		await hook({ tool: "task", sessionID: "child-session" }, output);
+
+		expect(output.output).toBe("child finished assigned work");
+	});
 });

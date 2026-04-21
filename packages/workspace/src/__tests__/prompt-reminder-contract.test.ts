@@ -130,6 +130,17 @@ describe("prompt reminder contracts", () => {
 		expect(output.output).toContain("Rounds completed so far: 0");
 	});
 
+	test("autonomy policy skips delegated child sessions when enforcement is disabled", async () => {
+		const hook = createAutonomyPolicyHook({
+			shouldEnforce: async (sessionID) => sessionID === "root-session",
+		});
+		const output = { output: "I can continue if you want" };
+
+		await hook({ tool: "task", sessionID: "child-session" }, output);
+
+		expect(output.output).toBe("I can continue if you want");
+	});
+
 	test("completion promise reminder demands explicit completion signal", async () => {
 		const hook = createCompletionPromiseHook(1);
 		const output = { output: "still working" };
@@ -142,6 +153,18 @@ describe("prompt reminder contracts", () => {
 		expect(output.output).toContain(
 			'Do not switch into a wrap-up summary or "next steps" handoff',
 		);
+	});
+
+	test("completion promise skips delegated child sessions when enforcement is disabled", async () => {
+		const hook = createCompletionPromiseHook({
+			maxIterations: 1,
+			shouldEnforce: async (sessionID) => sessionID === "root-session",
+		});
+		const output = { output: "still working" };
+
+		await hook({ tool: "task", sessionID: "child-session" }, output);
+
+		expect(output.output).toBe("still working");
 	});
 
 	test("autonomy policy converts recovery option menus into autonomous recovery reminders", async () => {

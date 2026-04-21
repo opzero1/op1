@@ -728,11 +728,24 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	// Phase 3 hook factories (created once, reused in tool.execute.after)
 	const momentumDeps: MomentumDeps = {
 		readActivePlanState: sm.readActivePlanState,
-		shouldContinue: (sessionID: string) =>
-			continuationState.isContinuationAllowed(sessionID),
+		shouldContinue: async (sessionID: string) => {
+			const [continuationAllowed, isRootSession] = await Promise.all([
+				continuationState.isContinuationAllowed(sessionID),
+				isRootSession(sessionID),
+			]);
+			return continuationAllowed && isRootSession;
+		},
 	};
 	const joinGuardPromptFingerprints = new Map<string, string>();
 	const recentQuestionToolNotifications = new Map<string, number>();
+
+	const isRootSession = async (sessionID: string): Promise<boolean> => {
+		try {
+			return (await getRootSessionID(sessionID)) === sessionID;
+		} catch {
+			return true;
+		}
+	};
 
 	interface NotificationRoutingResolution {
 		notificationSessionID: string;
@@ -854,6 +867,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			"completionPromise",
 			() =>
 				createCompletionPromiseHook({
+					shouldEnforce: isRootSession,
 					getJoinBlockers: getCompletionJoinBlockers,
 				}),
 			hookConfig,
@@ -870,7 +884,7 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 		);
 		const autonomyPolicyHandler = createSafeRuntimeHook(
 			"autonomyPolicy",
-			() => createAutonomyPolicyHook(),
+			() => createAutonomyPolicyHook({ shouldEnforce: isRootSession }),
 			hookConfig,
 		);
 		const editSafetyAfterHook = createSafeRuntimeHook(
