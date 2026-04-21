@@ -193,6 +193,40 @@ describe("notification channels hook", () => {
 		expect(calls[0].extra?.tool).toBeUndefined();
 	});
 
+	test("strict privacy redacts delegated routing breadcrumbs from log messages", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const calls: Array<{ message: string; extra?: Record<string, unknown> }> = [];
+		const client: NotificationClient = {
+			app: {
+				log: async ({ body }) => {
+					calls.push({ message: body.message, extra: body.extra });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "root-session",
+			source: "delegation.task-1.permission.updated",
+			kind: "permission",
+			routingContext: {
+				rootSessionID: "root-session",
+				childSessionID: "child-session",
+				taskID: "task-1",
+			},
+		});
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0].message).toBe("Assistant needs permission to continue.");
+		expect(calls[0].message).not.toContain("root-session");
+		expect(calls[0].message).not.toContain("child-session");
+		expect(calls[0].message).not.toContain("task-1");
+		expect(calls[0].extra?.root_session_id).toBeUndefined();
+		expect(calls[0].extra?.child_session_id).toBeUndefined();
+		expect(calls[0].extra?.task_id).toBeUndefined();
+	});
+
 	test("balanced privacy includes tool metadata", async () => {
 		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
 		Bun.env.OP7_WORKSPACE_NOTIFICATIONS_PRIVACY = "balanced";
@@ -338,6 +372,86 @@ describe("notification channels hook", () => {
 		expect(toasts[0].variant).toBe("success");
 	});
 
+	test("uses plan-specific wording for plan input-needed notifications", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({ title: body?.title, message: body?.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-plan",
+			source: "message.updated",
+			kind: "plan",
+			questionText:
+				"Please review /plan and confirm the implementation phase choices.",
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Plan Input Needed");
+		expect(toasts[0].message).toContain("Plan workflow needs your decision");
+	});
+
+	test("keeps explicit plan kind even when question text contains permission keywords", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({ title: body?.title, message: body?.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-plan-overrides-keyword",
+			kind: "plan",
+			questionText: "Please grant permission and confirm /plan phases.",
+		});
+
+		expect(toasts).toHaveLength(1);
+		expect(toasts[0].title).toBe("Plan Input Needed");
+		expect(toasts[0].message).toContain("Plan workflow needs your decision");
+		expect(toasts[0].message).not.toContain("needs permission");
+	});
+
+	test("does not dedupe distinct plain-text input-needed questions in the same session", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const client: NotificationClient = {
+			tui: {
+				showToast: async ({ body }) => {
+					toasts.push({ title: body?.title, message: body?.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "session-question",
+			kind: "question",
+			questionText: "Which scope should we use?",
+		});
+		await hook({
+			sessionID: "session-question",
+			kind: "question",
+			questionText: "Which verification depth should we use?",
+		});
+
+		expect(toasts).toHaveLength(2);
+		expect(toasts[0]?.message).toContain("asking a question");
+		expect(toasts[1]?.message).toContain("asking a question");
+	});
+
 	test("maps permission-like questions to permission notifications", async () => {
 		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
 
@@ -362,6 +476,73 @@ describe("notification channels hook", () => {
 		expect(toasts.length).toBe(1);
 		expect(toasts[0].title).toBe("Permission Needed");
 		expect(toasts[0].message).toContain("needs permission");
+	});
+
+	test("adds delegated routing breadcrumbs in balanced privacy mode", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS_PRIVACY = "balanced";
+
+		const calls: Array<{ extra?: Record<string, unknown>; message: string }> = [];
+		const client: NotificationClient = {
+			app: {
+				log: async ({ body }) => {
+					calls.push({ extra: body.extra, message: body.message });
+				},
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(client, { desktop: false });
+		await hook({
+			sessionID: "root-session",
+			source: "delegation.task-1.permission.updated",
+			kind: "permission",
+			routingContext: {
+				rootSessionID: "root-session",
+				childSessionID: "child-session",
+				taskID: "task-1",
+			},
+		});
+
+		expect(calls.length).toBe(1);
+		expect(calls[0].extra?.root_session_id).toBe("root-session");
+		expect(calls[0].extra?.child_session_id).toBe("child-session");
+		expect(calls[0].extra?.task_id).toBe("task-1");
+		expect(calls[0].message).toContain("task task-1");
+	});
+
+	test("uses clearer desktop copy for delegated plan input notifications", async () => {
+		Bun.env.OP7_WORKSPACE_NOTIFICATIONS = "true";
+
+		const desktopCalls: Array<{ title: string; message: string }> = [];
+		const desktopNotifier: DesktopNotifier = {
+			notify: (options, callback) => {
+				desktopCalls.push({ title: options.title, message: options.message });
+				callback?.(null);
+			},
+		};
+
+		const hook = createInputNeededNotificationHook(
+			{},
+			{ desktop: true, desktopNotifier },
+		);
+		await hook({
+			sessionID: "root-session",
+			kind: "plan",
+			routingContext: {
+				rootSessionID: "root-session",
+				childSessionID: "child-session",
+				taskID: "task-1",
+			},
+		});
+
+		expect(desktopCalls).toHaveLength(1);
+		expect(desktopCalls[0].title).toBe("Plan Input Needed (Delegated)");
+		expect(desktopCalls[0].message).toContain(
+			"Plan workflow is blocked and needs your decision.",
+		);
+		expect(desktopCalls[0].message).toContain("child child-session");
+		expect(desktopCalls[0].message).toContain("task task-1");
+		expect(desktopCalls[0].message).toContain("root root-session");
 	});
 
 	test("emits permission notifications when enabled", async () => {

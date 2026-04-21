@@ -15,10 +15,16 @@ afterEach(async () => {
 
 function createMockClient(
 	toasts: Array<{ title?: string; message?: string }>,
-	options?: { sessionMessages?: Record<string, unknown[]> },
+	options?: {
+		sessionMessages?: Record<string, unknown[]>;
+		sessionParents?: Record<string, string | undefined>;
+		failSessionGetIDs?: string[];
+	},
 ) {
 	const promptAsyncRequests: Array<{ sessionID: string; text?: string }> = [];
 	const sessionMessages = { ...(options?.sessionMessages ?? {}) };
+	const sessionParents = { ...(options?.sessionParents ?? {}) };
+	const failSessionGetIDs = new Set(options?.failSessionGetIDs ?? []);
 	return {
 		app: {
 			log: async () => {},
@@ -36,7 +42,18 @@ function createMockClient(
 			},
 		},
 		session: {
-			get: async () => ({ data: { id: "session" } }),
+			get: async (input: { path: { id: string } }) => {
+				if (failSessionGetIDs.has(input.path.id)) {
+					throw new Error(`failed to resolve session ${input.path.id}`);
+				}
+				const parentID = sessionParents[input.path.id];
+				return {
+					data: {
+						id: input.path.id,
+						...(parentID ? { parentID } : {}),
+					},
+				};
+			},
 			create: async () => ({ data: { id: "child" } }),
 			promptAsync: async (input: {
 				path: { id: string };
@@ -130,6 +147,9 @@ describe("workspace notification event hook", () => {
 
 		expect(toasts.length).toBe(2);
 		expect(toasts[0].title).toBe("Ready for Input");
+		expect(toasts[0].message).toContain("root root-session");
+		expect(toasts[0].message).toContain("child child-session");
+		expect(toasts[0].message).toContain("task task-1");
 		expect(toasts[1].title).toBe("Ready for Input");
 	});
 
@@ -281,6 +301,68 @@ describe("workspace notification event hook", () => {
 		expect(client.getPromptAsyncRequests()[0]?.text).toContain(
 			"ROOT JOIN GUARD",
 		);
+	});
+
+	test("does not prompt delegated child sessions with the root join guard on message updates", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-notification-message-delegated-child-"),
+		);
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		await mkdir(workspaceDir, { recursive: true });
+		await Bun.write(
+			join(workspaceDir, "task-records.json"),
+			JSON.stringify(
+				{
+					version: 3,
+					delegations: {
+						"task-1": {
+							id: "task-1",
+							root_session_id: "root-session",
+							child_session_id: "child-session",
+							status: "running",
+							run_in_background: true,
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const client = createMockClient(toasts, {
+			sessionMessages: {
+				"child-session": [
+					{
+						id: "msg-1",
+						info: {
+							role: "assistant",
+							time: { created: "2026-04-06T00:00:00.000Z" },
+						},
+						parts: [{ type: "text", text: "<done>COMPLETE</done>" }],
+					},
+				],
+			},
+		}) as ReturnType<typeof createMockClient> & {
+			getPromptAsyncRequests: () => Array<{ sessionID: string; text?: string }>;
+		};
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client,
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "child-session" },
+			},
+		});
+
+		expect(client.getPromptAsyncRequests()).toHaveLength(0);
 	});
 
 	test("dedupes repeated join guard prompts for the same blocker snapshot", async () => {
@@ -438,5 +520,283 @@ describe("workspace notification event hook", () => {
 
 		expect(toasts.length).toBe(1);
 		expect(toasts[0].title).toBe("Question for You");
+	});
+
+	test("uses plan-specific wording for /plan input-needed notifications", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-notification-plan-question-"));
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				sessionMessages: {
+					"foreground-session": [
+						{
+							info: { role: "assistant" },
+							parts: [
+								{
+									type: "text",
+									text: "Please confirm /plan phase selection and permission handoff?",
+								},
+							],
+						},
+					],
+				},
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "foreground-session" },
+			},
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Plan Input Needed");
+		expect(toasts[0].message).toContain("Plan workflow needs your decision");
+	});
+
+	test("emits distinct fallback question notifications for different assistant prompts", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-notification-message-question-distinct-"),
+		);
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const sessionMessages = [
+			{
+				info: { role: "assistant" },
+				parts: [{ type: "text", text: "Which path should we use?" }],
+			},
+		];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				sessionMessages: {
+					"foreground-session": sessionMessages,
+				},
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "foreground-session" },
+			},
+		});
+
+		sessionMessages[0] = {
+			info: { role: "assistant" },
+			parts: [
+				{ type: "text", text: "Please choose the verification depth." },
+			],
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "foreground-session" },
+			},
+		});
+
+		expect(toasts).toHaveLength(2);
+		expect(toasts[0]?.title).toBe("Question for You");
+		expect(toasts[1]?.title).toBe("Question for You");
+	});
+
+	test("falls back to resolved root session context when delegated child mapping is missing", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-notification-root-fallback-"));
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				sessionParents: {
+					"child-session": "root-session",
+				},
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "permission.updated",
+				properties: { sessionID: "child-session" },
+			},
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Permission Needed");
+		expect(toasts[0].message).toContain("root root-session");
+		expect(toasts[0].message).toContain("child child-session");
+	});
+
+	test("keeps notifications visible when root-session resolution fails", async () => {
+		const root = await mkdtemp(join(tmpdir(), "op1-notification-root-error-"));
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				failSessionGetIDs: ["broken-session"],
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "permission.updated",
+				properties: { sessionID: "broken-session" },
+			},
+		});
+
+		expect(toasts.length).toBe(1);
+		expect(toasts[0].title).toBe("Permission Needed");
+		expect(toasts[0].message).toContain("needs permission");
+	});
+
+	test("does not dedupe distinct permission requests with unique request ids", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-notification-permission-distinct-"),
+		);
+		tempRoots.push(root);
+		const toasts: Array<{ title?: string; message?: string }> = [];
+
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts),
+		} as never);
+		const pluginRecord = plugin as {
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		await pluginRecord.event?.({
+			event: {
+				type: "permission.updated",
+				properties: {
+					sessionID: "foreground-session",
+					requestID: "request-1",
+				},
+			},
+		});
+		await pluginRecord.event?.({
+			event: {
+				type: "permission.updated",
+				properties: {
+					sessionID: "foreground-session",
+					requestID: "request-2",
+				},
+			},
+		});
+
+		expect(toasts).toHaveLength(2);
+		expect(toasts[0]?.title).toBe("Permission Needed");
+		expect(toasts[1]?.title).toBe("Permission Needed");
+	});
+
+	test("does not suppress a different child fallback question routed to the same root", async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), "op1-notification-root-shared-fallback-"),
+		);
+		tempRoots.push(root);
+		const workspaceDir = join(root, ".opencode", "workspace");
+		await mkdir(workspaceDir, { recursive: true });
+		await Bun.write(
+			join(workspaceDir, "task-records.json"),
+			JSON.stringify(
+				{
+					version: 3,
+					delegations: {
+						"task-a": {
+							id: "task-a",
+							root_session_id: "root-session",
+							child_session_id: "child-a",
+							status: "running",
+							run_in_background: true,
+						},
+						"task-b": {
+							id: "task-b",
+							root_session_id: "root-session",
+							child_session_id: "child-b",
+							status: "running",
+							run_in_background: true,
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		const toasts: Array<{ title?: string; message?: string }> = [];
+		const plugin = await WorkspacePlugin({
+			directory: root,
+			client: createMockClient(toasts, {
+				sessionMessages: {
+					"child-b": [
+						{
+							info: { role: "assistant" },
+							parts: [
+								{ type: "text", text: "Which path should we use?" },
+							],
+						},
+					],
+				},
+			}),
+		} as never);
+		const pluginRecord = plugin as {
+			hook?: Record<string, unknown>;
+			event?: (input: { event: unknown }) => Promise<void>;
+		};
+
+		const beforeHook = pluginRecord.hook?.["tool.execute.before"] as
+			| ((
+					input: { tool: string; sessionID: string; callID: string },
+					output: { args: Record<string, unknown> },
+			  ) => Promise<void>)
+			| undefined;
+
+		await beforeHook?.(
+			{
+				tool: "functions.question",
+				sessionID: "child-a",
+				callID: "call-question-a",
+			},
+			{
+				args: {
+					questions: [
+						{
+							question: "Which scope should we use?",
+							options: [{ label: "A" }, { label: "B" }],
+						},
+					],
+				},
+			},
+		);
+
+		await pluginRecord.event?.({
+			event: {
+				type: "message.updated",
+				properties: { sessionID: "child-b" },
+			},
+		});
+
+		expect(toasts).toHaveLength(2);
+		expect(toasts[0]?.message).toContain("child child-a");
+		expect(toasts[1]?.message).toContain("child child-b");
 	});
 });

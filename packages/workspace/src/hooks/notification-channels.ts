@@ -89,6 +89,13 @@ interface NotificationHookOptions {
 export interface SessionReadyNotificationInput {
 	sessionID: string;
 	source?: string;
+	routingContext?: NotificationRoutingContext;
+}
+
+export interface NotificationRoutingContext {
+	rootSessionID: string;
+	childSessionID?: string;
+	taskID?: string;
 }
 
 export interface InputNeededNotificationInput {
@@ -96,8 +103,9 @@ export interface InputNeededNotificationInput {
 	callID?: string;
 	tool?: string;
 	source?: string;
-	kind?: "question" | "permission";
+	kind?: "question" | "permission" | "plan";
 	questionText?: string;
+	routingContext?: NotificationRoutingContext;
 }
 
 interface NotificationExtraInput {
@@ -105,18 +113,23 @@ interface NotificationExtraInput {
 	callID?: string;
 	tool?: string;
 	source?: string;
+	routingContext?: NotificationRoutingContext;
 }
 
 interface NotificationEvent {
 	dedupeKey: string;
 	title: string;
 	message: string;
+	logMessage?: string;
+	desktopTitle?: string;
+	desktopMessage?: string;
 	level: NotificationLevel;
 	extraInput: NotificationExtraInput;
 	ttlMs?: number;
 }
 
 const DEDUP_TTL_MS = 5 * 60 * 1000;
+const INPUT_NEEDED_DEDUP_TTL_MS = 1_000;
 const SESSION_READY_DEDUP_TTL_MS = 1_000;
 const PERMISSION_HINT_PATTERN =
 	/\b(permission|approve|approval|allow|deny|consent)\b/i;
@@ -234,6 +247,10 @@ function buildNotificationExtra(
 	input: NotificationExtraInput,
 	mode: PrivacyMode,
 ): Record<string, unknown> {
+	const rootSessionID = input.routingContext?.rootSessionID;
+	const childSessionID = input.routingContext?.childSessionID;
+	const taskID = input.routingContext?.taskID;
+
 	if (mode === "balanced") {
 		return {
 			privacy_mode: "balanced",
@@ -241,6 +258,9 @@ function buildNotificationExtra(
 			call_id: input.callID,
 			tool: input.tool,
 			source: input.source,
+			root_session_id: rootSessionID,
+			child_session_id: childSessionID,
+			task_id: taskID,
 		};
 	}
 
@@ -368,15 +388,24 @@ function getSessionReadyNotification(
 	input: SessionReadyNotificationInput,
 ): NotificationEvent {
 	const source = input.source?.trim() || "session.idle";
+	const routingKey = buildRoutingDedupeKey(input.routingContext);
+	const contextSuffix = buildRoutingContextSuffix(input.routingContext);
+	const desktopRoutingSuffix = buildDesktopRoutingSuffix(input.routingContext);
+	const baseMessage = "Assistant turn complete. Ready for your next prompt.";
+	const isDelegated = hasDelegatedRoutingContext(input.routingContext);
 	return {
-		dedupeKey: `${input.sessionID}:${source}`,
+		dedupeKey: `${input.sessionID}:${source}${routingKey}`,
 		title: "Ready for Input",
-		message: "Assistant turn complete. Ready for your next prompt.",
+		message: `${baseMessage}${contextSuffix}`,
+		logMessage: baseMessage,
+		desktopTitle: isDelegated ? "Delegated Session Ready" : "Ready for Input",
+		desktopMessage: `${baseMessage}${desktopRoutingSuffix}`,
 		level: "info",
 		ttlMs: SESSION_READY_DEDUP_TTL_MS,
 		extraInput: {
 			sessionID: input.sessionID,
 			source,
+			routingContext: input.routingContext,
 		},
 	};
 }
@@ -385,24 +414,200 @@ function getInputNeededNotification(
 	input: InputNeededNotificationInput,
 ): NotificationEvent {
 	const source = input.source?.trim() || input.kind || "input-needed";
-	const isPermission =
-		input.kind === "permission" ||
-		PERMISSION_HINT_PATTERN.test(input.questionText?.trim() || "");
+	const routingKey = buildRoutingDedupeKey(input.routingContext);
+	const contextSuffix = buildRoutingContextSuffix(input.routingContext);
+	const desktopRoutingSuffix = buildDesktopRoutingSuffix(input.routingContext);
+	const kind = resolveInputNeededKind(input);
+	const title =
+		kind === "permission"
+			? "Permission Needed"
+			: kind === "plan"
+				? "Plan Input Needed"
+				: "Question for You";
+	const message =
+		kind === "permission"
+			? "Assistant needs permission to continue."
+			: kind === "plan"
+				? "Plan workflow needs your decision to continue."
+				: "Assistant is asking a question.";
+	const desktopMessage =
+		kind === "permission"
+			? "Assistant is waiting for permission. Approve or deny to continue."
+			: kind === "plan"
+				? "Plan workflow is blocked and needs your decision."
+				: "Assistant is waiting for your answer to continue.";
+	const isDelegated = hasDelegatedRoutingContext(input.routingContext);
+	const dedupeToken = buildInputNeededDedupeToken(input);
 
 	return {
-		dedupeKey: `${input.sessionID}:${source}:${input.callID ?? input.kind ?? "input"}`,
-		title: isPermission ? "Permission Needed" : "Question for You",
-		message: isPermission
-			? "Assistant needs permission to continue."
-			: "Assistant is asking a question.",
+		dedupeKey: `${input.sessionID}:${source}:${dedupeToken}${routingKey}`,
+		title,
+		message: `${message}${contextSuffix}`,
+		logMessage: message,
+		desktopTitle: isDelegated ? `${title} (Delegated)` : title,
+		desktopMessage: `${desktopMessage}${desktopRoutingSuffix}`,
 		level: "info",
+		ttlMs: INPUT_NEEDED_DEDUP_TTL_MS,
 		extraInput: {
 			sessionID: input.sessionID,
 			callID: input.callID,
 			tool: input.tool,
 			source,
+			routingContext: input.routingContext,
 		},
 	};
+}
+
+function buildInputNeededDedupeToken(
+	input: InputNeededNotificationInput,
+): string {
+	if (input.callID?.trim()) {
+		return input.callID.trim();
+	}
+
+	const normalizedQuestion = input.questionText?.trim();
+	if (normalizedQuestion) {
+		return `text:${fingerprintText(normalizedQuestion)}`;
+	}
+
+	return input.kind ?? "input";
+}
+
+function resolveInputNeededKind(
+	input: InputNeededNotificationInput,
+): "question" | "permission" | "plan" {
+	if (input.kind) {
+		return input.kind;
+	}
+
+	return PERMISSION_HINT_PATTERN.test(input.questionText?.trim() || "")
+		? "permission"
+		: "question";
+}
+
+interface NormalizedRoutingContext {
+	rootSessionID: string;
+	childSessionID?: string;
+	taskID?: string;
+}
+
+function normalizeRoutingContext(
+	routingContext: NotificationRoutingContext | undefined,
+): NormalizedRoutingContext | null {
+	if (!routingContext) {
+		return null;
+	}
+
+	const rootSessionID = routingContext.rootSessionID.trim();
+	if (!rootSessionID) {
+		return null;
+	}
+
+	const childSessionID = routingContext.childSessionID?.trim();
+	const taskID = routingContext.taskID?.trim();
+
+	return {
+		rootSessionID,
+		childSessionID: childSessionID && childSessionID.length > 0 ? childSessionID : undefined,
+		taskID: taskID && taskID.length > 0 ? taskID : undefined,
+	};
+}
+
+function hasDelegatedRoutingContext(
+	routingContext: NotificationRoutingContext | undefined,
+): boolean {
+	const normalized = normalizeRoutingContext(routingContext);
+	if (!normalized) {
+		return false;
+	}
+
+	const hasChild =
+		typeof normalized.childSessionID === "string" &&
+		normalized.childSessionID !== normalized.rootSessionID;
+	return hasChild || typeof normalized.taskID === "string";
+}
+
+function buildRoutingDedupeKey(
+	routingContext: NotificationRoutingContext | undefined,
+): string {
+	const normalized = normalizeRoutingContext(routingContext);
+	if (!normalized) {
+		return "";
+	}
+
+	const parts = [
+		normalized.rootSessionID,
+		normalized.childSessionID,
+		normalized.taskID,
+	].filter((part): part is string => typeof part === "string" && part.length > 0);
+
+	if (parts.length <= 1) {
+		return "";
+	}
+
+	return `:${parts.join(":")}`;
+}
+
+function buildRoutingContextSuffix(
+	routingContext: NotificationRoutingContext | undefined,
+): string {
+	const normalized = normalizeRoutingContext(routingContext);
+	if (!normalized) {
+		return "";
+	}
+
+	const breadcrumbParts: string[] = [`root ${normalized.rootSessionID}`];
+	if (
+		typeof normalized.childSessionID === "string" &&
+		normalized.childSessionID !== normalized.rootSessionID
+	) {
+		breadcrumbParts.push(`child ${normalized.childSessionID}`);
+	}
+	if (typeof normalized.taskID === "string") {
+		breadcrumbParts.push(`task ${normalized.taskID}`);
+	}
+
+	if (breadcrumbParts.length <= 1) {
+		return "";
+	}
+
+	return ` [${breadcrumbParts.join(" • ")}]`;
+}
+
+function buildDesktopRoutingSuffix(
+	routingContext: NotificationRoutingContext | undefined,
+): string {
+	const normalized = normalizeRoutingContext(routingContext);
+	if (!normalized) {
+		return "";
+	}
+
+	const hasChild =
+		typeof normalized.childSessionID === "string" &&
+		normalized.childSessionID !== normalized.rootSessionID;
+	if (!hasChild && !normalized.taskID) {
+		return "";
+	}
+
+	if (hasChild && normalized.taskID) {
+		return ` Delegated from child ${normalized.childSessionID} (task ${normalized.taskID}) to root ${normalized.rootSessionID}.`;
+	}
+
+	if (hasChild) {
+		return ` Delegated from child ${normalized.childSessionID} to root ${normalized.rootSessionID}.`;
+	}
+
+	return ` Delegated task ${normalized.taskID} is routed to root ${normalized.rootSessionID}.`;
+}
+
+function fingerprintText(value: string): string {
+	let hash = 2166136261;
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+
+	return (hash >>> 0).toString(16);
 }
 
 function mapLevelToToastVariant(
@@ -501,12 +706,16 @@ function createNotificationDispatcher(
 		});
 
 		const privacyMode = notificationsPrivacyMode(privacyInput);
+		const logMessage =
+			privacyMode === "strict"
+				? event.logMessage ?? event.message
+				: event.message;
 		const writeLog = client.app?.log
 			? client.app.log({
 					body: {
 						service: "workspace.notifications",
 						level: event.level,
-						message: event.message,
+						message: logMessage,
 						extra: buildNotificationExtra(event.extraInput, privacyMode),
 					},
 				})
@@ -524,8 +733,8 @@ function createNotificationDispatcher(
 		const desktopNotifier = await desktopNotifierPromise;
 		const showDesktop = desktopNotifier
 			? sendDesktopNotification(desktopNotifier, {
-					title: event.title,
-					message: event.message,
+					title: event.desktopTitle ?? event.title,
+					message: event.desktopMessage ?? event.message,
 				})
 			: Promise.resolve();
 

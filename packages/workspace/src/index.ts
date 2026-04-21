@@ -47,6 +47,7 @@ import { createToolExecuteBeforeHook } from "./hooks/non-interactive-guard.js";
 import {
 	createInputNeededNotificationHook,
 	createNotificationChannelsHook,
+	type NotificationRoutingContext,
 	createSessionReadyNotificationHook,
 	type NotificationClient,
 } from "./hooks/notification-channels.js";
@@ -698,16 +699,28 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 			}
 
 			const questionText = getFirstQuestionText(output.args);
+			const routing = await resolveNotificationRouting(input.sessionID);
+			const recentNotificationKey = buildRecentQuestionNotificationKey(
+				routing.notificationSessionID,
+				routing.routingContext,
+				questionText,
+				input.callID,
+			);
 			await inputNeededNotificationHook({
-				sessionID: input.sessionID,
+				sessionID: routing.notificationSessionID,
 				callID: input.callID,
 				tool: input.tool,
-				source: "tool.execute.before",
+				source: decorateDelegationSource(
+					"tool.execute.before",
+					routing.delegationTaskID,
+				),
+				kind: isPlanInputNeededQuestion(questionText) ? "plan" : undefined,
 				questionText,
+				routingContext: routing.routingContext,
 			});
 			rememberRecentQuestionToolNotification(
 				recentQuestionToolNotifications,
-				input.sessionID,
+				recentNotificationKey,
 			);
 		};
 	});
@@ -720,6 +733,99 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 	};
 	const joinGuardPromptFingerprints = new Map<string, string>();
 	const recentQuestionToolNotifications = new Map<string, number>();
+
+	interface NotificationRoutingResolution {
+		notificationSessionID: string;
+		routingContext: NotificationRoutingContext;
+		delegationTaskID?: string;
+	}
+
+	const decorateDelegationSource = (
+		source: string,
+		delegationTaskID?: string,
+	): string => {
+		if (!delegationTaskID) {
+			return source;
+		}
+
+		return `delegation.${delegationTaskID}.${source}`;
+	};
+
+	const resolveNotificationRouting = async (
+		sessionID: string,
+	): Promise<NotificationRoutingResolution> => {
+		const delegationTask = await readDelegationTaskByChildSession(
+			workspaceDir,
+			sessionID,
+		);
+		if (delegationTask) {
+			return {
+				notificationSessionID: delegationTask.root_session_id,
+				routingContext: {
+					rootSessionID: delegationTask.root_session_id,
+					childSessionID: delegationTask.child_session_id,
+					taskID: delegationTask.id,
+				},
+				delegationTaskID: delegationTask.id,
+			};
+		}
+
+		try {
+			const rootSessionID = await getRootSessionID(sessionID);
+			if (rootSessionID === sessionID) {
+				return {
+					notificationSessionID: sessionID,
+					routingContext: {
+						rootSessionID: sessionID,
+					},
+				};
+			}
+
+			return {
+				notificationSessionID: rootSessionID,
+				routingContext: {
+					rootSessionID,
+					childSessionID: sessionID,
+				},
+			};
+		} catch (error) {
+			createLogger("workspace.completion-guard").warn(
+				"Failed to resolve root session for notification routing",
+				{
+					session_id: sessionID,
+					error:
+						error instanceof Error
+							? error.message
+							: "unknown root resolution error",
+				},
+			);
+			return {
+				notificationSessionID: sessionID,
+				routingContext: {
+					rootSessionID: sessionID,
+				},
+			};
+		}
+	};
+
+	const enforceIdleCompletionJoinGuardSafely = async (
+		sessionID: string,
+	): Promise<void> => {
+		try {
+			await enforceIdleCompletionJoinGuard(sessionID);
+		} catch (error) {
+			createLogger("workspace.completion-guard").warn(
+				"Skipping completion join guard after root resolution failure",
+				{
+					session_id: sessionID,
+					error:
+						error instanceof Error
+							? error.message
+							: "unknown completion join guard error",
+				},
+			);
+		}
+	};
 
 	function buildJoinGuardFingerprint(input: {
 		sessionID: string;
@@ -992,23 +1098,18 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					event_type: payload.event.type,
 				},
 			);
-			const delegationTask = await readDelegationTaskByChildSession(
-				workspaceDir,
-				sessionID,
-			);
-			if (delegationTask) {
-				await sessionReadyNotificationHook({
-					sessionID: delegationTask.root_session_id,
-					source: `delegation.${delegationTask.id}.${payload.event.type}`,
-				});
-				return;
+			const routing = await resolveNotificationRouting(sessionID);
+			if (!routing.delegationTaskID) {
+				await enforceIdleCompletionJoinGuardSafely(sessionID);
 			}
 
-			await enforceIdleCompletionJoinGuard(sessionID);
-
 			await sessionReadyNotificationHook({
-				sessionID,
-				source: payload.event.type,
+				sessionID: routing.notificationSessionID,
+				source: decorateDelegationSource(
+					payload.event.type,
+					routing.delegationTaskID,
+				),
+				routingContext: routing.routingContext,
 			});
 			return;
 		}
@@ -1023,20 +1124,14 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 					event_type: payload.event.type,
 				},
 			);
-			await enforceIdleCompletionJoinGuard(sessionID);
+			const routing = await resolveNotificationRouting(sessionID);
+			if (!routing.delegationTaskID) {
+				await enforceIdleCompletionJoinGuardSafely(sessionID);
+			}
 
 			const inputNeededNotificationHook =
 				await getInputNeededNotificationHook();
 			if (!inputNeededNotificationHook) {
-				return;
-			}
-
-			if (
-				hasRecentQuestionToolNotification(
-					recentQuestionToolNotifications,
-					sessionID,
-				)
-			) {
 				return;
 			}
 
@@ -1055,10 +1150,35 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 				return;
 			}
 
+			const recentNotificationKey = buildRecentQuestionNotificationKey(
+				routing.notificationSessionID,
+				routing.routingContext,
+				latestAssistantText ?? undefined,
+			);
+			if (
+				hasRecentQuestionToolNotification(
+					recentQuestionToolNotifications,
+					recentNotificationKey,
+				)
+			) {
+				return;
+			}
+
 			await inputNeededNotificationHook({
-				sessionID,
-				source: payload.event.type,
+				sessionID: routing.notificationSessionID,
+				callID: buildInputNeededEventCallID(
+					payload.event.properties,
+					latestAssistantText ?? undefined,
+				),
+				source: decorateDelegationSource(
+					payload.event.type,
+					routing.delegationTaskID,
+				),
+				kind: isPlanInputNeededQuestion(latestAssistantText)
+					? "plan"
+					: undefined,
 				questionText: latestAssistantText ?? undefined,
+				routingContext: routing.routingContext,
 			});
 			return;
 		}
@@ -1072,11 +1192,17 @@ export const WorkspacePlugin: Plugin = async (ctx) => {
 
 			const sessionID = getEventSessionID(payload.event.properties);
 			if (!sessionID) return;
+			const routing = await resolveNotificationRouting(sessionID);
 
 			await inputNeededNotificationHook({
-				sessionID,
-				source: payload.event.type,
+				sessionID: routing.notificationSessionID,
+				callID: buildInputNeededEventCallID(payload.event.properties),
+				source: decorateDelegationSource(
+					payload.event.type,
+					routing.delegationTaskID,
+				),
 				kind: "permission",
+				routingContext: routing.routingContext,
 			});
 		}
 	};
@@ -2721,34 +2847,143 @@ function getEventSessionID(
 	return undefined;
 }
 
+function buildInputNeededEventCallID(
+	properties: Record<string, unknown> | undefined,
+	questionText?: string,
+): string | undefined {
+	const directCandidates = [
+		properties?.callID,
+		properties?.callId,
+		properties?.call_id,
+		properties?.requestID,
+		properties?.requestId,
+		properties?.request_id,
+		properties?.messageID,
+		properties?.messageId,
+		properties?.message_id,
+		properties?.id,
+	];
+	for (const candidate of directCandidates) {
+		if (typeof candidate === "string" && candidate.trim().length > 0) {
+			return candidate.trim();
+		}
+	}
+
+	const normalizedQuestion = questionText?.trim();
+	if (normalizedQuestion) {
+		return `text:${fingerprintText(normalizedQuestion)}`;
+	}
+
+	const serializedProperties = serializeInputNeededProperties(properties);
+	return serializedProperties
+		? `event:${fingerprintText(serializedProperties)}`
+		: undefined;
+}
+
+function serializeInputNeededProperties(
+	properties: Record<string, unknown> | undefined,
+): string | null {
+	if (!properties) {
+		return null;
+	}
+
+	const filteredEntries = Object.entries(properties)
+		.filter(([, value]) => {
+			return (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			);
+		})
+		.filter(([key]) => {
+			return ![
+				"sessionID",
+				"sessionId",
+				"callID",
+				"callId",
+				"call_id",
+			].includes(key);
+		})
+		.sort(([left], [right]) => left.localeCompare(right));
+	if (filteredEntries.length === 0) {
+		return null;
+	}
+
+	return JSON.stringify(filteredEntries);
+}
+
+function fingerprintText(value: string): string {
+	let hash = 2166136261;
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+
+	return (hash >>> 0).toString(16);
+}
+
 const RECENT_QUESTION_TOOL_NOTIFICATION_TTL_MS = 15_000;
 const ASSISTANT_INPUT_NEEDED_PATTERN =
 	/\b(please confirm|decisions? to confirm|which option|which path|please choose|is this pattern okay|approve recommended fallback|follow existing pattern|i need your input|i need your decision|which do you prefer)\b/i;
+const PLAN_INPUT_NEEDED_PATTERN =
+	/(?:^|\s)\/plan\b|\b(implementation\s+plan|plan\s+context|plan\s+review|plan\s+approval|plan\s+draft|plan\s+phase|phase\s+selection|overlay\s+selection)\b/i;
 
 function rememberRecentQuestionToolNotification(
 	recentNotifications: Map<string, number>,
-	sessionID: string,
+	key: string,
 	now: number = Date.now(),
 ): void {
-	recentNotifications.set(sessionID, now);
+	recentNotifications.set(key, now);
 }
 
 function hasRecentQuestionToolNotification(
 	recentNotifications: Map<string, number>,
-	sessionID: string,
+	key: string,
 	now: number = Date.now(),
 ): boolean {
-	const timestamp = recentNotifications.get(sessionID);
+	const timestamp = recentNotifications.get(key);
 	if (timestamp === undefined) {
 		return false;
 	}
 
 	if (now - timestamp > RECENT_QUESTION_TOOL_NOTIFICATION_TTL_MS) {
-		recentNotifications.delete(sessionID);
+		recentNotifications.delete(key);
 		return false;
 	}
 
 	return true;
+}
+
+function buildRecentQuestionNotificationKey(
+	sessionID: string,
+	routingContext: NotificationRoutingContext,
+	questionText?: string,
+	fallbackID?: string,
+): string {
+	const parts = [sessionID, routingContext.rootSessionID];
+	if (
+		typeof routingContext.childSessionID === "string" &&
+		routingContext.childSessionID.trim().length > 0
+	) {
+		parts.push(routingContext.childSessionID.trim());
+	}
+	if (
+		typeof routingContext.taskID === "string" &&
+		routingContext.taskID.trim().length > 0
+	) {
+		parts.push(routingContext.taskID.trim());
+	}
+
+	const normalizedQuestion = questionText?.trim();
+	if (normalizedQuestion) {
+		parts.push(`text:${fingerprintText(normalizedQuestion)}`);
+	} else if (fallbackID?.trim()) {
+		parts.push(`id:${fallbackID.trim()}`);
+	} else {
+		parts.push("input-needed");
+	}
+
+	return parts.join(":");
 }
 
 function looksLikeAssistantNeedsInput(text: string | null): boolean {
@@ -2767,6 +3002,19 @@ function looksLikeAssistantNeedsInput(text: string | null): boolean {
 
 	const bulletedQuestions = normalized.match(/^\s*[-*]\s+.*\?$/gm);
 	return (bulletedQuestions?.length ?? 0) > 0;
+}
+
+function isPlanInputNeededQuestion(text: string | null | undefined): boolean {
+	if (!text) {
+		return false;
+	}
+
+	const normalized = text.trim();
+	if (!normalized) {
+		return false;
+	}
+
+	return PLAN_INPUT_NEEDED_PATTERN.test(normalized);
 }
 
 function getFirstQuestionText(
