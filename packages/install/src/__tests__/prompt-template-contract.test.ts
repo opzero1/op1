@@ -50,6 +50,7 @@ describe("prompt template contracts", () => {
 		const prompt = await readTemplate("agents", "plan.md");
 
 		expect(prompt).toContain('skill("plan-protocol")');
+		expect(prompt).toContain('skill("grill-me")');
 		expect(prompt).toContain("question");
 		expect(prompt).toContain("Oracle");
 		expect(prompt).toContain("plan_context_write");
@@ -66,26 +67,17 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain("forward-facing");
 		expect(prompt).toContain("add / edit / delete");
 		expect(prompt).toContain("file_change_map_json");
-		expect(prompt).toContain("strong question rounds");
-		expect(prompt).toContain("3-7 questions");
-		expect(prompt).toContain("plain-text planning questions unless");
+		expect(prompt).toContain("Interview with grill-me discipline");
+		expect(prompt).toContain("one-by-one");
+		expect(prompt).toContain("recommended answer");
 		expect(prompt).toContain("native `question` tool");
-		expect(prompt).toContain("fenced code snippets are allowed");
-		expect(prompt).toContain(
-			"Do not print the actual planning questions as plain assistant prose",
-		);
-		expect(prompt).toContain("Example multi-question round");
-		expect(prompt).toContain(
-			"If any material unresolved branch remains, a `question` tool round is mandatory",
-		);
-		expect(prompt).toContain(
-			"ask a single confirmation question through the `question` tool instead of silently inferring the answer",
-		);
-		expect(prompt).toContain("every pattern");
+		expect(prompt).toContain("Use freeform when option lists would hide nuance");
+		expect(prompt).toContain("fallback, risky, or genuinely ambiguous pattern choices");
 		expect(prompt).toContain("explicit human confirmation");
-		expect(prompt).toContain("fenced code snippets");
 		expect(prompt).toContain("missing-context behavior");
 		expect(prompt).toContain("planning-question-quality evaluation artifact");
+		expect(prompt).not.toContain("3-7 questions");
+		expect(prompt).not.toContain("Example multi-question round");
 		expect(prompt).not.toContain("plan_promote");
 		expect(prompt).not.toContain("Use this exact structure:");
 	});
@@ -115,12 +107,13 @@ describe("prompt template contracts", () => {
 		const deslopCommand = await readTemplate("commands", "deslop.md");
 
 		expect(planCommand).toContain("plan-protocol");
+		expect(planCommand).toContain("grill-me");
 		expect(planCommand).toContain("plan_context_write");
 		expect(planCommand).toContain("when available");
 		expect(planCommand).toContain("saved plan + `notepad_write`");
 		expect(planCommand).toContain('plan_save(mode="new", set_active=true)');
 		expect(planCommand).toContain("bounded internal pattern-scout pass");
-		expect(planCommand).toContain("pattern is acceptable");
+		expect(planCommand).toContain("repo-default path clearly in the plan");
 		expect(planCommand).toContain("source_type");
 		expect(planCommand).toContain("primary kind");
 		expect(planCommand).toContain("overlays");
@@ -129,35 +122,21 @@ describe("prompt template contracts", () => {
 		expect(planCommand).toContain("forward-facing");
 		expect(planCommand).toContain("file-operation change map");
 		expect(planCommand).toContain("file_change_map_json");
-		expect(planCommand).toContain("native `question` tool as the default");
-		expect(planCommand).toContain(
-			"Put the needed context directly in the question text",
-		);
-		expect(planCommand).toContain(
-			"Ask multiple questions in one `question` round",
-		);
-		expect(planCommand).toContain(
-			"Do not print the actual planning questions as plain assistant prose",
-		);
-		expect(planCommand).toContain(
-			"Follow this shape when context-heavy questions are needed",
-		);
-		expect(planCommand).toContain(
-			"If any material unresolved branch remains, a `question` tool round is mandatory",
-		);
-		expect(planCommand).toContain(
-			"ask a single confirmation question through the `question` tool instead of silently inferring the answer",
-		);
-		expect(planCommand).toContain("3-7 concrete questions");
-		expect(planCommand).toContain(
-			"Route every user-facing clarification round through the native `question` tool by default",
-		);
+		expect(planCommand).toContain("Use `grill-me`");
+		expect(planCommand).toContain("one-by-one");
+		expect(planCommand).toContain("recommended answer");
+		expect(planCommand).toContain("native `question` tool");
+		expect(planCommand).toContain("do not force a rigid payload shape");
 		expect(planCommand).toContain("explicit confirmation");
-		expect(planCommand).toContain("fenced code snippets are allowed");
+		expect(planCommand).toContain("risky deviation");
 		expect(planCommand).toContain("state ownership");
 		expect(planCommand).toContain("Do not save any plan until");
 		expect(planCommand).toContain(
 			"planning-question-quality evaluation artifact",
+		);
+		expect(planCommand).not.toContain("3-7 concrete questions");
+		expect(planCommand).not.toContain(
+			"Follow this shape when context-heavy questions are needed",
 		);
 		expect(compactCommand).toContain("context-engineering");
 		expect(compactCommand).toContain("session_compact");
@@ -230,6 +209,18 @@ describe("prompt template contracts", () => {
 		expect(prompt).toContain(
 			"Prefer fail-fast diagnostics and explicit recovery steps over silent fallback behavior.",
 		);
+	});
+
+	test("grill-me skill is vendored with repo-first planning guidance", async () => {
+		const prompt = await readTemplate("skills", "grill-me", "SKILL.md");
+
+		expect(prompt).toContain("name: grill-me");
+		expect(prompt).toContain("one focused question at a time");
+		expect(prompt).toContain("recommended answer");
+		expect(prompt).toContain("If a question can be answered from the codebase");
+		expect(prompt).toContain("plan_save");
+		expect(prompt).toContain("plan_context_write");
+		expect(prompt).toContain("notepad_write");
 	});
 
 	test("ulw defers detailed proof mechanics to verification-before-completion", async () => {

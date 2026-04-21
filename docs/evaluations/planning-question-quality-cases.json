@@ -21,9 +21,9 @@
 			"packages/workspace/src/index.ts",
 			"packages/workspace/src/plan/state.ts"
 		],
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Follow existing pattern?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": false,
+		"must_ask": "Confirm the proposed blast radius",
 		"must_persist": [
 			"primary_kind: implementation",
 			"overlays: deep-grill",
@@ -53,9 +53,9 @@
 			"tests"
 		],
 		"must_do_bounded_research": true,
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Approve recommended fallback?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": true,
+		"must_ask": "Confirm the proposed fallback pattern",
 		"must_persist": [
 			"primary_kind: implementation",
 			"overlays: deep-grill",
@@ -63,8 +63,8 @@
 			"code_example",
 			"file_change_map_json"
 		],
-		"must_not_reask_in_work": false,
-		"max_execution_follow_up_questions": 1
+		"must_not_reask_in_work": true,
+		"max_execution_follow_up_questions": 0
 	},
 	{
 		"id": "prd-vertical-slices",
@@ -80,17 +80,22 @@
 			"non_goals",
 			"happy_path",
 			"expected_outcome",
+			"missing_context_behavior",
 			"approval_readiness_rules",
+			"state_ownership",
 			"dependencies",
+			"triggers",
+			"invariants",
 			"tests"
 		],
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Approve recommended fallback?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": true,
+		"must_ask": "Confirm the proposed fallback pattern",
 		"must_persist": [
 			"primary_kind: prd",
 			"overlays: user-story-mapping",
 			"overlays: vertical-slices",
+			"source_type: best-practice",
 			"code_example",
 			"file_change_map_json"
 		],
@@ -110,15 +115,17 @@
 		"must_capture_branches": [
 			"non_goals",
 			"happy_path",
+			"missing_context_behavior",
+			"approval_readiness_rules",
 			"state_ownership",
 			"dependencies",
 			"triggers",
 			"invariants",
 			"tests"
 		],
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Follow existing pattern?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": false,
+		"must_ask": "Confirm the proposed sequencing boundary",
 		"must_persist": [
 			"primary_kind: refactor",
 			"overlays: refactor-sequencing",
@@ -139,15 +146,20 @@
 			"non_goals",
 			"happy_path",
 			"expected_outcome",
+			"missing_context_behavior",
 			"approval_readiness_rules",
+			"state_ownership",
+			"triggers",
+			"invariants",
 			"tests"
 		],
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Approve recommended fallback?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": true,
+		"must_ask": "Confirm the proposed fallback pattern",
 		"must_persist": [
 			"primary_kind: interface",
 			"overlays: interface-review",
+			"source_type: best-practice",
 			"code_example",
 			"file_change_map_json"
 		],
@@ -161,14 +173,19 @@
 		"expected_primary_kind": "tdd",
 		"expected_overlays": ["deep-grill", "tdd"],
 		"must_capture_branches": [
+			"non_goals",
 			"happy_path",
 			"expected_outcome",
+			"missing_context_behavior",
 			"approval_readiness_rules",
+			"state_ownership",
+			"triggers",
+			"invariants",
 			"tests"
 		],
-		"min_question_count": 3,
-		"must_confirm_patterns": true,
-		"must_ask": "Follow existing pattern?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": false,
+		"must_ask": "Confirm the readiness gate",
 		"must_persist": [
 			"primary_kind: tdd",
 			"overlays: tdd",
@@ -206,14 +223,15 @@
 			"packages/install/templates/agents/build.md",
 			"packages/delegation/src/index.ts"
 		],
-		"min_question_count": 4,
-		"must_confirm_patterns": true,
-		"must_ask": "Follow existing pattern?",
+		"must_use_grill_me": true,
+		"must_confirm_non_default_patterns": false,
+		"must_ask": "Confirm the ownership and sequencing boundary",
 		"must_persist": [
 			"primary_kind: implementation",
 			"overlays: refactor-sequencing",
 			"overlays: tdd",
 			"overlays: dependency-modeling",
+			"source_type: repo",
 			"code_example",
 			"file_change_map_json"
 		],

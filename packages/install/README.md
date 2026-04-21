@@ -93,6 +93,7 @@ opencode debug config
 - `simplify` - Prefer current-state code over compatibility glue
 - `search-mode` - Maximum search effort
 - `plan-protocol` - Plan format guidelines
+- `grill-me` - Branch-by-branch plan/design stress testing
 - `code-review` - Review methodology
 - `git-master` - Git operations mastery
 - `databases` - PostgreSQL/MongoDB patterns
