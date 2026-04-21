@@ -42,43 +42,6 @@
 	// MCP SERVERS
 	// =============================================
 	"mcp": {
-		// ----- Z.AI Coding Plan MCPs -----
-		// Get your API key at: https://z.ai/manage-apikey/apikey-list
-
-		// Vision MCP - Image/video analysis, UI screenshots, diagrams
-		"zai-vision": {
-			"type": "local",
-			"command": ["bunx", "-y", "@z_ai/mcp-server"],
-			"environment": {
-				"Z_AI_API_KEY": "{env:Z_AI_API_KEY}",
-				"Z_AI_MODE": "ZAI"
-			}
-		},
-		// Web Search MCP - Real-time web search
-		"zai-search": {
-			"type": "remote",
-			"url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
-			"headers": {
-				"Authorization": "Bearer {env:Z_AI_API_KEY}"
-			}
-		},
-		// Web Reader MCP - Fetch and parse webpage content
-		"zai-reader": {
-			"type": "remote",
-			"url": "https://api.z.ai/api/mcp/web_reader/mcp",
-			"headers": {
-				"Authorization": "Bearer {env:Z_AI_API_KEY}"
-			}
-		},
-		// Zread MCP - GitHub repo understanding
-		"zai-zread": {
-			"type": "remote",
-			"url": "https://api.z.ai/api/mcp/zread/mcp",
-			"headers": {
-				"Authorization": "Bearer {env:Z_AI_API_KEY}"
-			}
-		},
-
 		// ----- Project Management MCPs -----
 		// Uses OAuth - will prompt for authentication on first use
 
@@ -155,10 +118,6 @@
 	// Disable MCP tools globally, subagents enable specific tools
 	// =============================================
 	"tools": {
-		"zai-vision_*": false,
-		"zai-search_*": false,
-		"zai-reader_*": false,
-		"zai-zread_*": false,
 		"linear_*": false,
 		"notion_*": false,
 		"newrelic_*": false,
@@ -188,9 +147,6 @@
 		"researcher": {
 			"tools": {
 				"storybook_*": true,
-				"zai-search_*": true,
-				"zai-reader_*": true,
-				"zai-zread_*": true,
 				"linear_*": true,
 				"notion_*": true,
 				"newrelic_*": true,
@@ -206,8 +162,7 @@
 				"context7_*": true,
 				"shadcn_*": true,
 				"uidotsh_*": true,
-				"storybook_*": true,
-				"zai-vision_*": true
+				"storybook_*": true
 			}
 		},
 		"frontend": {
@@ -216,7 +171,6 @@
 				"shadcn_*": true,
 				"uidotsh_*": true,
 				"storybook_*": true,
-				"zai-vision_*": true,
 				"figma_*": true
 			}
 		}

@@ -673,7 +673,7 @@ describe("mergeConfig", () => {
 
 		const newMcps = [
 			createMockMcp("linear", "linear_*", ["researcher"]),
-			createMockMcp("zai-vision", "zai-vision_*", ["coder", "frontend"]),
+			createMockMcp("uidotsh", "uidotsh_*", ["coder", "frontend"]),
 		];
 
 		const result = mergeConfig(
@@ -698,21 +698,21 @@ describe("mergeConfig", () => {
 		// MCPs merged
 		expect(result.mcp).toHaveProperty("existing-mcp");
 		expect(result.mcp).toHaveProperty("linear");
-		expect(result.mcp).toHaveProperty("zai-vision");
+		expect(result.mcp).toHaveProperty("uidotsh");
 
 		// Tools merged
 		expect(result.tools?.["existing_*"]).toBe(false);
 		expect(result.tools?.["linear_*"]).toBe(false);
-		expect(result.tools?.["zai-vision_*"]).toBe(false);
+		expect(result.tools?.["uidotsh_*"]).toBe(false);
 
 		// Agent config merged
 		expect(result.agent?.coder?.model).toBe(
 			"openrouter/anthropic/claude-opus-4",
 		); // preserved
 		expect(result.agent?.coder?.tools?.["existing_*"]).toBe(true); // preserved
-		expect(result.agent?.coder?.tools?.["zai-vision_*"]).toBe(true); // new tool enabled
+		expect(result.agent?.coder?.tools?.["uidotsh_*"]).toBe(true); // new tool enabled
 		expect(result.agent?.researcher?.tools?.["linear_*"]).toBe(true);
-		expect(result.agent?.frontend?.tools?.["zai-vision_*"]).toBe(true);
+		expect(result.agent?.frontend?.tools?.["uidotsh_*"]).toBe(true);
 	});
 });
 

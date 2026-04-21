@@ -37,11 +37,11 @@ Use MCPs only when local context is missing or ambiguous:
 Use this priority order:
 1. **context7** - Docs lookup (low cost, high utility)
 2. **grep_app** - GitHub code search (medium cost, targeted)
-3. **zai-zread** - Repo structure/docs (medium cost)
-4. **exa/zai-search** - Web search (higher cost, use sparingly)
+3. **linear/notion** - Project context when explicitly needed
+4. **web search** - Higher cost, use sparingly
 
 ### Rule 4: Cap Expensive Queries
-- **exa/web search:** 1-2 queries per task unless user explicitly asks for more
+- **websearch:** 1-2 queries per task unless user explicitly asks for more
 - **GitHub search:** Narrow scope first, broaden only if needed
 - **Notion/Linear:** Query only what's needed, avoid broad fetches
 
@@ -76,9 +76,8 @@ If you answer "yes" to the first two questions, **do not use an MCP**.
 |-----|-------------|-----------------|
 | context7 | ~500-1500 tokens | 2-3 calls |
 | grep_app | ~1000-3000 tokens | 1-2 calls |
-| zai-zread | ~1000-2000 tokens | 1-2 calls |
-| exa/web search | ~2000-5000 tokens | 1 call |
 | linear/notion | ~500-2000 tokens | As needed |
+| web search | ~2000-5000 tokens | 1 call |
 
 **Total external budget per task:** ~5000-10000 tokens unless user explicitly approves more.
 
@@ -108,7 +107,7 @@ If you answer "yes" to the first two questions, **do not use an MCP**.
 - Local codebase has examples
 - User hasn't asked for external research
 
-### exa/zai-search (Web Search)
+### Web Search
 **Use when:**
 - User explicitly asks for web research
 - Documentation is missing or outdated
@@ -145,7 +144,7 @@ If you answer "yes" to the first two questions, **do not use an MCP**.
 - Searching GitHub for trivial patterns
 
 ### Overkill Patterns
-- Using exa when context7 would suffice
+- Using websearch when context7 would suffice
 - Running multiple searches for the same concept
 - Fetching full Notion databases when you need one page
 
@@ -179,8 +178,8 @@ Summarize top 2-3 patterns found.
 ```
 User: "How do I use lodash?"
 
-Bad Action: 
-1. exa search for "lodash tutorial" 
+Bad Action:
+1. websearch query for "lodash tutorial"
 2. context7 lookup for lodash
 3. grep_app search for "lodash usage patterns"
 
@@ -196,7 +195,7 @@ This burns ~8000+ tokens for something you already know.
 | Know the answer | Don't use MCP |
 | Need library docs | context7 (1 call) |
 | Need code patterns | grep_app (1 call) |
-| User asks for web research | exa (1 call max) |
+| User asks for web research | websearch (1 call max) |
 | Need project info | linear/notion (as needed) |
 | Unsure if MCP needed | Default to no; ask user if critical |
 
@@ -205,7 +204,7 @@ This burns ~8000+ tokens for something you already know.
 ## Summary
 
 1. **Local first** - Most answers are already available
-2. **Lightweight MCPs** - context7 > grep_app > exa
+2. **Lightweight lookup path** - context7 > grep_app > websearch
 3. **Budget conscious** - Cap expensive calls
 4. **Summarize** - Extract what you need, don't chain
 5. **Ask if unsure** - User can approve more MCP usage

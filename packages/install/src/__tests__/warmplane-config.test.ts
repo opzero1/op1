@@ -100,17 +100,14 @@ describe("warmplane config helpers", () => {
 				agentAccess: ["researcher", "frontend"],
 			},
 			{
-				id: "zai-vision",
-				name: "Vision",
-				description: "Vision MCP",
+				id: "shadcn",
+				name: "shadcn/ui",
+				description: "Registry MCP",
 				config: {
 					type: "local",
-					command: ["bunx", "-y", "@z_ai/mcp-server"],
-					environment: {
-						Z_AI_API_KEY: "{env:Z_AI_API_KEY}",
-					},
+					command: ["npx", "-y", "shadcn@latest", "mcp"],
 				},
-				toolPattern: "zai-vision_*",
+				toolPattern: "shadcn_*",
 				agentAccess: ["coder"],
 			},
 			{
@@ -149,10 +146,11 @@ describe("warmplane config helpers", () => {
 			type: "oauth",
 			tokenStoreKey: "figma",
 		});
-		expect(config.mcpServers["zai-vision"]?.command).toBe("bunx");
-		expect(config.mcpServers["zai-vision"]?.args).toEqual([
+		expect(config.mcpServers.shadcn?.command).toBe("npx");
+		expect(config.mcpServers.shadcn?.args).toEqual([
 			"-y",
-			"@z_ai/mcp-server",
+			"shadcn@latest",
+			"mcp",
 		]);
 		expect(config.mcpServers.newrelic?.allowStateless).toBeUndefined();
 		expect(config.mcpServers.newrelic?.headers).toEqual({
@@ -163,28 +161,28 @@ describe("warmplane config helpers", () => {
 	test("preserves allowStateless for remote downstream MCPs", () => {
 		const mcps: McpDefinition[] = [
 			{
-				id: "zai-search",
-				name: "Web Search",
+				id: "uidotsh",
+				name: "ui.sh",
 				description: "Stateless HTTP MCP",
 				config: {
 					type: "remote",
-					url: "https://api.z.ai/api/mcp/web_search_prime/mcp",
+					url: "https://ui.sh/mcp?agent=opencode",
 					allowStateless: true,
 					headers: {
-						Authorization: "Bearer {env:Z_AI_API_KEY}",
+						Authorization: "Bearer {env:UIDOTSH_TOKEN}",
 					},
 				},
-				toolPattern: "zai-search_*",
+				toolPattern: "uidotsh_*",
 				agentAccess: ["researcher"],
 			},
 		];
 
 		const config = buildWarmplaneConfig({ mcps });
-		expect(config.mcpServers["zai-search"]?.allowStateless).toBe(true);
-		expect(config.mcpServers["zai-search"]?.protocolVersion).toBeUndefined();
-		expect(config.mcpServers["zai-search"]?.auth).toEqual({
+		expect(config.mcpServers.uidotsh?.allowStateless).toBe(true);
+		expect(config.mcpServers.uidotsh?.protocolVersion).toBeUndefined();
+		expect(config.mcpServers.uidotsh?.auth).toEqual({
 			type: "bearer",
-			tokenEnv: "Z_AI_API_KEY",
+			tokenEnv: "UIDOTSH_TOKEN",
 		});
 	});
 

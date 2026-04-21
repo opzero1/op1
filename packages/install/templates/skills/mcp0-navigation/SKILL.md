@@ -1,6 +1,6 @@
 ---
 name: mcp0-navigation
-description: Navigate the Warmplane mcp0 facade efficiently. Use when the active config exposes provider capabilities through `mcp0_*` tools and you need to discover or call provider tools without brute-force describing large capability sets. Trigger on requests involving mcp0, Warmplane, or provider work through the facade such as Linear, Notion, Figma, New Relic, Context7, grep.app, Storybook, or zai-* tools.
+description: Navigate the Warmplane mcp0 facade efficiently. Use when the active config exposes provider capabilities through `mcp0_*` tools and you need to discover or call provider tools without brute-force describing large capability sets. Trigger on requests involving mcp0, Warmplane, or provider work through the facade such as Linear, Notion, Figma, New Relic, Context7, grep.app, or Storybook tools.
 ---
 
 # mcp0 Navigation

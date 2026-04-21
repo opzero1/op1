@@ -256,69 +256,6 @@ function toMcpPointerDefinition(input: {
 
 const MCP_CATEGORIES: McpCategory[] = [
 	{
-		id: "zai",
-		name: "Z.AI Suite",
-		description:
-			"Vision, web search, reader, GitHub docs (requires Z_AI_API_KEY)",
-		requiresEnvVar: "Z_AI_API_KEY",
-		mcps: [
-			{
-				id: "zai-vision",
-				name: "Vision",
-				description: "Image/video analysis, UI screenshots",
-				config: {
-					type: "local",
-					command: ["bunx", "-y", "@z_ai/mcp-server"],
-					environment: {
-						Z_AI_API_KEY: "{env:Z_AI_API_KEY}",
-						Z_AI_MODE: "ZAI",
-					},
-				},
-				toolPattern: "zai-vision_*",
-				agentAccess: ["coder", "frontend"],
-			},
-			{
-				id: "zai-search",
-				name: "Web Search",
-				description: "Real-time web search",
-				config: {
-					type: "remote",
-					url: "https://api.z.ai/api/mcp/web_search_prime/mcp",
-					allowStateless: true,
-					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
-				},
-				toolPattern: "zai-search_*",
-				agentAccess: ["researcher"],
-			},
-			{
-				id: "zai-reader",
-				name: "Web Reader",
-				description: "Fetch and parse webpage content",
-				config: {
-					type: "remote",
-					url: "https://api.z.ai/api/mcp/web_reader/mcp",
-					allowStateless: true,
-					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
-				},
-				toolPattern: "zai-reader_*",
-				agentAccess: ["researcher"],
-			},
-			{
-				id: "zai-zread",
-				name: "Zread",
-				description: "GitHub repo understanding",
-				config: {
-					type: "remote",
-					url: "https://api.z.ai/api/mcp/zread/mcp",
-					allowStateless: true,
-					headers: { Authorization: "Bearer {env:Z_AI_API_KEY}" },
-				},
-				toolPattern: "zai-zread_*",
-				agentAccess: ["researcher"],
-			},
-		],
-	},
-	{
 		id: "project-management",
 		name: "Project Management",
 		description: "Issue tracking and documentation (OAuth on first use)",

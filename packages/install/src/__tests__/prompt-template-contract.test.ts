@@ -98,15 +98,13 @@ describe("prompt template contracts", () => {
 		expect(prompt).not.toContain("## Severity Classification");
 	});
 
-	test("researcher agent uses current research tools instead of stale ZAI docs tooling", async () => {
+	test("researcher agent uses current research tools", async () => {
 		const prompt = await readTemplate("agents", "researcher.md");
 
 		expect(prompt).toContain("context7_resolve-library-id");
 		expect(prompt).toContain("context7_query-docs");
 		expect(prompt).toContain("grep_app_searchGitHub");
 		expect(prompt).toContain("webfetch");
-		expect(prompt).not.toContain("zai-zread");
-		expect(prompt).not.toContain("zai-search");
 	});
 
 	test("key commands preload skills and avoid duplicated autonomy policy text", async () => {

@@ -12,24 +12,21 @@ Access Figma designs, design systems, and components for frontend implementation
 ## Quick Start
 
 1) **Identify design source** - Get Figma file URL, frame names, or component IDs from designer
-2) **Extract design tokens** - Use `get_design_system` or `export_tokens` for colors, typography, spacing
-3) **Get component details** - Use `get_node_info`, `get_component` for structure, variants, states
-4) **Download assets** - Use `download_design_assets` or `export_node_as_image` for images, icons
-5) **Implement with fidelity** - Apply `frontend-philosophy` to extracted tokens, maintain visual quality
+2) **Extract design tokens** - Use the current token/style export capabilities for colors, typography, spacing
+3) **Get component details** - Use the current node/component metadata capabilities for structure, variants, states
+4) **Download assets** - Use the current screenshot/export capabilities for images, icons, and reference frames
+5) **Implement with fidelity** - Match the approved design by default and use `frontend-philosophy` only when the user explicitly asks for reinterpretation
 
 ## Workflow
 
 ### 0) If any MCP call fails because Figma MCP is not connected, pause and set it up:
 
-1. Add the Figma MCP:
-   - `codex mcp add figma --url https://mcp.figma.com/mcp`
-2. Enable remote MCP client:
-   - Set `[features].rmcp_client = true` in `config.toml` **or** run `codex --enable rmcp_client`
-3. Log in with OAuth (or configure API token):
-   - `codex mcp login figma`
-   - **OR** set `FIGMA_ACCESS_TOKEN` environment variable
-
-After successful login, the user will have to restart codex. You should finish your answer and tell them so when they try again they can continue with Step 1.
+1. Confirm Figma is configured in the user's OpenCode setup:
+   - Direct config: `~/.config/opencode/opencode.json`
+   - Warmplane config: `~/.config/opencode/mcp0/mcp_servers.json`
+2. If the Figma entry is missing, tell the user to add it through their OpenCode config or re-run the installer that manages their MCP setup.
+3. If the entry exists but auth is missing or expired, use `mcp_oauth_helper(server="figma")` to inspect the current OAuth state and guide the user through reconnecting it.
+4. Retry once the config/auth issue is fixed. If tools still do not appear after config changes, tell the user to restart OpenCode and continue from Step 1 on the next run.
 
 ### 1) Understand the Design Context
 
@@ -41,52 +38,46 @@ Before extracting any data, clarify:
 - What framework is being used (React, Vue, HTML/CSS)?
 
 **Tools to use:**
-- `get_document_info` - Get file structure overview
-- `get_file_nodes` - List all nodes in file
-- `get_tree` - Export file structure as ASCII tree
+- Use the current Figma capability surface to inspect document metadata, file structure, selections, and screenshots
+- If Figma is routed through Warmplane, use `mcp0-navigation` first to discover the right capability ids before making calls
+- Capture stable frame/component identifiers early so later extraction and verification steps stay consistent
 
 ### 2) Extract Design System Tokens
 
 Design tokens are the foundation of consistent UI implementation.
 
 **Colors:**
-- `get_styles` - List all color styles
-- `export_tokens({ format: "css" })` - Export as CSS variables
-- `export_tokens({ format: "tailwind" })` - Export as Tailwind config
-- `export_tokens({ format: "json" })` - Export as JSON
+- Inspect the shared styles or exported token surface for color primitives
+- Export tokens in the format that best matches the codebase (CSS variables, Tailwind, JSON)
 
 **Typography:**
-- `get_styles` - List all text styles
+- Inspect text styles and token exports
 - Extract font families, sizes, weights, line heights
-- Map to `frontend-philosophy` distinctive fonts (avoid Inter, Roboto)
+- Preserve the design font stack by default unless the user explicitly asks for reinterpretation
 
 **Spacing & Layout:**
-- `get_node_info` with `@layout` projection - Get padding, gaps, auto-layout
+- Inspect frame/component layout metadata for padding, gaps, constraints, and auto-layout behavior
 - Extract spacing scale (4px, 8px, 16px, 24px, etc.)
 - Identify layout patterns (flexbox, grid)
 
 **Effects:**
-- `get_styles` - List effect styles (shadows, blurs)
-- `get_css` - Extract exact CSS for shadows, borders, opacity
+- Inspect effect styles for shadows, blurs, borders, gradients, and opacity
 
 ### 3) Get Component Specifications
 
 For each component to implement:
 
 **Structure:**
-- `get_node_info({ node_id, select: ["@structure", "@bounds"] })` - Get hierarchy and dimensions
-- `get_component` - Get component details and variants
-- `list_local_components` - Audit all project components
-- `list_remote_components` - Access team library components
+- Inspect hierarchy, bounds, and layout metadata for the target frame/component
+- Review both local components and shared library components when variants may be defined elsewhere
 
 **Styling:**
-- `get_css({ node_id })` - Extract CSS properties (fills, strokes, effects, corner radius)
-- `get_node_info({ node_id, select: ["@css"] })` - Get detailed styling data
-- Note: Apply `frontend-philosophy` - enhance generic styles with intentional color and atmosphere
+- Extract fills, strokes, effects, corner radius, typography, and spacing from the current node metadata
+- Match the approved design faithfully by default; only reinterpret styling when the user explicitly asks for it
 
 **Variants & States:**
-- `get_component` returns all variants (Primary/Secondary, Small/Medium/Large)
-- `get_node_info` for each variant to understand differences
+- Inspect component variants and state-specific metadata
+- Compare each variant to understand structural and stylistic differences
 - Map to component props (e.g., `variant="primary"`, `size="large"`)
 
 **Accessibility:**
@@ -97,46 +88,45 @@ For each component to implement:
 ### 4) Download Visual Assets
 
 **Images & Icons:**
-- `export_node_as_image({ node_id, format: "svg" })` - Export icons as SVG
-- `export_node_as_image({ node_id, format: "png", scale: 2 })` - Export images at 2x
-- `download_design_assets({ figma_url, local_path })` - Batch download all assets
+- Use the server's export or screenshot capabilities to extract icons as SVG when possible
+- Export raster assets at an implementation-appropriate scale
+- Download referenced assets in batches when the server exposes an asset-download flow
 
 **Reference Images:**
-- `download_design_assets` includes `reference.png` for visual context
-- Use reference image with `zai-vision_*` tool for visual comparison during implementation
+- Keep at least one high-quality frame screenshot or exported reference image for visual comparison during implementation
 
 ### 5) Implement with Design Fidelity
 
-Apply extracted tokens while maintaining `frontend-philosophy`:
+Default to design fidelity. Use `frontend-philosophy` only when the user explicitly wants interpretation or visual improvement beyond the source design.
 
 **Typography:**
-- If Figma uses generic fonts (Inter, Roboto), suggest distinctive alternatives
 - Maintain hierarchy and scale from design tokens
 - Apply proper font weights and line heights
+- Keep the approved font stack unless there is an explicit product/design reason to deviate
 
 **Color:**
 - Extract color palette from Figma
-- If palette is generic gray/blue, propose bold intentional alternatives
 - Maintain contrast ratios for accessibility
+- Preserve the approved palette unless the task explicitly asks for exploration
 
 **Spacing:**
 - Use exact padding, margins, gaps from auto-layout properties
-- Apply brave spatial composition (generous negative space OR controlled density)
+- Preserve the spacing system from the design source of truth
 
 **Effects:**
 - Extract shadows, blurs, gradients from Figma
-- Layer visual richness (gradient meshes, noise textures) per `frontend-philosophy`
+- Reproduce the specified effects before considering any embellishment
 
 **Motion:**
 - Figma prototypes may specify transitions
-- Add purposeful motion that enhances UX (not decorative)
+- Match the documented interaction behavior; add extra motion only when explicitly requested
 
 ### 6) Verify Implementation
 
 **Visual Comparison:**
-- Export Figma frame as PNG: `export_node_as_image`
-- Screenshot implemented component
-- Use `zai-vision_*` to compare for pixel-perfect accuracy
+- Export or capture a Figma frame screenshot
+- Screenshot the implemented component
+- Compare the screenshots for pixel-perfect accuracy
 
 **Responsive Behavior:**
 - Check Figma constraints (fixed, stretch, scale)
@@ -150,82 +140,66 @@ Apply extracted tokens while maintaining `frontend-philosophy`:
 
 ## Available Tools
 
-### Document Navigation
-- `get_document_info` - Get file overview and structure
-- `get_file_nodes` - List all nodes in file
-- `get_tree` - Export file structure as ASCII tree with node IDs
-- `get_selection` - Get currently selected elements in Figma
-- `set_current_page` - Switch to specific page
+Exact capability ids vary by Figma server version and whether the provider is exposed directly or through Warmplane. Do not assume an older tool name exists.
 
-### Design System Extraction
-- `get_styles` - List all styles (color, text, effect, grid)
-- `export_tokens` - Export design tokens to CSS/JSON/Tailwind
-- `get_css` - Extract CSS properties from nodes
-- `get_local_components` - Audit project components
-- `get_remote_components` - Access team library components
+### Discovery Order
+1. If Figma is routed through Warmplane/mcp0 and the exact capability is unknown, use `mcp0-navigation` to discover the current Figma capability ids.
+2. If Figma is exposed directly, inspect the direct `figma_*` tool surface first instead of routing through `mcp0-navigation`.
+3. Prefer lightweight metadata/tree inspection before full screenshots or asset export.
+4. Cache the working capability names in your notes for the rest of the task.
 
-### Component Analysis
-- `get_node_info` - Inspect specific node properties (use projections: `@structure`, `@css`, `@layout`, `@typography`, `@tokens`)
-- `get_nodes_info` - Batch inspect multiple nodes
-- `get_component` - Get component details and variants
-- `create_component_instance` - Use components in designs
-
-### Asset Export
-- `export_node_as_image` - Export as PNG/SVG/JPG
-- `download_design_assets` - Batch download assets with reference image
-- `scan_text_nodes` - Find all text layers for content audit
-
-### Query API (Advanced)
-- `query` - Use Figma Query DSL for token-efficient searches
-  - Projections: `@structure`, `@bounds`, `@css`, `@layout`, `@typography`, `@tokens`, `@images`, `@all`
-  - Filters: `$match`, `$eq`, `$in`, `$gt`, `$lt`
-  - Example: `{ "from": ["COMPONENT"], "where": { "name": { "$match": "Button*" } }, "select": ["@structure", "@css"] }`
+### Capability Categories to Look For
+- **Document navigation** - file metadata, pages, tree structure, current selection
+- **Design-system extraction** - styles, tokens, typography, spacing, effects
+- **Component analysis** - node metadata, component variants, bounds, layout, styling
+- **Asset export** - screenshots, SVG/PNG export, referenced asset download
+- **Search/query** - targeted lookup when the file is large and direct inspection would be noisy
 
 ## Practical Workflows
 
 ### Design Handoff
 **Goal:** Extract complete design specifications for implementation
 
-1. `get_document_info` - Understand file structure
-2. `get_tree` - Get node IDs for target frames
-3. `export_tokens({ format: "tailwind" })` - Export design system
-4. `get_node_info({ node_id, select: ["@all"] })` - Get component details
-5. `download_design_assets` - Download assets + reference.png
+1. Inspect file metadata and tree structure
+2. Capture stable node/frame identifiers for target screens
+3. Export or inspect design tokens in the format closest to the codebase
+4. Read full component metadata for the target nodes
+5. Export screenshots/assets needed for implementation
 6. Implement component using extracted data
 
 ### Design System Audit
 **Goal:** Inventory design tokens and components for consistency
 
-1. `get_styles` - List all color, text, effect styles
-2. `list_local_components` - Get all components with usage count
-3. `export_tokens({ format: "json" })` - Export tokens for analysis
+1. Inspect shared color, text, and effect styles
+2. Inventory the relevant local/shared components
+3. Export tokens in a machine-readable format for analysis
 4. Identify inconsistencies (duplicate colors, similar components)
 5. Recommend consolidation or cleanup
 
 ### Component Library Migration
 **Goal:** Convert Figma components to code components
 
-1. `list_local_components` - Get component inventory
+1. Inventory the relevant components and variants
 2. For each component:
-   - `get_component` - Get variants and properties
-   - `get_css` - Extract styling
-   - `get_node_info({ select: ["@layout"] })` - Get layout properties
+   - Inspect variant and prop metadata
+   - Extract styling details
+   - Capture layout properties
 3. Generate component code (React, Vue, etc.)
 4. Create Storybook stories or documentation
 
 ### Visual QA & Pixel Perfection
 **Goal:** Ensure implementation matches design exactly
 
-1. `export_node_as_image({ node_id, format: "png", scale: 2 })` - Export design
+1. Export or capture the design frame at implementation quality
 2. Screenshot implemented component
-3. Use `zai-vision_*` for visual comparison
+3. Compare screenshots for visual parity
 4. Identify discrepancies (spacing, colors, shadows)
 5. Fix implementation and re-verify
 
 ### Design Token Synchronization
 **Goal:** Keep code tokens in sync with Figma
 
-1. `export_tokens({ format: "css" })` - Export current tokens
+1. Export current tokens from the Figma source of truth
 2. Compare with existing CSS variables or Tailwind config
 3. Identify changes (new colors, updated spacing)
 4. Update code design system
@@ -233,25 +207,25 @@ Apply extracted tokens while maintaining `frontend-philosophy`:
 
 ## Tips for Maximum Productivity
 
-- **Use projections for efficient queries** - `select: ["@structure", "@css"]` fetches only needed data
-- **Batch node inspections** - Use `get_nodes_info` for multiple nodes instead of individual calls
+- **Prefer narrow capability calls** - fetch only the metadata or screenshots needed for the current step
+- **Batch related inspections when supported** - avoid repeated one-node-at-a-time calls when the server offers bulk lookup
 - **Export tokens early** - Get design system tokens before diving into components
 - **Download reference images** - Visual context helps with implementation decisions
 - **Map Figma variants to props** - Component variants become component props (e.g., `variant`, `size`, `state`)
-- **Use Query DSL for large files** - More token-efficient than fetching entire files
+- **Use search/query capabilities for large files** - More efficient than fetching the entire document when the provider supports it
 - **Cache component IDs** - Reuse node IDs across multiple queries
 - **Verify with visual comparison** - Always compare exported design vs. implementation
 
 ## Troubleshooting
 
-- **Authentication Errors**: Re-run OAuth (`codex mcp login figma`); verify workspace access; check API token permissions
+- **Authentication Errors**: Reconnect the Figma MCP through the current OpenCode/Warmplane auth flow; verify workspace access and token permissions
 - **File Not Found**: Verify Figma URL is correct and accessible; check file hasn't been moved or deleted
-- **Node Not Found**: Use `get_tree` to find correct node IDs; verify node hasn't been deleted
+- **Node Not Found**: Re-run file/tree inspection to confirm the current node identifiers; verify the node hasn't been deleted
 - **Export Failures**: Check node type supports export (frames, components); verify export settings; try different format (PNG vs SVG)
-- **Missing Fonts**: Pre-load custom fonts with `load_font_async` before setting font names
-- **Component Import Timeout**: Use `getNodeByIdAsync` for local components; increase timeout for remote library components
+- **Missing Fonts**: Verify the design uses licensed/available fonts and map them deliberately in code when the exact face is unavailable
+- **Component Import Timeout**: Narrow the query scope, fetch fewer nodes at once, and retry against a smaller frame/component target
 - **Token Export Issues**: Verify design uses variables/styles (not raw values); check file has defined color/text styles
-- **Rate Limits**: Batch operations; use Query DSL for efficient data fetching; implement exponential backoff
+- **Rate Limits**: Batch operations, prefer targeted queries, and back off between heavy export requests
 
 ## Integration with Frontend Workflow
 
@@ -260,19 +234,6 @@ When working with the `frontend` agent:
 1. **Load this skill first**: `skill("figma-design")` before implementation
 2. **Extract design tokens** as foundation for styling
 3. **Get component specs** for structure and variants
-4. **Apply frontend-philosophy** to elevate generic Figma designs:
-   - Replace generic fonts with distinctive alternatives
-   - Enhance color palettes with bold, intentional choices
-   - Add atmosphere and depth (gradients, shadows, textures)
-   - Implement purposeful motion
-5. **Verify visual fidelity** with exported reference images
-
-See `reference/design-handoff-workflow.md` for detailed step-by-step process.
-
-## References and Examples
-
-- `reference/design-token-extraction.md` - How to export and apply design tokens
-- `reference/component-implementation-guide.md` - Step-by-step component conversion
-- `reference/figma-query-dsl.md` - Query DSL syntax and examples
-- `examples/button-component-extraction.md` - Complete button component workflow
-- `examples/design-system-migration.md` - Migrating Figma design system to code
+4. **Implement the approved design faithfully by default**
+5. **Apply frontend-philosophy only when requested** to reinterpret or elevate the visual direction beyond the source design
+6. **Verify visual fidelity** with exported reference images

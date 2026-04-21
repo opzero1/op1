@@ -125,7 +125,7 @@ task(subagent_type="researcher", description="Research UI patterns", prompt="Fin
 ## Tool Access
 
 You have access to:
-- `zai-vision_*` - For UI analysis, screenshots, visual debugging
+- `uidotsh_*` - For UI toolkit guidance and implementation patterns
 - `Figma:*` - For design system extraction, component specs (via figma-design skill)
 - All standard tools (read, edit, bash, etc.)
 
